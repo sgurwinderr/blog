@@ -1,7 +1,7 @@
 # Site
 name: "sgurwinderr"
-title: "sgurwinderr"
-description: "GPU SDE @ Intel."
+title: ""
+description: ""
 logo: 'assets/images/logo.png'
 favicon: 'assets/images/logo.png'
 # baseurl: /mediumish-theme-jekyll
@@ -13,14 +13,15 @@ permalink: /:title/
 
 # Authors
 authors:
-  sal:
+  Gurwinder:
     name: Gurwinder Singh
     display_name: Gurwinder Singh
+    avatar: 'assets/images/avatar.jpg'
     gravatar: e56154546cf4be74e393c62d1ae9f9d4
     email: sgurwinderr@gmail.com
     web: https://sgurwinderr.github.io/aboutme/
     twitter: https://twitter.com/wowthemesnet
-    description: "Author of Mediumish, a Bootstrap Medium styled template available for WordPress, HTML, Ghost and Jekyll. You are currently previewing Jekyll template demo."
+    description: "Author of sgurwinderr, Developer, Blogger, Gamer and GPU Software Development Engineer @ Intel."
   # john:
   #   name: John
   #   display_name: John    
