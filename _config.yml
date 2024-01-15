@@ -20,7 +20,7 @@ authors:
     gravatar: e56154546cf4be74e393c62d1ae9f9d4
     email: sgurwinderr@gmail.com
     web: https://sgurwinderr.github.io/aboutme/
-    twitter: https://twitter.com/wowthemesnet
+    linkedin: https://www.linkedin.com/in/sgurwinderr
     description: "Author of sgurwinderr, GPU SDE @ Intel, Loves to Work on AI, Games & AR/VR"
 
 # Plugins
@@ -55,8 +55,8 @@ kramdown:
 
 # Adsense (change to "enabled" to activate, also your client id and ad slot. Create a new ad unit from your Adsense account to get the slot.)
 adsense: "disabled"
-adsense-data-ad-client: "ca-pub-3412143450191416"
-adsense-data-ad-slot: "1363087678"
+# adsense-data-ad-client: "ca-pub-3412143450191416"
+# adsense-data-ad-slot: "1363087678"
 
 # Lazy Images ("enabled" or "disabled")
 lazyimages: "disabled"
