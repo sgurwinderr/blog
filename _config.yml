@@ -14,8 +14,8 @@ permalink: /:title/
 # Authors
 authors:
   Gurwinder:
-    name: Gurwinder Singh
-    display_name: Gurwinder Singh
+    name: Gurwinder
+    display_name: Gurwinder
     avatar: 'assets/images/avatar.jpg'
     gravatar: e56154546cf4be74e393c62d1ae9f9d4
     email: sgurwinderr@gmail.com
