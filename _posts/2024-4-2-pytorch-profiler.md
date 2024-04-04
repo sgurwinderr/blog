@@ -8,8 +8,6 @@ featured: true
 hidden: false
 ---
 
-# Introduction:
-
 In the realm of deep learning, model performance is paramount. Whether you're working on image classification, object detection, or any other computer vision task, the efficiency of your model can make or break your application. PyTorch Profiler is an invaluable tool for developers looking to optimize their models. It provides detailed insights into the time and memory consumption of model operations during execution. In this article, we'll explore how to use PyTorch Profiler with a ResNet model to identify and address performance bottlenecks.
 
 Setting Up the Environment: Before diving into profiling, ensure that PyTorch is installed in your environment. If not, you can easily install it using pip with the following command:
@@ -60,6 +58,26 @@ with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_sh
 7. Analyzing the Results After running the model inference, print the profiler output, focusing on the operations that consume the most CPU time:
 ```python
 print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+```
+```
+STAGE:2024-04-04 05:57:18 263803:263803 ActivityProfilerController.cpp:311] Completed Stage: Warm Up
+STAGE:2024-04-04 05:57:21 263803:263803 ActivityProfilerController.cpp:317] Completed Stage: Collection
+STAGE:2024-04-04 05:57:21 263803:263803 ActivityProfilerController.cpp:321] Completed Stage: Post Processing
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                              Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                   model_inference         0.11%       3.381ms       100.00%        3.072s        3.072s             1  
+                      aten::conv2d         0.00%     107.000us        13.72%     421.551ms      21.078ms            20  
+                 aten::convolution         0.01%     265.000us        13.72%     421.444ms      21.072ms            20  
+                aten::_convolution         0.01%     181.000us        13.71%     421.179ms      21.059ms            20  
+    aten::convolution_overrideable        13.69%     420.660ms        13.71%     420.998ms      21.050ms            20  
+                       aten::empty         0.03%     834.000us         0.03%     834.000us       7.943us           105  
+                        aten::add_         0.65%      20.077ms         0.65%      20.077ms     717.036us            28  
+                  aten::batch_norm         0.00%      81.000us        83.99%        2.580s     128.997ms            20  
+      aten::_batch_norm_impl_index         0.01%     193.000us        83.98%        2.580s     128.993ms            20  
+           aten::native_batch_norm        83.96%        2.579s        83.98%        2.580s     128.981ms            20  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 3.072s
 ```
 
 8. Using tracing functionality
