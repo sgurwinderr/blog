@@ -19,43 +19,43 @@ Once PyTorch is installed, you're ready to start profiling your model.
 
 ### Profiling a ResNet Model:
 
-1. Importing Necessary Modules Begin by importing the required modules from PyTorch and torchvision:
+##### Step 1. Importing Necessary Modules Begin by importing the required modules from PyTorch and torchvision:
 
 ```python
 import torch
 import torchvision.models as models
 from torch.profiler import profile, record_function, ProfilerActivity
 ```
-2. Loading the Model Load a pre-trained ResNet model, such as ResNet-18, from the torchvision library:
+##### Step 2. Loading the Model Load a pre-trained ResNet model, such as ResNet-18, from the torchvision library:
 
 ```python
 model = models.resnet18(pretrained=True)
 ```
-3. Preparing the Input Create a dummy input tensor that simulates a batch of images with the appropriate dimensions for ResNet (3 color channels, 224x224 pixels):
+##### Step 3. Preparing the Input Create a dummy input tensor that simulates a batch of images with the appropriate dimensions for ResNet (3 color channels, 224x224 pixels):
 
 ```python
 input = torch.randn(1, 3, 224, 224)
 ```
-4. Setting Up the Device Determine if a GPU is available and move the model and input tensor to the GPU for faster computation:
+##### Step 4. Setting Up the Device Determine if a GPU is available and move the model and input tensor to the GPU for faster computation:
 
 ```python
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 input = input.to(device)
 ```
-5. Switching to Evaluation Mode Ensure the model is in evaluation mode to disable training-specific behaviors:
+##### Step 5. Switching to Evaluation Mode Ensure the model is in evaluation mode to disable training-specific behaviors:
 
 ```python
 model.eval()
 ```
-6. Profiling the Model Use the PyTorch Profiler within a context manager, specifying the activities to profile (CPU and CUDA) and enabling tensor shape recording:
+##### Step 6. Profiling the Model Use the PyTorch Profiler within a context manager, specifying the activities to profile (CPU and CUDA) and enabling tensor shape recording:
 
 ```python
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     with record_function("model_inference"):
         model(input)
 ```
-7. Analyzing the Results After running the model inference, print the profiler output, focusing on the operations that consume the most CPU time:
+##### Step 7. Analyzing the Results After running the model inference, print the profiler output, focusing on the operations that consume the most CPU time:
 
 ```python
 print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
@@ -81,7 +81,7 @@ STAGE:2024-04-04 05:57:21 263803:263803 ActivityProfilerController.cpp:321] Comp
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  
 Self CPU time total: 3.072s
 ```
-8. Using tracing functionality
+##### Step 8. Using tracing functionality
 
 ```python
 prof.export_chrome_trace("trace.json")
