@@ -4,7 +4,7 @@ title:  "Augmented Reality with Unity: A Developer's Guide"
 author: Gurwinder
 categories: [ Game Development, Unity ]
 image: assets/images/AR-With-Unity.png
-featured: true
+featured: false
 hidden: false
 ---
 

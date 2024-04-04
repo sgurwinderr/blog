@@ -4,7 +4,7 @@ title:  "Delving into ONNX: Comprehending Computation Graphs and Structure"
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/ONNX.png
-featured: true
+featured: false
 hidden: false
 ---
 
