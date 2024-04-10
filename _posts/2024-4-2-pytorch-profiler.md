@@ -3,12 +3,14 @@ layout: post
 title:  "Profiling ResNet Models with PyTorch Profiler for Performance Optimization"
 author: Gurwinder
 categories: [ AI ]
-image: assets/images/Pytorch-Profiler-Trace-1.png
+image: assets/images/pytorch.png
 featured: true
 hidden: false
 ---
 
 In the realm of deep learning, model performance is paramount. Whether you're working on image classification, object detection, or any other computer vision task, the efficiency of your model can make or break your application. PyTorch Profiler is an invaluable tool for developers looking to optimize their models. It provides detailed insights into the time and memory consumption of model operations during execution. In this article, we'll explore how to use PyTorch Profiler with a ResNet model to identify and address performance bottlenecks.
+
+![walking]({{ site.baseurl }}/assets/images/Pytorch-Profiler-Trace-1.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 Setting Up the Environment: Before diving into profiling, ensure that PyTorch is installed in your environment. If not, you can easily install it using pip with the following command:
 
