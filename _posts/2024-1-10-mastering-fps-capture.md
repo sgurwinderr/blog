@@ -4,7 +4,7 @@ title:  "Mastering Frame Rates: Discover the True FPS with PresentMon"
 author: Gurwinder
 categories: [ Game Development]
 image: assets/images/present-mon-fps.webp
-featured: true
+featured: false
 hidden: false
 ---
 

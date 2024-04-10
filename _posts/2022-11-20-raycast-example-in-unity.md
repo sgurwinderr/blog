@@ -4,7 +4,7 @@ title:  "RAYCAST EXAMPLE IN UNITY"
 author: Gurwinder
 categories: [ Game Development, Unity ]
 image: assets/images/raycast-example-1.gif
-featured: true
+featured: false
 hidden: false
 ---
 These are the step-by-step example of using basic ray-cast in unity. In the given scene we will ray-cast cube to detect sphere and follow it up.

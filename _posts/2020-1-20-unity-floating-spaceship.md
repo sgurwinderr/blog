@@ -4,7 +4,7 @@ title:  "Unity’s Floating Spaceships: Quick and Effortless Creation for Stunni
 author: Gurwinder
 categories: [ Game Development, Unity ]
 image: assets/images/unity-spaceship-1.gif
-featured: true
+featured: false
 hidden: false
 ---
 
