@@ -2,7 +2,7 @@
 layout: post
 title:  "Designing Dynamic RPG Systems: Quick Solutions for Health and Mana in Unreal Engine"
 author: Gurwinder
-categories: [ Game Development, Unreal Engine]
+categories: [ Game Development ]
 image: assets/images/unreal-rpg-6.webp
 featured: false
 hidden: false
