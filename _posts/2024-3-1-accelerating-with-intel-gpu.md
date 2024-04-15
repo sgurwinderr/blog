@@ -4,7 +4,7 @@ title:  "Accelerating Deep Learning Inference on Intel Arc 770: ONNX and PyTorch
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/pytorch-onnx.webp
-featured: true
+featured: false
 hidden: false
 ---
 When deploying deep learning models, the choice of framework can significantly impact performance. PyTorch is a popular choice for its user-friendly interface and dynamic computation graph, but when it comes to production, the need for speed and compatibility often leads developers to consider alternatives like Torch Script and ONNX (Open Neural Network Exchange). In a recent benchmark, we put these frameworks to the test to see which one offers the best inference throughput for Resnet on both CPU and GPU. These tests gain additional significance as they were conducted on the 10th Gen Intel® Core™ i7(TM) 10610U processors and the Intel® Arc™ A770 GPU, showcasing how modern hardware can influence the efficiency of deep learning frameworks.
