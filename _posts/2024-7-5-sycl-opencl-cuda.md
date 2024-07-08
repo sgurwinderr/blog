@@ -29,7 +29,7 @@ Matrix multiplication is a core operation in scientific and engineering applicat
 
 CUDA, developed by NVIDIA, is a widely used parallel computing platform and programming model for NVIDIA GPUs.
 
-![CUDA Mapping](assets/images/cudamapping.png){: style="display: block; margin: auto;"}
+![walking]({{ site.baseurl }}/assets/images/cudamapping.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 In CUDA programming, efficient GPU utilization involves understanding threads, blocks, and grids:
 
@@ -111,17 +111,6 @@ int main() {
 
     // Copy result matrix from device to host
     cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-    // Free device memory
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-
-    // Free host memory
-    free(h_A);
-    free(h_B);
-    free(h_C);
-
     return 0;
 }
 ```
@@ -229,11 +218,6 @@ int main() {
     ret = clReleaseMemObject(d_C);
     ret = clReleaseCommandQueue(command_queue);
     ret = clReleaseContext(context);
-
-    free(h_A);
-    free(h_B);
-    free(h_C);
-
     return 0;
 }
 ```
@@ -241,6 +225,9 @@ int main() {
 ### SYCL
 
 SYCL is a higher-level C++ programming model built on OpenCL, providing a more user-friendly approach to GPU programming.
+
+![walking]({{ site.baseurl }}/assets/images/sycl-diagram.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
+
 
 #### SYCL Matrix Multiplication Example
 
@@ -289,16 +276,6 @@ int main() {
         });
     }
     // Buffers go out of scope and data is copied back to host
-```
-
-```cpp
-    // Clean up
-    delete[] h_A;
-    delete[] h_B;
-    delete[] h_C;
-
-    return 0;
-}
 ```
 
 ### Comparison
