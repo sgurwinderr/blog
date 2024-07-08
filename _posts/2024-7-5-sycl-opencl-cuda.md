@@ -16,9 +16,9 @@ Matrix multiplication is a core operation in scientific and engineering applicat
 | Feature             | SYCL                       | OpenCL                     | CUDA                      |
 |---------------------|----------------------------|----------------------------|---------------------------|
 | **Language**        | C++                        | C, C++                     | C, C++                    |
-| **Target Hardware** | CPUs, GPUs, FPGAs           | CPUs, GPUs, FPGAs, DSPs    | NVIDIA GPUs               |
+| **Hardware**        | CPUs, GPUs, FPGAs          | CPUs, GPUs, FPGAs, DSPs    | NVIDIA GPUs               |
 | **Portability**     | High, built on OpenCL      | High, open standard        | Low, NVIDIA GPUs only     |
-| **Ease of Use**     | High, modern C++           | Moderate, requires knowledge of parallel computing | High, optimized with a learning curve
+| **Ease of Use**     | High, modern C++           | Moderate, requires knowledge of parallel computing | High, optimized with a learning curve |
 
 ### CUDA
 
