@@ -23,6 +23,8 @@ Matrix multiplication is a fundamental operation in many scientific and engineer
 | **Standardization**   | Yes, maintained by the Khronos Group.               | Yes, maintained by the Khronos Group.            | No, proprietary to NVIDIA.                         |
 
 
+
+
 ### CUDA
 
 CUDA, developed by NVIDIA, is a widely used parallel computing platform and programming model for NVIDIA GPUs.
@@ -31,21 +33,27 @@ CUDA, developed by NVIDIA, is a widely used parallel computing platform and prog
 
 In CUDA programming, when executing a kernel on the GPU, understanding threads, blocks, and grids is essential. These concepts help manage and utilize the parallelism offered by the GPU efficiently.
 
-#### Threads
+##### Threads
 A thread is the smallest unit of execution in CUDA. Each thread executes the same kernel function independently, but with different data. Threads within the same block can cooperate via shared memory and synchronization mechanisms.
-#### Blocks
+##### Blocks
 A block is a group of threads that execute the same kernel code simultaneously. Threads within a block can synchronize with each other and share data through shared memory.
 Block Dimensions: Each block can have a maximum of 1,024 threads (as of CUDA capability 7.x). Blocks are organized in three dimensions (x, y, and z), allowing up to 1,024 threads per block in each dimension. The total number of threads in a block (blockDim.x * blockDim.y * blockDim.z) should not exceed the maximum block size supported by the GPU architecture.
-#### Grids
+##### Grids
 A grid is a collection of blocks that execute the kernel function. Blocks in a grid can execute independently of each other and are scheduled on streaming multiprocessors (SMs) of the GPU.
 Grids are also organized in three dimensions (x, y, and z), allowing up to 65,535 blocks per grid dimension (gridDim.x, gridDim.y, and gridDim.z). The total number of blocks in a grid (gridDim.x * gridDim.y * gridDim.z) depends on the computation and the available resources on the GPU.
 
-#### Relationship and Usage
-##### Thread Indexing
+##### Relationship and Usage
+
+###### Thread Indexing
+
 Each thread within a grid has a unique index (threadIdx.x, threadIdx.y, threadIdx.z) that identifies its position within its block.
-##### Block Indexing
+
+###### Block Indexing
+
 Each block within a grid has a unique index (blockIdx.x, blockIdx.y, blockIdx.z) that identifies its position within the grid.
-##### Grid Configuration
+
+###### Grid Configuration
+
 When launching a kernel, you specify the dimensions of the grid and the dimensions of each block (dim3 type in CUDA). This configuration determines how the kernel threads are organized and executed on the GPU.
 
 
@@ -119,9 +127,7 @@ OpenCL is an open standard for parallel programming of heterogeneous systems, su
 ```cpp
 #include <CL/cl.h>
 #include <iostream>
-
 #define MAX_SOURCE_SIZE (0x100000)
-
 int main() {
     const int N = 1024;
     float *h_A, *h_B, *h_C;
@@ -195,21 +201,6 @@ int main() {
     // Copy result from the memory buffer
     ret = clEnqueueReadBuffer(command_queue, d_C, CL_TRUE, 0, size, h_C, 0, NULL, NULL);
 
-    // Clean up
-    ret = clFlush(command_queue);
-    ret = clFinish(command_queue);
-    ret = clReleaseKernel(kernel);
-    ret = clReleaseProgram(program);
-    ret = clReleaseMemObject(d_A);
-    ret = clReleaseMemObject(d_B);
-    ret = clReleaseMemObject(d_C);
-    ret = clReleaseCommandQueue(command_queue);
-    ret = clReleaseContext(context);
-
-    free(h_A);
-    free(h_B);
-    free(h_C);
-
     return 0;
 }
 ```
@@ -262,20 +253,18 @@ int main() {
             });
         });
     }
-
-    // Free host memory
-    free(h_A);
-    free(h_B);
-    free(h_C);
-
     return 0;
 }
 ```
 ##### Sycl Steps
 Initialization: Define the size of matrices and create vectors to hold the data.
+
 Setup: Create a SYCL queue and buffers for the input and output matrices.
+
 Kernel Execution: Submit a kernel to the queue that performs the matrix multiplication in parallel using the parallel_for construct.
+
 Synchronization: Wait for the kernel execution to complete.
+
 Completion: The program ends.
 
 ### Comparison
