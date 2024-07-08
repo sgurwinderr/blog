@@ -10,11 +10,44 @@ hidden: false
 
 Matrix multiplication is a fundamental operation in many scientific and engineering applications, often accelerated using specialized programming models like SYCL, OpenCL, and CUDA. These models provide ways to harness the power of GPUs for parallel computation. Let's explore how matrix multiplication can be implemented in each of these frameworks and compare their approaches.
 
+| Feature               | OpenCL                                              | SYCL                                              | oneDNN                                         | CUDA                                             |
+|-----------------------|-----------------------------------------------------|--------------------------------------------------|------------------------------------------------|--------------------------------------------------|
+| **Overview**          | Open standard for parallel programming across heterogeneous platforms. | Higher-level programming model for OpenCL, providing single-source C++ development. | Performance library for deep learning applications. | Proprietary parallel computing platform and API developed by NVIDIA. |
+| **Programming Language** | C, C++                                            | C++                                               | C++                                            | C, C++                                            |
+| **Target Hardware**   | CPUs, GPUs, FPGAs, DSPs, and other accelerators.    | CPUs, GPUs, FPGAs, and other accelerators supported by OpenCL. | CPUs, GPUs (especially Intel hardware).        | NVIDIA GPUs                                       |
+| **Portability**       | High, due to support for multiple vendors and platforms. | High, builds on top of OpenCL to enhance portability and ease of use. | High for supported hardware.                   | Low, limited to NVIDIA GPUs.                      |
+| **Ease of Use**       | Moderate, requires understanding of parallel computing concepts. | High, provides modern C++ abstractions and easier development. | Moderate, with a focus on performance optimizations for deep learning. | High for developers familiar with CUDA API, but learning curve for new users. |
+| **Performance**       | High, but dependent on the quality of the vendor's OpenCL implementation. | High, with performance close to or matching native OpenCL due to low overhead. | High, optimized for deep learning workloads.   | Very high, with optimizations specific to NVIDIA hardware. |
+| **Ecosystem**         | Broad, with support from various hardware vendors and extensive tooling. | Growing, supported by the Khronos Group and increasingly adopted in the industry. | Niche, focused on deep learning applications.  | Strong, with extensive libraries and tools provided by NVIDIA. |
+| **Development Complexity** | High, due to low-level programming model and need for manual optimizations. | Lower than OpenCL, due to higher-level abstractions and modern C++ features. | Moderate, with APIs designed for deep learning optimizations. | High, due to need to understand GPU architecture and optimizations. |
+| **Standardization**   | Yes, maintained by the Khronos Group.               | Yes, maintained by the Khronos Group.            | No, open-source but primarily driven by Intel. | No, proprietary to NVIDIA.                         |
+
+
 ### CUDA
 
 CUDA, developed by NVIDIA, is a widely used parallel computing platform and programming model for NVIDIA GPUs.
 
 ![walking]({{ site.baseurl }}/assets/images/cudamapping.png){:style="display:block; margin-left:auto; margin-right:auto"}
+
+In CUDA programming, when executing a kernel on the GPU, understanding threads, blocks, and grids is essential. These concepts help manage and utilize the parallelism offered by the GPU efficiently.
+
+#### Threads
+A thread is the smallest unit of execution in CUDA. Each thread executes the same kernel function independently, but with different data. Threads within the same block can cooperate via shared memory and synchronization mechanisms.
+#### Blocks
+A block is a group of threads that execute the same kernel code simultaneously. Threads within a block can synchronize with each other and share data through shared memory.
+Block Dimensions: Each block can have a maximum of 1,024 threads (as of CUDA capability 7.x). Blocks are organized in three dimensions (x, y, and z), allowing up to 1,024 threads per block in each dimension. The total number of threads in a block (blockDim.x * blockDim.y * blockDim.z) should not exceed the maximum block size supported by the GPU architecture.
+#### Grids
+A grid is a collection of blocks that execute the kernel function. Blocks in a grid can execute independently of each other and are scheduled on streaming multiprocessors (SMs) of the GPU.
+Grids are also organized in three dimensions (x, y, and z), allowing up to 65,535 blocks per grid dimension (gridDim.x, gridDim.y, and gridDim.z). The total number of blocks in a grid (gridDim.x * gridDim.y * gridDim.z) depends on the computation and the available resources on the GPU.
+
+#### Relationship and Usage
+##### Thread Indexing
+Each thread within a grid has a unique index (threadIdx.x, threadIdx.y, threadIdx.z) that identifies its position within its block.
+##### Block Indexing
+Each block within a grid has a unique index (blockIdx.x, blockIdx.y, blockIdx.z) that identifies its position within the grid.
+##### Grid Configuration
+When launching a kernel, you specify the dimensions of the grid and the dimensions of each block (dim3 type in CUDA). This configuration determines how the kernel threads are organized and executed on the GPU.
+
 
 ```cpp
 #include <cuda_runtime.h>
@@ -238,6 +271,12 @@ int main() {
     return 0;
 }
 ```
+##### Sycl Steps
+Initialization: Define the size of matrices and create vectors to hold the data.
+Setup: Create a SYCL queue and buffers for the input and output matrices.
+Kernel Execution: Submit a kernel to the queue that performs the matrix multiplication in parallel using the parallel_for construct.
+Synchronization: Wait for the kernel execution to complete.
+Completion: The program ends.
 
 ### Comparison
 #### Programming Model
