@@ -12,13 +12,13 @@ hidden: false
 Matrix multiplication is a core operation in scientific and engineering applications, often accelerated using specialized programming models like SYCL, OpenCL, and CUDA. These models leverage GPUs for parallel computation. Let's delve into how matrix multiplication is implemented in each framework and compare their approaches.
 
 ### Overview
+
 | Feature             | SYCL                       | OpenCL                     | CUDA                      |
 |---------------------|----------------------------|----------------------------|---------------------------|
 | **Language**        | C++                        | C, C++                     | C, C++                    |
 | **Target Hardware** | CPUs, GPUs, FPGAs           | CPUs, GPUs, FPGAs, DSPs    | NVIDIA GPUs               |
 | **Portability**     | High, built on OpenCL      | High, open standard        | Low, NVIDIA GPUs only     |
 | **Ease of Use**     | High, modern C++           | Moderate, requires knowledge of parallel computing | High, optimized with a learning curve
-
 
 ### CUDA
 
