@@ -12,18 +12,12 @@ hidden: false
 Matrix multiplication is a core operation in scientific and engineering applications, often accelerated using specialized programming models like SYCL, OpenCL, and CUDA. These models leverage GPUs for parallel computation. Let's delve into how matrix multiplication is implemented in each framework and compare their approaches.
 
 ### Overview
-
-| Feature               | OpenCL                                              | SYCL                                              | CUDA                                             |
-|-----------------------|-----------------------------------------------------|--------------------------------------------------|--------------------------------------------------|
-| **Overview**          | Open standard for parallel programming across heterogeneous platforms. | Higher-level C++ programming model for OpenCL.   | Proprietary parallel computing platform and API developed by NVIDIA. |
-| **Programming Language** | C, C++                                            | C++                                               | C, C++                                            |
-| **Target Hardware**   | CPUs, GPUs, FPGAs, DSPs, and other accelerators.    | CPUs, GPUs, FPGAs supported by OpenCL.            | NVIDIA GPUs                                       |
-| **Portability**       | High, supports multiple vendors and platforms.      | High, builds on OpenCL for enhanced portability.  | Low, limited to NVIDIA GPUs.                      |
-| **Ease of Use**       | Moderate, requires understanding of parallel computing. | High, provides modern C++ abstractions.          | High, with a learning curve for new users.        |
-| **Performance**       | High, depends on vendor's OpenCL implementation quality. | High, with performance close to native OpenCL.    | Very high, optimized for NVIDIA hardware.         |
-| **Ecosystem**         | Broad, supported by various vendors and tools.       | Growing, supported by Khronos Group.              | Strong, extensive NVIDIA libraries and tools.     |
-| **Development Complexity** | High, due to low-level programming model.           | Lower than OpenCL, due to higher-level abstractions. | High, requires understanding of GPU optimizations. |
-| **Standardization**   | Yes, maintained by Khronos Group.                   | Yes, maintained by Khronos Group.                 | No, proprietary to NVIDIA.                        |
+| Feature             | SYCL                                     | OpenCL                                  | CUDA                                     |
+|---------------------|------------------------------------------|-----------------------------------------|------------------------------------------|
+| **Language**        | C++                                      | C, C++                                   | C, C++                                   |
+| **Target Hardware** | CPUs, GPUs, FPGAs                        | CPUs, GPUs, FPGAs, DSPs                 | NVIDIA GPUs                              |
+| **Portability**     | High, built on OpenCL                    | High, open standard                     | Low, NVIDIA GPUs only                    |
+| **Ease of Use**     | High, modern C++                         | Moderate, requires parallel computing knowledge | High, optimized but with a learning curve |
 
 ### CUDA
 
