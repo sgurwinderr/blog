@@ -7,55 +7,58 @@ image: assets/images/syclcuda.jpg
 featured: false
 hidden: false
 ---
+## Comparing SYCL, OpenCL, and CUDA: Matrix Multiplication Example
 
-Matrix multiplication is a fundamental operation in many scientific and engineering applications, often accelerated using specialized programming models like SYCL, OpenCL, and CUDA. These models provide ways to harness the power of GPUs for parallel computation. Let's explore how matrix multiplication can be implemented in each of these frameworks and compare their approaches.
+Matrix multiplication is a core operation in scientific and engineering applications, often accelerated using specialized programming models like SYCL, OpenCL, and CUDA. These models leverage GPUs for parallel computation. Let's delve into how matrix multiplication is implemented in each framework and compare their approaches.
+
+### Overview
 
 | Feature               | OpenCL                                              | SYCL                                              | CUDA                                             |
 |-----------------------|-----------------------------------------------------|--------------------------------------------------|--------------------------------------------------|
-| **Overview**          | Open standard for parallel programming across heterogeneous platforms. | Higher-level programming model for OpenCL, providing single-source C++ development. | Proprietary parallel computing platform and API developed by NVIDIA. |
+| **Overview**          | Open standard for parallel programming across heterogeneous platforms. | Higher-level C++ programming model for OpenCL.   | Proprietary parallel computing platform and API developed by NVIDIA. |
 | **Programming Language** | C, C++                                            | C++                                               | C, C++                                            |
-| **Target Hardware**   | CPUs, GPUs, FPGAs, DSPs, and other accelerators.    | CPUs, GPUs, FPGAs, and other accelerators supported by OpenCL. | NVIDIA GPUs                                       |
-| **Portability**       | High, due to support for multiple vendors and platforms. | High, builds on top of OpenCL to enhance portability and ease of use. | Low, limited to NVIDIA GPUs.                      |
-| **Ease of Use**       | Moderate, requires understanding of parallel computing concepts. | High, provides modern C++ abstractions and easier development. | High for developers familiar with CUDA API, but learning curve for new users. |
-| **Performance**       | High, but dependent on the quality of the vendor's OpenCL implementation. | High, with performance close to or matching native OpenCL due to low overhead. | Very high, with optimizations specific to NVIDIA hardware. |
-| **Ecosystem**         | Broad, with support from various hardware vendors and extensive tooling. | Growing, supported by the Khronos Group and increasingly adopted in the industry. | Strong, with extensive libraries and tools provided by NVIDIA. |
-| **Development Complexity** | High, due to low-level programming model and need for manual optimizations. | Lower than OpenCL, due to higher-level abstractions and modern C++ features. | High, due to need to understand GPU architecture and optimizations. |
-| **Standardization**   | Yes, maintained by the Khronos Group.               | Yes, maintained by the Khronos Group.            | No, proprietary to NVIDIA.                         |
-
-
-
+| **Target Hardware**   | CPUs, GPUs, FPGAs, DSPs, and other accelerators.    | CPUs, GPUs, FPGAs supported by OpenCL.            | NVIDIA GPUs                                       |
+| **Portability**       | High, supports multiple vendors and platforms.      | High, builds on OpenCL for enhanced portability.  | Low, limited to NVIDIA GPUs.                      |
+| **Ease of Use**       | Moderate, requires understanding of parallel computing. | High, provides modern C++ abstractions.          | High, with a learning curve for new users.        |
+| **Performance**       | High, depends on vendor's OpenCL implementation quality. | High, with performance close to native OpenCL.    | Very high, optimized for NVIDIA hardware.         |
+| **Ecosystem**         | Broad, supported by various vendors and tools.       | Growing, supported by Khronos Group.              | Strong, extensive NVIDIA libraries and tools.     |
+| **Development Complexity** | High, due to low-level programming model.           | Lower than OpenCL, due to higher-level abstractions. | High, requires understanding of GPU optimizations. |
+| **Standardization**   | Yes, maintained by Khronos Group.                   | Yes, maintained by Khronos Group.                 | No, proprietary to NVIDIA.                        |
 
 ### CUDA
 
 CUDA, developed by NVIDIA, is a widely used parallel computing platform and programming model for NVIDIA GPUs.
 
-![walking]({{ site.baseurl }}/assets/images/cudamapping.png){:style="display:block; margin-left:auto; margin-right:auto"}
+![CUDA Mapping](assets/images/cudamapping.png){: style="display: block; margin: auto;"}
 
-In CUDA programming, when executing a kernel on the GPU, understanding threads, blocks, and grids is essential. These concepts help manage and utilize the parallelism offered by the GPU efficiently.
+In CUDA programming, efficient GPU utilization involves understanding threads, blocks, and grids:
 
-##### Threads
+#### Threads
 A thread is the smallest unit of execution in CUDA. Each thread executes the same kernel function independently, but with different data. Threads within the same block can cooperate via shared memory and synchronization mechanisms.
-##### Blocks
+
+#### Blocks
 A block is a group of threads that execute the same kernel code simultaneously. Threads within a block can synchronize with each other and share data through shared memory.
-Block Dimensions: Each block can have a maximum of 1,024 threads (as of CUDA capability 7.x). Blocks are organized in three dimensions (x, y, and z), allowing up to 1,024 threads per block in each dimension. The total number of threads in a block (blockDim.x * blockDim.y * blockDim.z) should not exceed the maximum block size supported by the GPU architecture.
-##### Grids
+- **Block Dimensions:** Each block can have a maximum of 1,024 threads (as of CUDA capability 7.x). Blocks are organized in three dimensions (x, y, and z), allowing up to 1,024 threads per block in each dimension. The total number of threads in a block (blockDim.x * blockDim.y * blockDim.z) should not exceed the maximum block size supported by the GPU architecture.
+
+#### Grids
 A grid is a collection of blocks that execute the kernel function. Blocks in a grid can execute independently of each other and are scheduled on streaming multiprocessors (SMs) of the GPU.
-Grids are also organized in three dimensions (x, y, and z), allowing up to 65,535 blocks per grid dimension (gridDim.x, gridDim.y, and gridDim.z). The total number of blocks in a grid (gridDim.x * gridDim.y * gridDim.z) depends on the computation and the available resources on the GPU.
+- **Grid Dimensions:** Grids are also organized in three dimensions (x, y, and z), allowing up to 65,535 blocks per grid dimension (gridDim.x, gridDim.y, and gridDim.z). The total number of blocks in a grid (gridDim.x * gridDim.y * gridDim.z) depends on the computation and the available resources on the GPU.
 
-##### Relationship and Usage
+#### Relationship and Usage
 
-###### Thread Indexing
+**Thread Indexing**
 
 Each thread within a grid has a unique index (threadIdx.x, threadIdx.y, threadIdx.z) that identifies its position within its block.
 
-###### Block Indexing
+**Block Indexing**
 
 Each block within a grid has a unique index (blockIdx.x, blockIdx.y, blockIdx.z) that identifies its position within the grid.
 
-###### Grid Configuration
+**Grid Configuration**
 
 When launching a kernel, you specify the dimensions of the grid and the dimensions of each block (dim3 type in CUDA). This configuration determines how the kernel threads are organized and executed on the GPU.
 
+#### CUDA Matrix Multiplication Example
 
 ```cpp
 #include <cuda_runtime.h>
@@ -73,7 +76,9 @@ __global__ void matrixMul(float *A, float *B, float *C, int N) {
         C[row * N + col] = sum;
     }
 }
+```
 
+```cpp
 int main() {
     const int N = 1024;
     float *h_A, *h_B, *h_C;
@@ -86,6 +91,7 @@ int main() {
     h_C = (float*)malloc(size);
 
     // Initialize matrices h_A and h_B
+    // ...
 
     // Allocate memory on device
     cudaMalloc(&d_A, size);
@@ -124,10 +130,15 @@ int main() {
 
 OpenCL is an open standard for parallel programming of heterogeneous systems, supporting CPUs, GPUs, and FPGAs.
 
+#### OpenCL Matrix Multiplication Example
+
 ```cpp
 #include <CL/cl.h>
 #include <iostream>
 #define MAX_SOURCE_SIZE (0x100000)
+```
+
+```cpp
 int main() {
     const int N = 1024;
     float *h_A, *h_B, *h_C;
@@ -148,7 +159,10 @@ int main() {
     h_C = (float*)malloc(size);
 
     // Initialize matrices h_A and h_B
+    // ...
+```
 
+```cpp
     // Get platform and device information
     ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
     ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
@@ -167,7 +181,9 @@ int main() {
     // Copy matrices from host to device
     ret = clEnqueueWriteBuffer(command_queue, d_A, CL_TRUE, 0, size, h_A, 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_B, CL_TRUE, 0, size, h_B, 0, NULL, NULL);
+```
 
+```cpp
     // Create and build the compute program
     const char *source_str = "kernel void matrixMul(global float *A, global float *B, global float *C, int N) { "
                              "   int row = get_global_id(0); "
@@ -179,27 +195,44 @@ int main() {
                              "       } "
                              "       C[row * N + col] = sum; "
                              "   } "
-                             "} ";
-    size_t source_size = strlen(source_str);
-    program = clCreateProgramWithSource(context, 1, (const char **)&source_str, (const size_t *)&source_size, &ret);
+                             "}
+
+";
+
+    program = clCreateProgramWithSource(context, 1, (const char **)&source_str, NULL, &ret);
     ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
 
-    // Create the compute kernel
+    // Create the OpenCL kernel
     kernel = clCreateKernel(program, "matrixMul", &ret);
+    clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&d_A);
+    clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&d_B);
+    clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&d_C);
+    clSetKernelArg(kernel, 3, sizeof(int), (void *)&N);
+```
 
-    // Set the arguments for the kernel
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&d_A);
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&d_B);
-    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&d_C);
-    ret = clSetKernelArg(kernel, 3, sizeof(int), (void *)&N);
-
-    // Execute the OpenCL kernel on the list
-    size_t global_item_size[2] = { N, N };
-    size_t local_item_size[2] = { 16, 16 };
+```cpp
+    // Execute the OpenCL kernel
+    size_t global_item_size[2] = {N, N};
+    size_t local_item_size[2] = {16, 16};
     ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
 
-    // Copy result from the memory buffer
+    // Copy result matrix from device to host
     ret = clEnqueueReadBuffer(command_queue, d_C, CL_TRUE, 0, size, h_C, 0, NULL, NULL);
+
+    // Clean up
+    ret = clFlush(command_queue);
+    ret = clFinish(command_queue);
+    ret = clReleaseKernel(kernel);
+    ret = clReleaseProgram(program);
+    ret = clReleaseMemObject(d_A);
+    ret = clReleaseMemObject(d_B);
+    ret = clReleaseMemObject(d_C);
+    ret = clReleaseCommandQueue(command_queue);
+    ret = clReleaseContext(context);
+
+    free(h_A);
+    free(h_B);
+    free(h_C);
 
     return 0;
 }
@@ -207,87 +240,87 @@ int main() {
 
 ### SYCL
 
-SYCL is a higher-level programming model built on top of OpenCL for C++. It provides a single-source programming model similar to CUDA.
+SYCL is a higher-level C++ programming model built on OpenCL, providing a more user-friendly approach to GPU programming.
 
-
-![walking]({{ site.baseurl }}/assets/images/sycl-diagram.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
-
+#### SYCL Matrix Multiplication Example
 
 ```cpp
 #include <CL/sycl.hpp>
 #include <iostream>
 
-using namespace cl::sycl;
-
-class MatrixMul;
+using namespace sycl;
 
 int main() {
     const int N = 1024;
-    float *h_A, *h_B, *h_C;
-    h_A = (float*)malloc(N * N * sizeof(float));
-    h_B = (float*)malloc(N * N * sizeof(float));
-    h_C = (float*)malloc(N * N * sizeof(float));
-
+    float *h_A = new float[N * N];
+    float *h_B = new float[N * N];
+    float *h_C = new float[N * N];
     // Initialize matrices h_A and h_B
+    // ...
+```
+
+```cpp
+    // Create SYCL queue
+    queue q;
 
     {
-        range<2> r(N, N);
-        buffer<float, 2> A(h_A, r);
-        buffer<float, 2> B(h_B, r);
-        buffer<float, 2> C(h_C, r);
+        // Create buffers
+        buffer<float, 2> d_A(h_A, range<2>(N, N));
+        buffer<float, 2> d_B(h_B, range<2>(N, N));
+        buffer<float, 2> d_C(h_C, range<2>(N, N));
 
-        queue Q;
-        Q.submit([&](handler &h) {
-            auto a = A.get_access<access::mode::read>(h);
-            auto b = B.get_access<access::mode::read>(h);
-            auto c = C.get_access<access::mode::write>(h);
+        // Submit command group to queue
+        q.submit([&](handler &cgh) {
+            // Accessors
+            auto A = d_A.get_access<access::mode::read>(cgh);
+            auto B = d_B.get_access<access::mode::read>(cgh);
+            auto C = d_C.get_access<access::mode::write>(cgh);
 
-            h.parallel_for<class MatrixMul>(r, [=](id<2> idx) {
-                int row = idx[0];
-                int col = idx[1];
+            // Kernel
+            cgh.parallel_for<class matrixMul>(range<2>(N, N), [=](id<2> index) {
+                int row = index[0];
+                int col = index[1];
                 float sum = 0.0f;
                 for (int i = 0; i < N; ++i) {
-                    sum += a[{row, i}] * b[{i, col}];
+                    sum += A[row][i] * B[i][col];
                 }
-                c[idx] = sum;
+                C[row][col] = sum;
             });
         });
     }
+    // Buffers go out of scope and data is copied back to host
+```
+
+```cpp
+    // Clean up
+    delete[] h_A;
+    delete[] h_B;
+    delete[] h_C;
+
     return 0;
 }
 ```
-##### Sycl Steps
-Initialization: Define the size of matrices and create vectors to hold the data.
-
-Setup: Create a SYCL queue and buffers for the input and output matrices.
-
-Kernel Execution: Submit a kernel to the queue that performs the matrix multiplication in parallel using the parallel_for construct.
-
-Synchronization: Wait for the kernel execution to complete.
-
-Completion: The program ends.
 
 ### Comparison
+
 #### Programming Model
-CUDA: CUDA uses a directive-based approach where annotations are added to C/C++ code to define parallelism explicitly. It offers fine-grained control over GPU resources and optimizations.
 
-OpenCL: OpenCL employs a runtime API with a C-like language for defining parallel computations. It is designed for heterogeneous platforms, allowing code portability across different GPU and CPU architectures.
-
-SYCL: SYCL provides a higher-level abstraction with a single-source programming model in C++. It integrates with standard C++ code, leveraging modern C++ features and ensuring easier portability and maintainability compared to OpenCL.
+- **CUDA:** Directive-based approach with fine-grained GPU control.
+- **OpenCL:** Runtime API for C-like parallel computations across various architectures.
+- **SYCL:** Single-source C++ programming with simplified memory management.
 
 #### Memory Management
-CUDA: Memory management in CUDA involves explicit allocation and deallocation using CUDA API functions (cudaMalloc, cudaMemcpy, cudaFree).
 
-OpenCL: OpenCL uses a command queue for data transfer and kernel execution. Memory buffers are explicitly created and managed using OpenCL API functions (clCreateBuffer, clEnqueueWriteBuffer, clEnqueueReadBuffer).
-
-SYCL: SYCL simplifies memory management with buffers that automatically handle data movement between host and device. It abstracts away much of the low-level memory management, similar to CUDA but integrated with C++ memory handling.
+- **CUDA:** Explicit allocation (`cudaMalloc`, `cudaMemcpy`) and deallocation (`cudaFree`).
+- **OpenCL:** Command queue manages data transfer (`clEnqueueWriteBuffer`, `clEnqueueReadBuffer`) and kernel execution.
+- **SYCL:** Automatic memory handling with C++ integration.
 
 #### Ease of Use and Portability
-CUDA: Best suited for NVIDIA GPUs, CUDA offers high performance and deep integration with NVIDIA hardware but lacks portability to other GPU architectures.
 
-OpenCL: OpenCL provides broader platform support across different GPU vendors (NVIDIA, AMD, Intel) and CPUs, making it more portable but potentially less optimized for specific hardware.
-
-SYCL: SYCL inherits portability from OpenCL while providing a more user-friendly programming model with C++ integration. It is ideal for developers familiar with C++ looking for a high-level GPU programming model.
+- **CUDA:** High performance and NVIDIA GPU integration but less portable.
+- **OpenCL:** Broad platform support but may require more optimization effort.
+- **SYCL:** Combines OpenCL's portability with easier C++ programming, ideal for maintainability.
 
 ### Conclusion
-Choosing between CUDA, OpenCL, and SYCL depends on factors like performance requirements, hardware availability, and developer familiarity. CUDA excels in performance and NVIDIA GPU integration but is less portable. OpenCL offers portability across different platforms but may require more effort for optimization. SYCL combines the portability of OpenCL with a more intuitive C++ programming model, appealing to developers seeking ease of use and maintainability.
+
+Choosing between CUDA, OpenCL, and SYCL depends on performance needs, hardware availability, and developer expertise. CUDA excels in NVIDIA GPU performance, while OpenCL offers broader hardware support and SYCL provides a user-friendly C++ interface with portability.
