@@ -4,7 +4,7 @@ title:  "Profiling ResNet Models with PyTorch Profiler for Performance Optimizat
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/pytorch.png
-featured: true
+featured: false
 hidden: false
 ---
 

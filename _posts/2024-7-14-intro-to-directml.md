@@ -1,10 +1,10 @@
 ---
 layout: post
-title:  "Comparing SYCL, OpenCL, and CUDA: Matrix Multiplication Example"
+title:  "Deep Learning for Graphics Programmers: Performing Tensor Operations with DirectML and Direct3D 12"
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/DirectML-Platform.png
-featured: false
+featured: true
 hidden: false
 ---
 
