@@ -4,7 +4,7 @@ title:  "Intro to DirectX 12 Pipeline"
 author: Gurwinder
 categories: [ Game Development ]
 image: assets/images/dx12-pipeline.png
-featured: true
+featured: false
 hidden: false
 ---
 
