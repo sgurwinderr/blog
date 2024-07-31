@@ -178,9 +178,9 @@ TERMINATE
 
 --------------------------------------------------------------------------------
 
-**Conclusion**
+### Conclusion
 
-In conclusion, the pyautogen framework facilitates a powerful collaboration between AI agents to autonomously code, execute, and debug tasks. In this example, the AssistantAgent leverages a local LLM model to generate Python code for the "two sum problem," while the UserProxyAgent oversees the process, ensuring the code is executed and validated through random test cases.
+Pyautogen framework facilitates a powerful collaboration between AI agents to autonomously code, execute, and debug tasks. In this example, the AssistantAgent leverages a local LLM model to generate Python code for the "two sum problem," while the UserProxyAgent oversees the process, ensuring the code is executed and validated through random test cases.
 
 The UserProxyAgent acts as a diligent overseer, automatically determining if the task is fully satisfied or if further iterations are needed. It runs the generated code in a local environment using the LocalCommandLineCodeExecutor, providing a seamless cycle of coding, execution, and debugging without human intervention.
 
