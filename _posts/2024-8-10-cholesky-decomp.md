@@ -1,13 +1,12 @@
 ---
 layout: post
-title:  "Code, Run, Debug on AutoPilot: Let Your Local Llama Do All Your Heavy Lifting!"
+title:  "Understanding Cholesky Decomposition with PyTorch"
 author: Gurwinder
 categories: [ Math ]
 image: 
 featured: false
 hidden: false
 ---
-### Understanding Cholesky Decomposition with PyTorch
 
 When dealing with symmetric and positive-definite matrices, **Cholesky decomposition** emerges as an indispensable tool in numerical computing. This matrix factorization technique not only simplifies complex computations but also finds applications in a wide array of real-world problems.
 
