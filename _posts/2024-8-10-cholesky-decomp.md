@@ -3,7 +3,7 @@ layout: post
 title:  "Understanding Cholesky Decomposition with PyTorch"
 author: Gurwinder
 categories: [ Math ]
-image: 
+image: assets/images/cholesky.png
 featured: false
 hidden: false
 ---
