@@ -31,9 +31,9 @@ Before we jump into code, let's clarify some key terms related to how GPUs organ
 
 For our matrix of size `256x256`, let's break down the workload:
 
-- **Total Work-items**: Since each element of the matrix requires a work-item, the total number of work-items is \(256 \times 256 = 65536\).
+- **Total Work-items**: Since each element of the matrix requires a work-item, the total number of work-items is \(256 X 256 = 65536\).
 - **Workgroups**: To handle these work-items efficiently, we divide them into **64 workgroups**.
-- **Local Work-items per Workgroup**: Each workgroup will contain 1024 local work-items, structured as \(256 \times 4\).
+- **Local Work-items per Workgroup**: Each workgroup will contain 1024 local work-items, structured as \(256 X 4\).
 
 Here’s how the dimensions and organization look:
 
@@ -49,27 +49,7 @@ Workload Breakdown:
 - SIMD32: 32 work-items executed in parallel
 ```
 
-#### How Intel GPUs Schedule Workloads
-
-Intel’s Xe GPUs need to map work-items efficiently across **Execution Units (EUs)**. Here’s how it works:
-
-1. **Workgroup Mapping**: Each of the 64 workgroups contains 1024 work-items, which the scheduler distributes across the available **EUs**. This ensures that the workload is balanced and that all processing units are utilized effectively.
-
-2. **Threadgroup Execution**: Each threadgroup can handle multiple work-items. With the **SIMD32** architecture, every threadgroup processes 32 work-items in parallel. This setup allows for efficient utilization of the GPU’s resources, ensuring that no SIMD32 lane sits idle while others are busy.
-
-3. **Dynamic Scheduling**: The GPU scheduler dynamically assigns workgroups to EUs, balancing the workload to avoid any potential bottlenecks. This is crucial for maximizing throughput, especially when dealing with large datasets like our matrix.
-
-```cpp
-Intel GPU Scheduling:
-- Total Workgroups: 64
-- Work-items per Workgroup: 1024
-- Total Number of Threads: 2048
-- SIMD32: 32 work-items executed in parallel per cycle
-```
-
 ![walking]({{ site.baseurl }}/assets/images/sycl-grid.png){:style="display:block; margin-left:auto; margin-right:auto"}
-
----
 
 ### 2. **SYCL Kernel Example: Adding Two Matrices**
 
@@ -119,7 +99,7 @@ int main() {
 ```
 
 In this SYCL code:
-- We create a `parallel_for` loop that triggers the kernel for a 2D range of \(256 \times 256\) work-items. Each work-item adds a single element from `matrix_a` to `matrix_b` and stores it in `result_matrix`.
+- We create a `parallel_for` loop that triggers the kernel for a 2D range of \(256 X 256\) work-items. Each work-item adds a single element from `matrix_a` to `matrix_b` and stores it in `result_matrix`.
 - With 64 workgroups, each consisting of 1024 local work-items, the workload is distributed effectively across the GPU.
 
 ---
