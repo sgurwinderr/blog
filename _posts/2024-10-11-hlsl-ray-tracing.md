@@ -82,7 +82,9 @@ This struct is like a cool backpack that holds our ray's origin and direction. T
 
 ---
 
-## 3. Ray-Sphere Intersection: A Match Made in Heaven
+## 3. Ray-Sphere Intersection
+
+![walking]({{ site.baseurl }}/assets/images/raysphere.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 One of the easiest shapes to start with is a sphere. To figure out if our ray hits the sphere, we can use some basic algebra. The equation of a sphere is:
 
@@ -126,6 +128,8 @@ HitInfo RaySphere(Ray ray, float3 sphereCentre, float sphereRadius) {
 ---
 
 ## 4. Ray-Triangle Intersection: Möller-Trumbore
+
+![walking]({{ site.baseurl }}/assets/images/raytriangle.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
 
 Triangles are everywhere in 3D graphics, so we need to know how to hit those bad boys too. Enter the Möller-Trumbore algorithm. This nifty little method uses some clever vector math to check for intersections.
 
