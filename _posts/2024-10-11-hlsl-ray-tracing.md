@@ -8,36 +8,38 @@ featured: false
 hidden: false
 ---
 
-# Building a Ray Tracing Shader in Unity with HLSL
+Instead of just slapping textures on polygons, ray tracing lets us simulate how light interacts with surfaces, giving us those jaw-dropping reflections and realistic lighting effects that make you go, “Wow!” 
 
-Ray tracing is one of the most powerful techniques in computer graphics for achieving realistic lighting and reflections. Unlike traditional rasterization, which processes geometry one triangle at a time, ray tracing simulates how rays of light interact with objects in the scene. In this article, I will guide you through the process of building a simple ray tracing shader using HLSL in Unity. We’ll not only look at code but also dive into the mathematics behind ray-object intersections, lighting, and reflections.
+In this article, I’ll take you on process of building a simple ray tracing shader in Unity using HLSL.
 
 ---
 
-## Mathematical Foundations of Ray Tracing
+## The Ray Tracing Lowdown
 
-In ray tracing, the core idea is to trace the path of a ray from the camera through the scene. This ray may hit objects, reflect off surfaces, or absorb light. The final color of each pixel is calculated by accumulating light values from these interactions.
+So, what’s the deal with ray tracing? Imagine you're in a dark room, and you turn on a flashlight. The way the light bounces around and illuminates the objects is basically what ray tracing does, but with a lot more math involved.
 
-### Ray Equation
+### The Ray Equation: The Basics
 
-A ray is defined by an origin point \( O \) and a direction \( D \). For any scalar \( t \geq 0 \), the position of the ray at \( t \) is:
+At the heart of ray tracing is the concept of a ray. A ray is defined by two things: its origin (`O`) and its direction (`D`). Think of it as an arrow shooting from your camera into the scene. The equation for this bad boy looks like this:
 
-\[
-P(t) = O + tD
-\]
+```
+P(t) = O + t * D
+```
 
 Where:
-- \( O \) is the ray origin (typically the camera position).
-- \( D \) is the ray direction (from the camera through the pixel).
-- \( t \) is a scalar representing the distance from the origin.
+- `O` is where the ray starts (your camera).
+- `D` is the direction it’s heading (straight through the pixel on your screen).
+- `t` is a little time variable that helps us find points along the ray.
 
-Let’s now break this down into shader code.
+Now that we have our ray, let’s dive into the shader code!
 
 ---
 
-## 1. Vertex and Fragment Shader Setup
+## 1. Setting Up Our Shader
 
-Every HLSL shader begins with a vertex shader and fragment shader. In the context of ray tracing, the vertex shader primarily transforms vertices to screen space, while the fragment shader is where the ray tracing calculations happen.
+Every shader starts with a couple of basic components: the vertex shader and the fragment shader. In our ray tracing adventure, the vertex shader is like the warm-up act, prepping everything before the main event happens in the fragment shader.
+
+Here’s a sneak peek at how it looks:
 
 ```hlsl
 struct appdata {
@@ -52,65 +54,45 @@ struct v2f {
 
 v2f vert(appdata v) {
     v2f o;
-    o.vertex = UnityObjectToClipPos(v.vertex); // Transforms vertex
-    o.uv = v.uv; // Passes UV coordinates
+    o.vertex = UnityObjectToClipPos(v.vertex); // Transform the vertex
+    o.uv = v.uv; // Pass those sweet UV coordinates along
     return o;
 }
 ```
 
-### Explanation
+### What’s Happening Here?
 
-- The **vertex** function transforms 3D object positions to 2D screen space using `UnityObjectToClipPos`.
-- The UV coordinates are passed from the vertex to the fragment shader. These UVs represent the pixel location on the screen where rays will be cast.
+- The `vert` function is transforming our 3D vertices into 2D screen space so we can see them. Easy peasy!
+- The UV coordinates are passed along because we’ll need them later for texturing.
 
 ---
 
-## 2. The Ray Structure
+## 2. Meet the Ray Structure
 
-In ray tracing, rays are key to everything. A ray in 3D space can be represented as a struct with two main components: the origin and the direction.
+Now, let’s create a structure to hold our ray. This will make it super easy to manage its properties as we bounce around the scene.
 
 ```hlsl
 struct Ray {
-    float3 origin;
-    float3 dir;
+    float3 origin; // Where our ray starts
+    float3 dir;    // The direction it’s heading
 };
 ```
 
-- **origin**: The starting point of the ray, which is typically the camera's position.
-- **dir**: The normalized direction vector in which the ray travels.
-
-The ray equation, \( P(t) = O + tD \), helps us compute points along the ray by adjusting \( t \). For each intersection, the goal is to solve for \( t \), where \( P(t) \) lies on an object’s surface.
+This struct is like a cool backpack that holds our ray's origin and direction. Time to get our math game on!
 
 ---
 
-## 3. Ray-Sphere Intersection
+## 3. Ray-Sphere Intersection: A Match Made in Heaven
 
-One of the simplest objects to ray trace is a sphere. The equation of a sphere with radius \( r \) and center \( C = (x_c, y_c, z_c) \) is:
+One of the easiest shapes to start with is a sphere. To figure out if our ray hits the sphere, we can use some basic algebra. The equation of a sphere is:
 
-\[
-(x - x_c)^2 + (y - y_c)^2 + (z - z_c)^2 = r^2
-\]
+```
+(x - xc)^2 + (y - yc)^2 + (z - zc)^2 = r^2
+```
 
-To find out where a ray intersects this sphere, substitute the ray equation into the sphere equation:
+We can plug our ray equation into the sphere equation and end up with a quadratic equation. Yup, it’s time to channel our inner mathematician!
 
-\[
-(O_x + tD_x - C_x)^2 + (O_y + tD_y - C_y)^2 + (O_z + tD_z - C_z)^2 = r^2
-\]
-
-This expands into a quadratic equation in \( t \):
-
-\[
-at^2 + bt + c = 0
-\]
-
-Where:
-- \( a = D \cdot D \)
-- \( b = 2 (O - C) \cdot D \)
-- \( c = (O - C) \cdot (O - C) - r^2 \)
-
-We solve this quadratic equation to find the possible values of \( t \) (the points where the ray intersects the sphere). If the discriminant \( b^2 - 4ac \) is non-negative, the ray intersects the sphere.
-
-Here’s how that looks in code:
+Here’s the code to do the heavy lifting:
 
 ```hlsl
 HitInfo RaySphere(Ray ray, float3 sphereCentre, float sphereRadius) {
@@ -136,34 +118,18 @@ HitInfo RaySphere(Ray ray, float3 sphereCentre, float sphereRadius) {
 }
 ```
 
-### Mathematical Explanation
+### Breaking It Down
 
-- The quadratic formula \( t = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \) determines the intersection points.
-- If \( t \) is positive, the intersection point is in front of the ray origin, meaning a visible hit.
-- Once the hit is confirmed, we calculate the normal at the hit point as:
-
-\[
-\text{normal} = \frac{P(t) - C}{r}
-\]
-
-This normalized vector is essential for calculating lighting and reflections.
+- We’re checking for hits using a discriminant. If it’s non-negative, we’ve got an intersection!
+- If `t` (the distance along the ray) is positive, we’ve successfully hit the sphere, and we can calculate the normal at the hit point.
 
 ---
 
-## 4. Ray-Triangle Intersection Using the Möller-Trumbore Algorithm
+## 4. Ray-Triangle Intersection: Möller-Trumbore
 
-Triangles are ubiquitous in 3D graphics. The Möller-Trumbore algorithm is an efficient way to compute ray-triangle intersections. The algorithm uses barycentric coordinates to determine whether a ray intersects the triangle.
+Triangles are everywhere in 3D graphics, so we need to know how to hit those bad boys too. Enter the Möller-Trumbore algorithm. This nifty little method uses some clever vector math to check for intersections.
 
-Given triangle vertices \( V_0 \), \( V_1 \), and \( V_2 \), and a ray \( P(t) = O + tD \), we compute the intersection using:
-
-1. **Edge vectors**: \( E_1 = V_1 - V_0 \), \( E_2 = V_2 - V_0 \)
-2. **Vector cross products**: Using these vectors, we solve for \( t \), \( u \), and \( v \), where \( u \) and \( v \) are barycentric coordinates and must satisfy \( u + v \leq 1 \).
-
-The ray intersects the triangle if the following conditions hold:
-- \( t \geq 0 \) (the intersection point is in front of the ray).
-- \( 0 \leq u \leq 1 \) and \( 0 \leq v \leq 1 \).
-
-Here’s the code:
+Here’s the code for it:
 
 ```hlsl
 HitInfo RayTriangle(Ray ray, Triangle tri) {
@@ -190,83 +156,63 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 }
 ```
 
-### Mathematical Explanation
+### What’s the Math Behind It?
 
-- The algorithm uses vector math to determine whether the intersection point lies within the triangle.
-- \( t \) is the distance along the ray to the hit point.
-- \( u \) and \( v \) are the barycentric coordinates, ensuring the intersection lies within the triangle.
+- The algorithm calculates if our ray hits the triangle by checking the determinant and using barycentric coordinates (u, v) to ensure the hit point is inside the triangle. 
+- If all conditions are met, we’ve hit the triangle and can calculate the normal at the intersection point.
 
 ---
 
-## 5. Lighting and Reflections
+## 5. Let There Be Light: Lighting and Reflections
 
-In ray tracing, light is calculated by simulating how rays reflect off surfaces. For each intersection, we need to check how much light reaches the surface and calculate the reflection or refraction of the ray.
+Now that we can trace rays and find intersections, it’s time to talk lighting. We want our objects to look lively, right? 
 
-The basic lighting model is given by:
+The basic lighting formula we’ll use is:
 
-\[
-L = C + \sum_i (R_i \cdot L_i)
-\]
+```
+L = C + sum(Ri * Li)
+```
 
 Where:
-- \( C \) is the surface's base color.
-- \( R_i \) is the reflection coefficient for each light source \( i \).
-- \( L_i \) is the incoming light intensity from each source.
+- `C` is the base color of the surface.
+- `Ri` is the reflection coefficient for each light source.
+- `Li` is the intensity of incoming light.
 
-We trace the rays through multiple bounces to simulate light reflecting off surfaces:
+Here’s how we’ll trace rays through our scene:
 
 ```hlsl
 float3 Trace(Ray ray, inout uint rngState) {
     float3 incomingLight = 0;
-    float
-
-3 rayColour = 1; // Initialize to white
+    float3 rayColour = 1; // Start with a clean slate
 
     for (int i = 0; i < MAX_BOUNCES; i++) {
-        HitInfo hitInfo = Cast(ray); // Cast the ray to find intersections
+        HitInfo hitInfo = Cast(ray); // Cast the ray to find hits
 
         if (hitInfo.didHit) {
             float3 normal = hitInfo.normal;
-            // Reflect ray based on the surface normal
-            ray = ReflectRay(hitInfo.hitPoint, normal, ray);
-            rayColour *= hitInfo.color; // Accumulate colors
-            incomingLight += CalculateLighting(hitInfo);
+            ray = ReflectRay(hitInfo.hitPoint, normal, ray); // Reflect the ray
+            rayColour *= hitInfo.color; // Mix colors
+            incomingLight += CalculateLighting(hitInfo); // Gather light
         } else {
-            break; // No intersection; exit the loop
+            break; // No hit? Time to call it a day!
         }
     }
 
-    return incomingLight * rayColour; // Final color output
+    return incomingLight * rayColour; // The final masterpiece
 }
 ```
 
-### Explanation
+### Why It Works
 
-- **Ray Bounces**: For each bounce, we update the ray based on the surface normal. This simulates the light reflecting off surfaces.
-- **Color Accumulation**: Each hit accumulates color contributions from the surface and incoming light.
-- **Final Color Calculation**: The final output is a product of incoming light and the accumulated color from reflections.
-
-### Reflective Rays
-
-The reflection direction can be calculated using:
-
-\[
-R = D - 2(D \cdot N)N
-\]
-
-Where:
-- \( R \) is the reflected ray.
-- \( D \) is the incident ray direction.
-- \( N \) is the normal at the hit point.
+- For each bounce of the ray, we calculate how much light is hitting the surface and reflect the ray off the surface.
+- By accumulating colors and light values, we get that rich, immersive look that ray tracing is known for!
 
 ---
 
-## Conclusion
+## Wrapping It Up
 
-By understanding both the code and the underlying mathematics, you can create a ray tracing shader in Unity that simulates realistic lighting and reflections. This method is computationally intensive but allows for stunning visual effects that can enhance any 3D project.
+And there you have it, folks! By combining HLSL with some good old math, you can create a ray tracing shader that brings your scenes to life. Sure, ray tracing is a bit of a resource hog, but the results are absolutely worth it!
 
-The combination of HLSL for shader programming and the mathematical principles of ray tracing offers a powerful toolset for developers looking to push the boundaries of real-time graphics. Experiment with different shapes, lighting conditions, and reflection models to create your unique visual style!
+I hope you had as much fun reading this as I did writing it. Now, go forth and light up your projects with ray tracing magic! Experiment with different shapes and lighting scenarios, and watch as your graphics leap off the screen!
 
----
-
-Feel free to adjust any sections or add your insights!
+Until next time, happy coding!
