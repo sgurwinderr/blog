@@ -1,13 +1,12 @@
 ---
 layout: post
-title:  "Breaking Down Intel GPU Scheduling: Exploring Matrix Addition with SYCL and PyTorch"
+title:  "Intel GPU Scheduling: Exploring Matrix Addition with SYCL and PyTorch"
 author: Gurwinder
 categories: [ Game Development, Unity ]
 image: assets/images/intel-arc.webp
 featured: false
 hidden: false
 ---
-### Title: **Unleashing the Power of Intel GPUs: A Deep Dive into Kernel Scheduling with SYCL and PyTorch Matrix Addition**
 
 If you’ve ever worked with GPUs, you know how crucial it is to understand how they manage workloads. Today, we're diving into Intel's approach to kernel scheduling, particularly when using SYCL and PyTorch for matrix operations. We’ll look at how concepts like workgroups, work-items, and SIMD32 come into play as we add two matrices of size `(256x256)`.
 
