@@ -14,8 +14,7 @@ This guide walks you through the process of loading splat files in Unity 6 using
 
 1. **Unity 6 Installed**: Ensure Unity 6 is installed on your system.
 
-2. **Gaussian Splatting Playground Plugin**: Download and integrate the plugin into your Unity project. You can usually find this plugin in the Unity Asset Store or from a GitHub repository.
-[GitHub Link](https://github.com/aras-p/UnityGaussianSplatting)
+2. **Gaussian Splatting Playground Plugin**: Download and integrate the plugin into your Unity project. You can usually find this plugin in the Unity Asset Store or from [GitHub](https://github.com/aras-p/UnityGaussianSplatting).
 
 3. **A Splat File**: Have a `.splat` file ready for visualization. This file contains point cloud or splat data. The original paper [GitHub](https://github.com/graphdeco-inria/gaussian-splatting) has a [Models](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip) to 14GB zip of their models.
 
@@ -92,3 +91,15 @@ To use a splat file effectively in Unity, it’s best to convert it into a Unity
 - **Share Your Work**: Build and deploy your project to share interactive visualizations.
 
 Let us know how Gaussian Splatting transforms your Unity projects! 🌟
+
+### **References**
+
+1. **Unity Plugin for Gaussian Splatting**  
+   The official Unity Gaussian Splatting plugin repository by Aras Pranckevičius:  
+   [https://github.com/aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting)  
+
+2. **3D Gaussian Splatting for Real-Time Radiance Field Rendering**  
+   Explore the original implementation and research on Gaussian Splatting:  
+   [https://github.com/graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting)  
+
+Would you like to include additional resources or citations?
