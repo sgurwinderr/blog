@@ -1,8 +1,8 @@
 ---
 layout: post
-title:  "Understanding Vision Transformers"
+title:  "Breaking Down Vision Transformers: A Code-Driven Explanation"
 author: Gurwinder
-categories: [ Game Development, Unity ]
+categories: [ AI ]
 image: assets/images/vision-transformer-1.webp
 featured: false
 hidden: false
