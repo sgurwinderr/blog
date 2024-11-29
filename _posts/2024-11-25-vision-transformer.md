@@ -20,7 +20,7 @@ ViT treats an image as a sequence of patches, just like words in a text sequence
 4. **Transformer Encoder Layers**: Processes patches using multi-head self-attention and feedforward networks.
 5. **Classification Head**: Maps the processed embeddings to class probabilities.
 
-![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
+![walking]({{ site.baseurl }}/assets/images/vision-transformer-7.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
 ---
 
 ## **Step-by-Step Implementation**
@@ -185,7 +185,7 @@ class ClassificationHead(nn.Module):
 
 ### **6. Putting It All Together**
 
-![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
+![walking]({{ site.baseurl }}/assets/images/vision-transformer-7.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
 
 ```python
 class VisionTransformer(nn.Module):
