@@ -8,7 +8,7 @@ featured: false
 hidden: false
 ---
 
-In this article, we'll break down the layers of a ViT step by step. We'll provide detailed explanations, code snippets, and a dry run of each layer.
+In this article, I'll break down the layers of a ViT step by step with code snippets, and a dry run of each layer.
 
 ## **Overview of the Vision Transformer**
 
@@ -20,19 +20,18 @@ ViT treats an image as a sequence of patches, just like words in a text sequence
 4. **Transformer Encoder Layers**: Processes patches using multi-head self-attention and feedforward networks.
 5. **Classification Head**: Maps the processed embeddings to class probabilities.
 
-![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.png){:style="display:block; margin-left:auto; margin-right:auto"}
+![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
 ---
 
 ## **Step-by-Step Implementation**
 
 ### **1. Patch Embedding Layer**
 
-#### **Purpose**:  
 Split the image into non-overlapping patches, flatten them, and project each patch into a higher-dimensional embedding space.
 
 ![walking]({{ site.baseurl }}/assets/images/vision-transformer-5.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
-#### **Code**:
+##### **Code**:
 ```python
 import torch
 import torch.nn as nn
@@ -54,7 +53,7 @@ class PatchEmbedding(nn.Module):
 #### **Dry Run**:
 - **Input**: Image of size `(3, 224, 224)` (3 channels, 224x224 resolution).
 - **Process**:
-  - Divide into 16x16 patches → \( \frac{224}{16} \times \frac{224}{16} = 196 \) patches.
+  - Divide into 16x16 patches → 224/16 X 224/16 = 196 patches.
   - Flatten each patch and project to a 768-dimensional vector.
 - **Output**: Tensor of shape `[batch_size, num_patches, embedding_dim]` → `[1, 196, 768]`.
 
@@ -67,7 +66,7 @@ Since transformers lack inherent spatial information, positional encodings add c
 
 ![walking]({{ site.baseurl }}/assets/images/vision-transformer-4.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
-#### **Code**:
+##### **Code**:
 ```python
 class PositionalEncoding(nn.Module):
     def __init__(self, num_patches, embedding_dim):
@@ -90,7 +89,7 @@ class PositionalEncoding(nn.Module):
 #### **Purpose**:  
 The `[CLS]` token acts as a placeholder for global image features, which will be used for classification.
 
-#### **Code**:
+##### **Code**:
 ```python
 class AddClsToken(nn.Module):
     def __init__(self, embedding_dim):
@@ -118,14 +117,14 @@ class AddClsToken(nn.Module):
 Performs attention-based processing on the sequence of patches to extract meaningful features.
 
 Each encoder layer consists of:
-1. **Multi-Head Self-Attention**: Allows patches to attend to each other.
+**Multi-Head Self-Attention**: Allows patches to attend to each other.
 
-![walking]({{ site.baseurl }}/assets/images/vision-transformer-3.png){:style="display:block; margin-left:auto; margin-right:auto"}
+![walking]({{ site.baseurl }}/assets/images/vision-transformer-6.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
-2. **Feedforward Network**: Processes attended features.
-3. **Skip Connections**: Adds stability and prevents vanishing gradients.
+**Feedforward Network**: Processes attended features.
+**Skip Connections**: Adds stability and prevents vanishing gradients.
 
-#### **Code**:
+##### **Code**:
 ```python
 class TransformerEncoderBlock(nn.Module):
     def __init__(self, embedding_dim, num_heads, ff_dim, dropout=0.1):
@@ -160,11 +159,10 @@ class TransformerEncoderBlock(nn.Module):
 ---
 
 ### **5. Classification Head**
-
-#### **Purpose**:  
+  
 Maps the `[CLS]` token to class probabilities for Dog and Cat.
 
-#### **Code**:
+##### **Code**:
 ```python
 class ClassificationHead(nn.Module):
     def __init__(self, embedding_dim, num_classes):
@@ -187,7 +185,8 @@ class ClassificationHead(nn.Module):
 
 ### **6. Putting It All Together**
 
-#### **Complete Vision Transformer Model**:
+![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.jpg){:style="display:block; margin-left:auto; margin-right:auto"}
+
 ```python
 class VisionTransformer(nn.Module):
     def __init__(self, image_size, patch_size, embedding_dim, num_heads, ff_dim, num_classes, depth):
@@ -208,12 +207,14 @@ class VisionTransformer(nn.Module):
         return self.classification_head(x)
 ```
 
-![walking]({{ site.baseurl }}/assets/images/vision-transformer-2.png){:style="display:block; margin-left:auto; margin-right:auto"}
-
 ---
 ### **Final Thought**
 
-We've built a Vision Transformer step by step for classifying. By replacing convolution with patch embeddings and using self-attention, ViT provides a powerful alternative to CNNs, especially for large-scale image datasets. 
+Built a Vision Transformer step by step for classifying. By replacing convolution with patch embeddings and using self-attention, ViT provides a powerful alternative to CNNs, especially for large-scale image datasets.
+
+Next Advancement in this is Video Vision Transformers:
+
+
 
 ### **References**
 
