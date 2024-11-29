@@ -100,6 +100,4 @@ Let us know how Gaussian Splatting transforms your Unity projects! 🌟
 
 2. **3D Gaussian Splatting for Real-Time Radiance Field Rendering**  
    Explore the original implementation and research on Gaussian Splatting:  
-   [https://github.com/graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting)  
-
-Would you like to include additional resources or citations?
+   [https://github.com/graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting)
