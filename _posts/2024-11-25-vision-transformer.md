@@ -114,9 +114,7 @@ class AddClsToken(nn.Module):
 ### **4. Transformer Encoder Layer**
 
 #### **Purpose**:  
-Performs attention-based processing on the sequence of patches to extract meaningful features.
-
-Each encoder layer consists of
+Performs attention-based processing on the sequence of patches to extract meaningful features. Each encoder layer consists of
 
 **Multi-Head Self-Attention**: Allows patches to attend to each other.
 
@@ -214,9 +212,12 @@ class VisionTransformer(nn.Module):
 
 Built a Vision Transformer step by step for classifying. By replacing convolution with patch embeddings and using self-attention, ViT provides a powerful alternative to CNNs, especially for large-scale image datasets.
 
-Next Advancement in this is Video Vision Transformers:
+---
+### **Next Advancement: Video Vision Transformers**
 
+Video Vision Transformers, an extension of the Vision Transformer (ViT) designed to handle video data. While ViT processes spatial information in images by dividing them into patches and modeling their relationships through self-attention, ViViT adds a temporal dimension to this process. It captures both spatial and temporal dependencies by extending the attention mechanism to include consecutive frames. This is achieved through techniques like dividing videos into spatiotemporal patches or applying 3D attention mechanisms. Will uncover this in next article
 
+![walking]({{ site.baseurl }}/assets/images/video-vision-transformer-1.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 ### **References**
 
