@@ -116,12 +116,14 @@ class AddClsToken(nn.Module):
 #### **Purpose**:  
 Performs attention-based processing on the sequence of patches to extract meaningful features.
 
-Each encoder layer consists of:
+Each encoder layer consists of
+
 **Multi-Head Self-Attention**: Allows patches to attend to each other.
 
 ![walking]({{ site.baseurl }}/assets/images/vision-transformer-6.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 **Feedforward Network**: Processes attended features.
+
 **Skip Connections**: Adds stability and prevents vanishing gradients.
 
 ##### **Code**:
