@@ -8,6 +8,10 @@ featured: false
 hidden: false
 ---
 
+# Testing out latex
+
+$$ \nabla_\boldsymbol{x} J(\boldsymbol{x}) $$
+
 ### Quantization and Dequantization in PyTorch: A Technical Overview
 
 Quantization and dequantization are essential techniques in deep learning to optimize models for resource-constrained environments like mobile devices and edge computing platforms. These methods enable efficient inference by reducing model size and accelerating computations.
