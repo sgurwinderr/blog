@@ -7,10 +7,6 @@ image: assets/images/vision-transformer-1.webp
 featured: false
 hidden: false
 ---
----
-title: Understanding Quantization and Dequantization in Deep Learning
-layout: post
----
 
 ### Example Tensor
 
