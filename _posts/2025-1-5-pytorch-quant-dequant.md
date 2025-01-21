@@ -7,45 +7,49 @@ image: assets/images/vision-transformer-1.webp
 featured: false
 hidden: false
 ---
+---
+title: Understanding Quantization and Dequantization in Deep Learning
+layout: post
+---
 
-### Example Tensor  
+### Example Tensor
 
 Given weights tensor (2 channels):  
-\[
+$$
 \text{Weights} = 
 \begin{bmatrix} 
 1.0 & 2.0 & 3.0 \\ 
 4.0 & 5.0 & 6.0 
 \end{bmatrix}
-\]  
+$$  
 Shape: \([2, 3]\)  
 Integer range: \([-128, 127]\)  
 
 ---
 
-### Per-Tensor Quantization  
+### Per-Tensor Quantization
 
-#### Step 1: Compute Global Min/Max  
+#### Step 1: Compute Global Min/Max
 - Global Min: \(x_{\text{min}} = 1.0\)  
 - Global Max: \(x_{\text{max}} = 6.0\)  
 
-#### Step 2: Compute Scale and Zero Point  
-$$  
-\text{scale} = \frac{x_{\text{max}} - x_{\text{min}}}{q_{\text{max}} - q_{\text{min}}} = \frac{6.0 - 1.0}{255} = 0.01961  
-$$  
+#### Step 2: Compute Scale and Zero Point
+$$
+\text{scale} = \frac{x_{\text{max}} - x_{\text{min}}}{q_{\text{max}} - q_{\text{min}}} = \frac{6.0 - 1.0}{255} = 0.01961
+$$
 
-$$  
-\text{zero\_point} = \text{round}(-128 - \frac{x_{\text{min}}}{\text{scale}}) = \text{round}(-128 - \frac{1.0}{0.01961}) = \text{round}(-179.99) = -180  
-$$  
+$$
+\text{zero\_point} = \text{round}(-128 - \frac{x_{\text{min}}}{\text{scale}}) = \text{round}(-128 - \frac{1.0}{0.01961}) = \text{round}(-179.99) = -180
+$$
 
-#### Step 3: Quantize  
+#### Step 3: Quantize
 Apply the quantization formula:  
-$$  
-q = \text{round}\left(\frac{x}{\text{scale}} + \text{zero\_point}\right)  
-$$  
+$$
+q = \text{round}\left(\frac{x}{\text{scale}} + \text{zero\_point}\right)
+$$
 
 Quantized values:  
-$$  
+$$
 \begin{aligned}  
 q(1.0) &= \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\  
 q(2.0) &= \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\  
@@ -53,16 +57,16 @@ q(3.0) &= \text{round}\left(\frac{3.0}{0.01961} - 180\right) = \text{round}(102.
 q(4.0) &= \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.06) = 153 \\  
 q(5.0) &= \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\  
 q(6.0) &= \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255  
-\end{aligned}  
-$$  
+\end{aligned}
+$$
 
-#### Step 4: Dequantize  
-$$  
-\hat{x} = \text{scale} \cdot (q - \text{zero\_point})  
-$$  
+#### Step 4: Dequantize
+$$
+\hat{x} = \text{scale} \cdot (q - \text{zero\_point})
+$$
 
 Dequantized values:  
-$$  
+$$
 \begin{aligned}  
 \hat{x}(0) &= 0.01961 \cdot (0 - (-180)) = 1.0 \\  
 \hat{x}(51) &= 0.01961 \cdot (51 - (-180)) = 2.0 \\  
@@ -70,78 +74,78 @@ $$
 \hat{x}(153) &= 0.01961 \cdot (153 - (-180)) = 4.0 \\  
 \hat{x}(204) &= 0.01961 \cdot (204 - (-180)) = 5.0 \\  
 \hat{x}(255) &= 0.01961 \cdot (255 - (-180)) = 6.0  
-\end{aligned}  
-$$  
+\end{aligned}
+$$
 
-#### Quantization Error  
+#### Quantization Error
 Quantization error is:  
+$$
+\text{Error} = x - \hat{x}
 $$  
-\text{Error} = x - \hat{x}  
-$$  
-For per-tensor quantization in this case, the error is **0 for all values**, as the range is perfectly covered.  
+For per-tensor quantization in this case, the error is **0 for all values**, as the range is perfectly covered.
 
 ---
 
-### Per-Channel Quantization  
+### Per-Channel Quantization
 
-#### Step 1: Compute Min/Max for Each Channel  
+#### Step 1: Compute Min/Max for Each Channel
 - Channel 1: \([1.0, 2.0, 3.0]\), Min = \(1.0\), Max = \(3.0\)  
 - Channel 2: \([4.0, 5.0, 6.0]\), Min = \(4.0\), Max = \(6.0\)  
 
-#### Step 2: Compute Scale and Zero Point for Each Channel  
+#### Step 2: Compute Scale and Zero Point for Each Channel
 
 **Channel 1**:  
+$$
+\text{scale}_1 = \frac{3.0 - 1.0}{255} = 0.007843
 $$  
-\text{scale}_1 = \frac{3.0 - 1.0}{255} = 0.007843  
-$$  
-$$  
-\text{zero\_point}_1 = \text{round}(-128 - \frac{1.0}{0.007843}) = \text{round}(-128 - 127.5) = -255  
+$$
+\text{zero\_point}_1 = \text{round}(-128 - \frac{1.0}{0.007843}) = \text{round}(-128 - 127.5) = -255
 $$  
 
 **Channel 2**:  
+$$
+\text{scale}_2 = \frac{6.0 - 4.0}{255} = 0.007843
 $$  
-\text{scale}_2 = \frac{6.0 - 4.0}{255} = 0.007843  
-$$  
-$$  
-\text{zero\_point}_2 = \text{round}(-128 - \frac{4.0}{0.007843}) = \text{round}(-128 - 510) = -638  
+$$
+\text{zero\_point}_2 = \text{round}(-128 - \frac{4.0}{0.007843}) = \text{round}(-128 - 510) = -638
 $$  
 
 #### Step 3: Quantize and Dequantize  
 
 **Channel 1** Quantized Values:  
-$$  
+$$
 q(1.0) = \text{round}\left(\frac{1.0}{0.007843} + 255\right) = 127 \\  
 q(2.0) = \text{round}\left(\frac{2.0}{0.007843} + 255\right) = 255 \\  
-q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383  
+q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383
 $$  
 
 **Channel 1** Dequantized Values:  
-$$  
+$$
 \hat{x}(127) = 0.007843 \cdot (127 - 255) = 1.0 \\  
 \hat{x}(255) = 0.007843 \cdot (255 - 255) = 2.0 \\  
-\hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0  
+\hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0
 $$  
 
 **Channel 2** Quantized Values:  
-$$  
+$$
 q(4.0) = \text{round}\left(\frac{4.0}{0.007843} + 638\right) = 510 \\  
 q(5.0) = \text{round}\left(\frac{5.0}{0.007843} + 638\right) = 766 \\  
-q(6.0) = \text{round}\left(\frac{6.0}{0.007843} + 638\right) = 1022  
+q(6.0) = \text{round}\left(\frac{6.0}{0.007843} + 638\right) = 1022
 $$  
 
 **Channel 2** Dequantized Values:  
-$$  
+$$
 \hat{x}(510) = 0.007843 \cdot (510 - 638) = 4.0 \\  
 \hat{x}(766) = 0.007843 \cdot (766 - 638) = 5.0 \\  
-\hat{x}(1022) = 0.007843 \cdot (1022 - 638) = 6.0  
+\hat{x}(1022) = 0.007843 \cdot (1022 - 638) = 6.0
 $$  
 
-#### Quantization Error  
-In this case, the error is **0 for all values**, as the quantization was exact for each channel.  
+#### Quantization Error
+In this case, the error is **0 for all values**, as the quantization was exact for each channel.
 
 ---
 
-### Comparison  
+### Comparison
 
 | Metric                     | Per-Tensor Quantization | Per-Channel Quantization |  
 |----------------------------|-------------------------|--------------------------|  
@@ -149,13 +153,10 @@ In this case, the error is **0 for all values**, as the quantization was exact f
 | **Zero Point**             | -180                   | [-255, -638]            |  
 | **Quantization Error**     | 0 for all values       | 0 for all values        |  
 
-In this example, both methods resulted in no error due to perfect alignment of the tensor values with quantization levels. However, in practice:  
-- **Per-tensor** can lead to larger errors when dynamic ranges vary significantly across channels.  
-- **Per-channel** reduces errors for channels with different ranges, particularly in deep learning models.  
+---
 
---- 
+This example shows that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
 
-This version is ready for Jekyll with proper LaTeX rendering. Let me know if you'd like further refinements!
 
 ### Quantization and Dequantization in PyTorch: A Technical Overview
 
