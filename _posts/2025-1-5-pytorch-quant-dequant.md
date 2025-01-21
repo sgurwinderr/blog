@@ -1,9 +1,9 @@
 ---
 layout: post
-title:  "Quantization and Dequantization in PyTorch: A Technical Overview"
+title:  "(Draft) Quantization and Dequantization in PyTorch: A Technical Overview"
 author: Gurwinder
 categories: [ AI ]
-image: assets/images/vision-transformer-1.webp
+image: assets/images/pytorch-2.0-compiler.jpg
 featured: false
 hidden: false
 ---
@@ -35,19 +35,18 @@ The quantization workflow typically involves three steps:
 Quantization maps a floating-point value \( x \) to an integer \( q \):
 
 $$
-q = \text{round}\left(\frac{x}{\text{scale}} + \text{zero\_point}\right)
+q = \text{round}\left(\frac{x}{\text{scale}} + \text{zeropoint}\right)
 $$
 
 - **Scale**: Determines the step size between representable values.
 - **Zero Point**: Ensures that zero in floating-point maps to zero in quantized values.
-- \( q \) lies in the range \([q_\text{min}, q_\text{max}]\).
 
 #### **Dequantization Formula**
 
 To recover the original value:
 
 $$
-\hat{x} = \text{scale} \cdot (q - \text{zero\_point})
+\hat{x} = \text{scale} \cdot (q - \text{zeropoint})
 $$
 
 Dequantization is typically performed after computations to interpret quantized results.
@@ -73,10 +72,8 @@ Integer range: \([-128, 127]\)
 ### Per-Tensor Quantization
 
 #### Step 1: Compute Global Min/Max
-$$
-- Global Min: \text{min} = 1.0
-- Global Max: \text{max} = 6.0 
-$$
+- Global Min: = 1.0
+- Global Max: = 6.0 
 
 #### Step 2: Compute Scale and Zero Point
 $$
@@ -84,13 +81,13 @@ $$
 $$
 
 $$
-\text{zero\_point} = \text{round}(-128 - \frac{x_{\text{min}}}{\text{scale}}) = \text{round}(-128 - \frac{1.0}{0.01961}) = \text{round}(-179.99) = -180
+\text{zeropoint} = \text{round}(-128 - \frac{x_{\text{min}}}{\text{scale}}) = \text{round}(-128 - \frac{1.0}{0.01961}) = \text{round}(-179.99) = -180
 $$
 
 #### Step 3: Quantize
 Apply the quantization formula:  
 $$
-q = \text{round}\left(\frac{x}{\text{scale}} + \text{zero\_point}\right)
+q = \text{round}\left(\frac{x}{\text{scale}} + \text{zeropoint}\right)
 $$
 
 Quantized values:  
@@ -107,7 +104,7 @@ $$
 
 #### Step 4: Dequantize
 $$
-\hat{x} = \text{scale} \cdot (q - \text{zero\_point})
+\hat{x} = \text{scale} \cdot (q - \text{zeropoint})
 $$
 
 Dequantized values:  
@@ -144,7 +141,7 @@ $$
 \text{scale}_1 = \frac{3.0 - 1.0}{255} = 0.007843
 $$  
 $$
-\text{zero\_point}_1 = \text{round}(-128 - \frac{1.0}{0.007843}) = \text{round}(-128 - 127.5) = -255
+\text{zeropoint}_1 = \text{round}(-128 - \frac{1.0}{0.007843}) = \text{round}(-128 - 127.5) = -255
 $$  
 
 **Channel 2**:  
@@ -152,7 +149,7 @@ $$
 \text{scale}_2 = \frac{6.0 - 4.0}{255} = 0.007843
 $$  
 $$
-\text{zero\_point}_2 = \text{round}(-128 - \frac{4.0}{0.007843}) = \text{round}(-128 - 510) = -638
+\text{zeropoint}_2 = \text{round}(-128 - \frac{4.0}{0.007843}) = \text{round}(-128 - 510) = -638
 $$  
 
 #### Step 3: Quantize and Dequantize  
