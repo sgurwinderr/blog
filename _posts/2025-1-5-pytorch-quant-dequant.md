@@ -8,6 +8,53 @@ featured: false
 hidden: false
 ---
 
+### 1. **Quantization Overview**
+
+Quantization refers to mapping high-precision floating-point numbers (e.g., `float32`) into lower-precision formats such as integers (`int8`) or fixed-point numbers. This is done to minimize computational overhead and memory usage while maintaining acceptable accuracy.
+
+In PyTorch, quantization can be implemented at various stages:
+- **Static Quantization**: Applied after training using calibration.
+- **Dynamic Quantization**: Quantization parameters are computed during inference.
+- **Quantization-Aware Training (QAT)**: Simulates quantization during training for higher accuracy.
+
+---
+
+### 2. **Quantization Workflow in PyTorch**
+
+The quantization workflow typically involves three steps:
+1. **Prepare**: Modify the model to be ready for quantization by adding quantization-specific modules.
+2. **Calibrate**: Use representative input data to compute quantization parameters.
+3. **Convert**: Replace floating-point modules with quantized versions.
+
+---
+
+### 3. **Key Concepts in PyTorch Quantization**
+
+#### **Quantization Formula**
+
+Quantization maps a floating-point value \( x \) to an integer \( q \):
+
+$$
+q = \text{round}\left(\frac{x}{\text{scale}} + \text{zero\_point}\right)
+$$
+
+- **Scale**: Determines the step size between representable values.
+- **Zero Point**: Ensures that zero in floating-point maps to zero in quantized values.
+- \( q \) lies in the range \([q_\text{min}, q_\text{max}]\).
+
+#### **Dequantization Formula**
+
+To recover the original value:
+
+$$
+\hat{x} = \text{scale} \cdot (q - \text{zero\_point})
+$$
+
+Dequantization is typically performed after computations to interpret quantized results.
+
+---
+
+
 ### Example Tensor
 
 Given weights tensor (2 channels):  
@@ -26,8 +73,10 @@ Integer range: \([-128, 127]\)
 ### Per-Tensor Quantization
 
 #### Step 1: Compute Global Min/Max
-- Global Min: \(x_{\text{min}} = 1.0\)  
-- Global Max: \(x_{\text{max}} = 6.0\)  
+$$
+- Global Min: \text{min} = 1.0
+- Global Max: \text{max} = 6.0 
+$$
 
 #### Step 2: Compute Scale and Zero Point
 $$
@@ -143,7 +192,7 @@ In this case, the error is **0 for all values**, as the quantization was exact f
 
 ### Comparison
 
-| Metric                     | Per-Tensor Quantization | Per-Channel Quantization |  
+| Metric                     | Per-Tensor              | Per-Channel              |  
 |----------------------------|-------------------------|--------------------------|  
 | **Scale**                  | 0.01961                | [0.007843, 0.007843]     |  
 | **Zero Point**             | -180                   | [-255, -638]            |  
@@ -153,58 +202,6 @@ In this case, the error is **0 for all values**, as the quantization was exact f
 
 This example shows that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
 
-
-### Quantization and Dequantization in PyTorch: A Technical Overview
-
-Quantization and dequantization are essential techniques in deep learning to optimize models for resource-constrained environments like mobile devices and edge computing platforms. These methods enable efficient inference by reducing model size and accelerating computations.
-
----
-
-### 1. **Quantization Overview**
-
-Quantization refers to mapping high-precision floating-point numbers (e.g., `float32`) into lower-precision formats such as integers (`int8`) or fixed-point numbers. This is done to minimize computational overhead and memory usage while maintaining acceptable accuracy.
-
-In PyTorch, quantization can be implemented at various stages:
-- **Static Quantization**: Applied after training using calibration.
-- **Dynamic Quantization**: Quantization parameters are computed during inference.
-- **Quantization-Aware Training (QAT)**: Simulates quantization during training for higher accuracy.
-
----
-
-### 2. **Quantization Workflow in PyTorch**
-
-The quantization workflow typically involves three steps:
-1. **Prepare**: Modify the model to be ready for quantization by adding quantization-specific modules.
-2. **Calibrate**: Use representative input data to compute quantization parameters.
-3. **Convert**: Replace floating-point modules with quantized versions.
-
----
-
-### 3. **Key Concepts in PyTorch Quantization**
-
-#### **Quantization Formula**
-
-Quantization maps a floating-point value \( x \) to an integer \( q \):
-
-\[
-q = \text{round}\left(\frac{x - \text{zero\_point}}{\text{scale}}\right)
-\]
-
-- **Scale**: Determines the step size between representable values.
-- **Zero Point**: Ensures that zero in floating-point maps to zero in quantized values.
-- \( q \) lies in the range \([q_\text{min}, q_\text{max}]\).
-
-#### **Dequantization Formula**
-
-To recover the original value:
-
-\[
-x = q \cdot \text{scale} + \text{zero\_point}
-\]
-
-Dequantization is typically performed after computations to interpret quantized results.
-
----
 
 ### 4. **Quantization Types**
 
