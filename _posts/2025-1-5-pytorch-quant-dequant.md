@@ -17,7 +17,7 @@ In PyTorch, quantization can be implemented at various stages:
 
 ---
 
-### 1. **Key Concepts in Quantization**
+### **Key Concepts in Quantization**
 
 #### **Quantization Formula**
 
