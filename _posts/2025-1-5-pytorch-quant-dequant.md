@@ -47,14 +47,18 @@ Dequantization is typically performed after computations to interpret quantized 
 
 ### Example Tensor
 
-Given weights tensor (2 channels):  
+Given weights tensor (2 channels):
+
+
 $$
 \text{Weights} = 
 \begin{bmatrix} 
 1.0 & 2.0 & 3.0 \\ 
 4.0 & 5.0 & 6.0 
 \end{bmatrix}
-$$  
+$$
+
+
 Shape: \([2, 3]\)  
 Integer range: \([-128, 127]\)
 
@@ -83,15 +87,16 @@ $$
 The scale of 0.01961 means each step in the quantized integer domain corresponds to an increment of 0.01961 in the floating-point domain.
 
 
-
-The zero point is calculated to ensure that the floating-point zero maps to an integer value within the quantized range:
 $$
 \text{zeropoint} = \text{round}(-128 - \frac{x_{\text{min}}}{\text{scale}}) = \text{round}(-128 - \frac{1.0}{0.01961}) = \text{round}(-179.99) = -180
 $$
+
+
 The zero point of −180 ensures that 0.0 in the floating-point domain maps to an integer value of −180.
 
 #### Step 3: Quantize
 Apply the quantization formula:  
+
 $$
 q = \text{round}\left(\frac{x}{\text{scale}} + \text{zeropoint}\right)
 $$
@@ -120,7 +125,7 @@ $$
 
 Dequantized values:  
 $$
-\begin{aligned}  
+\begin{aligned}
 
 \hat{x}(0) &= 0.01961 \cdot (0 - (-180)) = 1.0 \\
 
@@ -140,10 +145,12 @@ $$
 #### Quantization Error
 Quantization error is the difference between the original floating-point value and its quantized approximation. It arises because a finite set of integers cannot perfectly represent an infinite set of floating-point numbers.
 
-Quantization error is:  
+Quantization error is:
+
 $$
 \text{Error} = x - \hat{x}
 $$  
+
 For per-tensor quantization in this case, the error is **0 for all values**, as the range is perfectly covered.
 
 ---
@@ -164,6 +171,7 @@ Per-channel quantization is a quantization technique where each channel of a ten
 #### Step 2: Compute Scale and Zero Point for Each Channel
 
 **Channel 1**:  
+
 $$
 \text{scale}_1 = \frac{3.0 - 1.0}{255} = 0.007843
 $$
@@ -174,6 +182,7 @@ $$
 $$  
 
 **Channel 2**:  
+
 $$
 \text{scale}_2 = \frac{6.0 - 4.0}{255} = 0.007843
 $$
@@ -186,52 +195,43 @@ $$
 #### Step 3: Quantize and Dequantize  
 
 **Channel 1** Quantized Values:  
+
 $$
 q(1.0) = \text{round}\left(\frac{1.0}{0.007843} + 255\right) = 127 \\
 
-
 q(2.0) = \text{round}\left(\frac{2.0}{0.007843} + 255\right) = 255 \\
 
-
 q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383
-
-
 $$  
 
 **Channel 1** Dequantized Values:  
 $$
 \hat{x}(127) = 0.007843 \cdot (127 - 255) = 1.0 \\
 
-
 \hat{x}(255) = 0.007843 \cdot (255 - 255) = 2.0 \\ 
-
 
 \hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0
 
 $$  
 
 **Channel 2** Quantized Values:  
+
 $$
 q(4.0) = \text{round}\left(\frac{4.0}{0.007843} + 638\right) = 510 \\
 
-
 q(5.0) = \text{round}\left(\frac{5.0}{0.007843} + 638\right) = 766 \\ 
 
-
 q(6.0) = \text{round}\left(\frac{6.0}{0.007843} + 638\right) = 1022
-
 $$  
 
-**Channel 2** Dequantized Values:  
+**Channel 2** Dequantized Values:
+
 $$
 \hat{x}(510) = 0.007843 \cdot (510 - 638) = 4.0 \\ 
 
-
 \hat{x}(766) = 0.007843 \cdot (766 - 638) = 5.0 \\  
 
-
 \hat{x}(1022) = 0.007843 \cdot (1022 - 638) = 6.0
-
 $$  
 
 #### Quantization Error
