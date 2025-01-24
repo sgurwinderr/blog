@@ -118,6 +118,16 @@ q(6.0) = \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0
 \end{align}
 $$
 
+So this transformed floating-point values (‘float32’) into lower-precision formats 8-bit integers (‘int8’)
+
+$$
+\text{Weights} = 
+\begin{bmatrix} 
+0 & 51 & 102 \\ 
+153 & 204 & 255 
+\end{bmatrix}
+$$
+
 #### Step 4: Dequantize
 Dequantization reverses this process, converting the integer values back to floating-point approximations. Together, quantization and dequantization enable efficient computations without significantly compromising model accuracy.
 
@@ -128,6 +138,7 @@ $$
 Dequantized values:
 
 $$
+\begin{align}
 \hat{x}(0) = 0.01961 \cdot (0 - (-180)) = 1.0 \\
 \\
 \hat{x}(51) = 0.01961 \cdot (51 - (-180)) = 2.0 \\
@@ -139,6 +150,7 @@ $$
 \hat{x}(204) = 0.01961 \cdot (204 - (-180)) = 5.0 \\ 
 \\
 \hat{x}(255) = 0.01961 \cdot (255 - (-180)) = 6.0
+\end{align}
 $$
 
 #### Quantization Error
@@ -196,49 +208,49 @@ $$
 **Channel 1** Quantized Values:  
 
 $$
+\begin{align}
 q(1.0) = \text{round}\left(\frac{1.0}{0.007843} + 255\right) = 127 \\
-
-
+\\
 q(2.0) = \text{round}\left(\frac{2.0}{0.007843} + 255\right) = 255 \\
-
-
+\\
 q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383
+\end{align}
 $$  
 
 **Channel 1** Dequantized Values:
 
 $$
+\begin{align}
 \hat{x}(127) = 0.007843 \cdot (127 - 255) = 1.0 \\
-
-
+\\
 \hat{x}(255) = 0.007843 \cdot (255 - 255) = 2.0 \\ 
-
-
+\\
 \hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0
+\end{align}
 $$  
 
 **Channel 2** Quantized Values:  
 
 $$
+\begin{align}
 q(4.0) = \text{round}\left(\frac{4.0}{0.007843} + 638\right) = 510 \\
-
-
+\\
 q(5.0) = \text{round}\left(\frac{5.0}{0.007843} + 638\right) = 766 \\ 
-
-
+\\
 q(6.0) = \text{round}\left(\frac{6.0}{0.007843} + 638\right) = 1022
+\end{align}
 $$  
 
 **Channel 2** Dequantized Values:
 
 $$
+\begin{align}
 \hat{x}(510) = 0.007843 \cdot (510 - 638) = 4.0 \\ 
-
-
+\\
 \hat{x}(766) = 0.007843 \cdot (766 - 638) = 5.0 \\  
-
-
+\\
 \hat{x}(1022) = 0.007843 \cdot (1022 - 638) = 6.0
+\end{align}
 $$  
 
 #### Quantization Error
