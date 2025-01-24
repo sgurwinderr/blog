@@ -106,20 +106,15 @@ Quantized values:
 
 $$
 q(1.0) = \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\
-
-
+\\
 q(2.0) = \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\
-
-
+\\
 q(3.0) = \text{round}\left(\frac{3.0}{0.01961} - 180\right) = \text{round}(102.04) = 102 \\
-
-
+\\
 q(4.0) = \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.06) = 153 \\
-
-
+\\
 q(5.0) = \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\
-
-
+\\
 q(6.0) = \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255
 $$
 
@@ -134,20 +129,15 @@ Dequantized values:
 
 $$
 \hat{x}(0) = 0.01961 \cdot (0 - (-180)) = 1.0 \\
-
-
+\\
 \hat{x}(51) = 0.01961 \cdot (51 - (-180)) = 2.0 \\
-
-
+\\
 \hat{x}(102) = 0.01961 \cdot (102 - (-180)) = 3.0 \\
-
-
+\\
 \hat{x}(153) = 0.01961 \cdot (153 - (-180)) = 4.0 \\
-
-
+\\
 \hat{x}(204) = 0.01961 \cdot (204 - (-180)) = 5.0 \\ 
-
-
+\\
 \hat{x}(255) = 0.01961 \cdot (255 - (-180)) = 6.0
 $$
 
