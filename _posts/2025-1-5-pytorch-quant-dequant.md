@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Quantization and Dequantization in PyTorch"
+title:  "From Theory to Practice: Quantization and Dequantization Made Simple"
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/pytorch-2.0-compiler.jpg
@@ -102,17 +102,23 @@ $$
 q = \text{round}\left(\frac{x}{\text{scale}} + \text{zeropoint}\right)
 $$
 
-Quantized values:  
+Quantized values:
+
 $$
 q(1.0) = \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\
 
+
 q(2.0) = \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\
+
 
 q(3.0) = \text{round}\left(\frac{3.0}{0.01961} - 180\right) = \text{round}(102.04) = 102 \\
 
+
 q(4.0) = \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.06) = 153 \\
 
+
 q(5.0) = \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\
+
 
 q(6.0) = \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255
 $$
@@ -124,17 +130,23 @@ $$
 \hat{x} = \text{scale} \cdot (q - \text{zeropoint})
 $$
 
-Dequantized values:  
+Dequantized values:
+
 $$
 \hat{x}(0) = 0.01961 \cdot (0 - (-180)) = 1.0 \\
 
+
 \hat{x}(51) = 0.01961 \cdot (51 - (-180)) = 2.0 \\
+
 
 \hat{x}(102) = 0.01961 \cdot (102 - (-180)) = 3.0 \\
 
+
 \hat{x}(153) = 0.01961 \cdot (153 - (-180)) = 4.0 \\
 
+
 \hat{x}(204) = 0.01961 \cdot (204 - (-180)) = 5.0 \\ 
+
 
 \hat{x}(255) = 0.01961 \cdot (255 - (-180)) = 6.0
 $$
@@ -196,7 +208,9 @@ $$
 $$
 q(1.0) = \text{round}\left(\frac{1.0}{0.007843} + 255\right) = 127 \\
 
+
 q(2.0) = \text{round}\left(\frac{2.0}{0.007843} + 255\right) = 255 \\
+
 
 q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383
 $$  
@@ -206,7 +220,9 @@ $$
 $$
 \hat{x}(127) = 0.007843 \cdot (127 - 255) = 1.0 \\
 
+
 \hat{x}(255) = 0.007843 \cdot (255 - 255) = 2.0 \\ 
+
 
 \hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0
 $$  
@@ -216,7 +232,9 @@ $$
 $$
 q(4.0) = \text{round}\left(\frac{4.0}{0.007843} + 638\right) = 510 \\
 
+
 q(5.0) = \text{round}\left(\frac{5.0}{0.007843} + 638\right) = 766 \\ 
+
 
 q(6.0) = \text{round}\left(\frac{6.0}{0.007843} + 638\right) = 1022
 $$  
@@ -226,7 +244,9 @@ $$
 $$
 \hat{x}(510) = 0.007843 \cdot (510 - 638) = 4.0 \\ 
 
+
 \hat{x}(766) = 0.007843 \cdot (766 - 638) = 5.0 \\  
+
 
 \hat{x}(1022) = 0.007843 \cdot (1022 - 638) = 6.0
 $$  
