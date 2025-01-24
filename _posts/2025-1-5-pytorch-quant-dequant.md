@@ -62,6 +62,8 @@ Integer range: \([-128, 127]\)
 
 ![walking]({{ site.baseurl }}/assets/images/quant1.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
+---
+
 ### Per-Tensor Quantization
 
 We will quantize a tensor of weights into an 8-bit integer range ([128,127]). This method works well for tensors where the values across all channels share a similar dynamic range. However, if each channel has distinct ranges, this approach may lead to significant quantization errors.
