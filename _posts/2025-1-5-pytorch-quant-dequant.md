@@ -3,7 +3,7 @@ layout: post
 title:  "From Theory to Practice: Quantization and Dequantization Made Simple"
 author: Gurwinder
 categories: [ AI ]
-image: assets/images/pytorch-2.0-compiler.jpg
+image: assets/images/quant2.png
 featured: false
 hidden: false
 ---
@@ -347,8 +347,6 @@ print(dq_channel)
 
 
 This example shows that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
-
-![walking]({{ site.baseurl }}/assets/images/quant2.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
 ---
 
