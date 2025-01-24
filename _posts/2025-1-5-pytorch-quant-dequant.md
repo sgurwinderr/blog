@@ -8,8 +8,6 @@ featured: false
 hidden: false
 ---
 
-### 1. **Quantization Overview**
-
 Quantization transforms floating-point values (‘float32’) into lower-precision formats, such as 8-bit integers (‘int8’), while attempting to preserve the numerical range and accuracy of the original data. This reduces memory usage and computation time.
 
 In PyTorch, quantization can be implemented at various stages:
@@ -19,7 +17,7 @@ In PyTorch, quantization can be implemented at various stages:
 
 ---
 
-### 2. **Key Concepts in Quantization**
+### 1. **Key Concepts in Quantization**
 
 #### **Quantization Formula**
 
@@ -105,6 +103,7 @@ $$
 Quantized values:
 
 $$
+\begin{align}
 q(1.0) = \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\
 \\
 q(2.0) = \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\
@@ -116,6 +115,7 @@ q(4.0) = \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.0
 q(5.0) = \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\
 \\
 q(6.0) = \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255
+\end{align}
 $$
 
 #### Step 4: Dequantize
@@ -333,13 +333,14 @@ print(dq_channel)
 | **Zero Point**             | -180                   | [-255, -638]            |  
 | **Quantization Error**     | 0 for all values       | 0 for all values        |  
 
----
 
 This example shows that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
 
 ![walking]({{ site.baseurl }}/assets/images/quant2.png){:style="display:block; margin-left:auto; margin-right:auto"}
 
-### 4. **Quantization Types**
+---
+
+### **Quantization Types**
 
 #### a. **Static Quantization**
 - Weights and activations are quantized.
@@ -425,27 +426,12 @@ quantized_model = quant.convert(prepared_model)
 
 ---
 
-### 5. **Practical Considerations**
+### **Practical Considerations**
 
 1. **Calibration Data**: The representativeness of calibration data directly impacts quantization accuracy.
 2. **Hardware Support**: Quantized models must be deployed on hardware that supports integer arithmetic (e.g., ARM, NVIDIA, Intel).
 3. **Accuracy vs. Efficiency**: Quantization may lead to accuracy loss. Techniques like QAT can mitigate this.
 
----
-
-### 6. **Quantization with Custom Layers**
-
-PyTorch allows custom handling of quantization for user-defined layers by overriding `quantize()` and `dequantize()` methods or providing custom observers.
-
-**Example**:
-```python
-class CustomLayer(torch.nn.Module):
-    def forward(self, x):
-        return x * 2
-
-# Define custom quantization observer
-observer = torch.quantization.MinMaxObserver()
-```
 
 ---
 
