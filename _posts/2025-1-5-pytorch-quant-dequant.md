@@ -17,7 +17,7 @@ In PyTorch, quantization can be implemented at various stages:
 
 ---
 
-### **Key Concepts in Quantization**
+### 1. **Key Concepts in Quantization**
 
 #### **Quantization Formula**
 
@@ -43,7 +43,7 @@ $$
 
 Dequantization is typically performed after computations to interpret quantized results.
 
-### Example Tensor
+### 2. Example Tensor for Quantization Per Tensor and Quantization Per Channel
 
 Given weights tensor (2 channels):
 
@@ -64,7 +64,7 @@ Integer range: \([-128, 127]\)
 
 ---
 
-### Per-Tensor Quantization
+### 2.1 Per-Tensor Quantization
 
 We will quantize a tensor of weights into an 8-bit integer range ([128,127]). This method works well for tensors where the values across all channels share a similar dynamic range. However, if each channel has distinct ranges, this approach may lead to significant quantization errors.
 
@@ -168,7 +168,7 @@ For per-tensor quantization in this case, the error is **0 for all values**, as 
 
 ---
 
-### Per-Channel Quantization
+### 2.2 Per-Channel Quantization
 
 Per-channel quantization is a quantization technique where each channel of a tensor (e.g., in a convolutional layer) is quantized using its own unique scale and zero point, rather than applying a single shared scale and zero point across the entire tensor (as in per-tensor quantization).
 
@@ -262,7 +262,7 @@ In this case, the error is **0 for all values**, as the quantization was exact f
 
 ---
 
-### Code Snippet
+### 3. Code Snippet For Custom Quant and Dequant
 ```python
 import torch
 
@@ -343,16 +343,17 @@ print(dq_channel)
 
 | Metric                     | Per-Tensor              | Per-Channel              |  
 |----------------------------|-------------------------|--------------------------|  
-| **Scale**                  | 0.01961                | [0.007843, 0.007843]     |  
-| **Zero Point**             | -180                   | [-255, -638]            |  
-| **Quantization Error**     | 0 for all values       | 0 for all values        |  
+| **Scale**                  | 0.01961                | [0.007843, 0.007843]      |  
+| **Zero Point**             | -180                   | [-255, -638]              |  
+| **Quantization Error**     | 0                      | 0                         |  
 
 
-This example shows that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
+
+Although this example has error zero for both but if you try another shapes, you can see that **per-channel quantization** is more suitable for handling varying dynamic ranges across channels, reducing quantization errors significantly in practical scenarios.
 
 ---
 
-### **Quantization Types**
+### 4. **Quantization Types**
 
 #### a. **Static Quantization**
 - Weights and activations are quantized.
@@ -438,7 +439,7 @@ quantized_model = quant.convert(prepared_model)
 
 ---
 
-### **Practical Considerations**
+### 5. **Practical Considerations**
 
 1. **Calibration Data**: The representativeness of calibration data directly impacts quantization accuracy.
 2. **Hardware Support**: Quantized models must be deployed on hardware that supports integer arithmetic (e.g., ARM, NVIDIA, Intel).
@@ -449,4 +450,4 @@ quantized_model = quant.convert(prepared_model)
 
 ### Conclusion
 
-Quantization in PyTorch is a powerful tool for optimizing models for deployment in real-world applications. By choosing the right quantization strategy (static, dynamic, or QAT) and leveraging PyTorch's comprehensive APIs, practitioners can balance the trade-off between efficiency and accuracy effectively.
+Quantization and dequantization are vital tools for making machine learning models efficient and deployable on resource-constrained devices. By understanding and implementing these techniques in PyTorch, you can leverage their power to optimize models for real-world applications while maintaining acceptable accuracy.
