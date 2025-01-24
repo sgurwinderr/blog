@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "(Draft) Quantization and Dequantization in PyTorch: A Technical Overview"
+title:  "Quantization and Dequantization in PyTorch"
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/pytorch-2.0-compiler.jpg
@@ -68,10 +68,10 @@ Integer range: \([-128, 127]\)
 
 We will quantize a tensor of weights into an 8-bit integer range ([128,127]). This method works well for tensors where the values across all channels share a similar dynamic range. However, if each channel has distinct ranges, this approach may lead to significant quantization errors.
 
-* Global Min/Max: The minimum and maximum values across the entire tensor are computed. These values define the dynamic range for quantization.
-* Scale and Zero Point: The scale represents the step size for quantization, and the zero point determines the integer value corresponding to the minimum floating-point value. The formulas for computing scale and zero point ensure that the mapping is linear and reversible.
-* Quantization: Each floating-point value is converted to an integer using the quantization formula, maintaining the relative spacing between values.
-* Dequantization: The integers are mapped back to floating-point values using the inverse of the quantization formula.
+* **Global Min/Max**: The minimum and maximum values across the entire tensor are computed. These values define the dynamic range for quantization.
+* **Scale and Zero Point**: The scale represents the step size for quantization, and the zero point determines the integer value corresponding to the minimum floating-point value. The formulas for computing scale and zero point ensure that the mapping is linear and reversible.
+* **Quantization**: Each floating-point value is converted to an integer using the quantization formula, maintaining the relative spacing between values.
+* **Dequantization**: The integers are mapped back to floating-point values using the inverse of the quantization formula.
 
 
 #### Step 1: Compute Global Min/Max
@@ -80,6 +80,7 @@ We will quantize a tensor of weights into an 8-bit integer range ([128,127]). Th
 
 #### Step 2: Compute Scale and Zero Point
 The scale is calculated as:
+
 $$
 \text{scale} = \frac{x_{\text{max}} - x_{\text{min}}}{q_{\text{max}} - q_{\text{min}}} = \frac{6.0 - 1.0}{255} = 0.01961
 $$
@@ -103,43 +104,39 @@ $$
 
 Quantized values:  
 $$
-\begin{aligned}  
-q(1.0) &= \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\
+q(1.0) = \text{round}\left(\frac{1.0}{0.01961} - 180\right) = \text{round}(0) = 0 \\
 
-q(2.0) &= \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\
+q(2.0) = \text{round}\left(\frac{2.0}{0.01961} - 180\right) = \text{round}(51.02) = 51 \\
 
-q(3.0) &= \text{round}\left(\frac{3.0}{0.01961} - 180\right) = \text{round}(102.04) = 102 \\
+q(3.0) = \text{round}\left(\frac{3.0}{0.01961} - 180\right) = \text{round}(102.04) = 102 \\
 
-q(4.0) &= \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.06) = 153 \\
+q(4.0) = \text{round}\left(\frac{4.0}{0.01961} - 180\right) = \text{round}(153.06) = 153 \\
 
-q(5.0) &= \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\
+q(5.0) = \text{round}\left(\frac{5.0}{0.01961} - 180\right) = \text{round}(204.08) = 204 \\
 
-q(6.0) &= \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255  
-\end{aligned}
+q(6.0) = \text{round}\left(\frac{6.0}{0.01961} - 180\right) = \text{round}(255.0) = 255
 $$
 
 #### Step 4: Dequantize
+Dequantization reverses this process, converting the integer values back to floating-point approximations. Together, quantization and dequantization enable efficient computations without significantly compromising model accuracy.
+
 $$
 \hat{x} = \text{scale} \cdot (q - \text{zeropoint})
 $$
 
 Dequantized values:  
 $$
-\begin{aligned}
+\hat{x}(0) = 0.01961 \cdot (0 - (-180)) = 1.0 \\
 
-\hat{x}(0) &= 0.01961 \cdot (0 - (-180)) = 1.0 \\
+\hat{x}(51) = 0.01961 \cdot (51 - (-180)) = 2.0 \\
 
-\hat{x}(51) &= 0.01961 \cdot (51 - (-180)) = 2.0 \\
+\hat{x}(102) = 0.01961 \cdot (102 - (-180)) = 3.0 \\
 
-\hat{x}(102) &= 0.01961 \cdot (102 - (-180)) = 3.0 \\
+\hat{x}(153) = 0.01961 \cdot (153 - (-180)) = 4.0 \\
 
-\hat{x}(153) &= 0.01961 \cdot (153 - (-180)) = 4.0 \\
+\hat{x}(204) = 0.01961 \cdot (204 - (-180)) = 5.0 \\ 
 
-\hat{x}(204) &= 0.01961 \cdot (204 - (-180)) = 5.0 \\ 
-
-\hat{x}(255) &= 0.01961 \cdot (255 - (-180)) = 6.0 
-
-\end{aligned}
+\hat{x}(255) = 0.01961 \cdot (255 - (-180)) = 6.0
 $$
 
 #### Quantization Error
@@ -159,10 +156,10 @@ For per-tensor quantization in this case, the error is **0 for all values**, as 
 
 Per-channel quantization is a quantization technique where each channel of a tensor (e.g., in a convolutional layer) is quantized using its own unique scale and zero point, rather than applying a single shared scale and zero point across the entire tensor (as in per-tensor quantization).
 
-* Channel-Wise Min/Max: The minimum and maximum values are computed separately for each channel.
-* Channel-Wise Scale and Zero Point: Each channel gets its own scale and zero point, allowing better handling of varying dynamic ranges.
-* Quantization and Dequantization: Each channel is quantized and dequantized using its respective scale and zero point.
-* Error: The quantization error is also 0 in this case, as the independent channel-wise computation ensures accurate mapping.
+* **Channel-Wise Min/Max**: The minimum and maximum values are computed separately for each channel.
+* **Channel-Wise Scale and Zero Point**: Each channel gets its own scale and zero point, allowing better handling of varying dynamic ranges.
+* **Quantization and Dequantization**: Each channel is quantized and dequantized using its respective scale and zero point.
+* **Error**: The quantization error is also 0 in this case, as the independent channel-wise computation ensures accurate mapping.
 
 #### Step 1: Compute Min/Max for Each Channel
 - Channel 1: \([1.0, 2.0, 3.0]\), Min = \(1.0\), Max = \(3.0\)  
@@ -204,14 +201,14 @@ q(2.0) = \text{round}\left(\frac{2.0}{0.007843} + 255\right) = 255 \\
 q(3.0) = \text{round}\left(\frac{3.0}{0.007843} + 255\right) = 383
 $$  
 
-**Channel 1** Dequantized Values:  
+**Channel 1** Dequantized Values:
+
 $$
 \hat{x}(127) = 0.007843 \cdot (127 - 255) = 1.0 \\
 
 \hat{x}(255) = 0.007843 \cdot (255 - 255) = 2.0 \\ 
 
 \hat{x}(383) = 0.007843 \cdot (383 - 255) = 3.0
-
 $$  
 
 **Channel 2** Quantized Values:  
