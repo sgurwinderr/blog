@@ -4,7 +4,7 @@ title:  "Deep Learning for Graphics Programmers: Performing Tensor Operations wi
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/DirectML-Platform.png
-featured: true
+featured: false
 hidden: false
 ---
 

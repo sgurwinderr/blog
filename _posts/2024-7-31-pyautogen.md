@@ -4,7 +4,7 @@ title:  "Code, Run, Debug on AutoPilot: Let Your Local Llama Do All Your Heavy L
 author: Gurwinder
 categories: [ AI ]
 image: assets/images/llama.jpg
-featured: true
+featured: false
 hidden: false
 ---
 

@@ -16,9 +16,9 @@ When dealing with symmetric and positive-definite matrices, **Cholesky decomposi
 
 Cholesky decomposition is a method to factor a **symmetric positive-definite matrix** \( A \) into the product of a **lower triangular matrix** \( L \) and its **transpose** \( L^T \), as shown:
 
-\[
+$$
 A = L \cdot L^T
-\]
+$$
 
 If \( A \) is a **complex** matrix, the transpose \( L^T \) is replaced by the **conjugate transpose** \( L^H \).
 
@@ -35,9 +35,9 @@ Cholesky decomposition is unique, which makes it particularly useful for a varie
 The intuition behind Cholesky decomposition is that it simplifies working with symmetric matrices by breaking them down into simpler, triangular matrices. The core idea is:
 
 - A symmetric positive-definite matrix \( A \) can be thought of as representing a quadratic form, i.e., a scalar function of vector inputs:
-  \[
+  $$
   x^T A x
-  \]
+  $$
   where \( x \) is a vector.
   
 - Cholesky decomposition provides an efficient way to rewrite this quadratic form in terms of a simpler triangular matrix \( L \), which reduces complexity when solving linear systems.
@@ -46,9 +46,9 @@ The intuition behind Cholesky decomposition is that it simplifies working with s
 
 Consider the matrix \( A \). Instead of performing direct matrix operations on \( A \), the Cholesky decomposition transforms \( A \) into a simpler triangular matrix \( L \), such that:
 
-\[
+$$
 L \cdot L^T = A
-\]
+$$
 
 This decomposition provides several computational benefits, such as reducing the time complexity of matrix operations from \( O(n^3) \) to \( O(n^2) \). This speedup makes Cholesky decomposition attractive in algorithms where performance is critical, such as optimization or solving linear equations.
 
@@ -62,14 +62,25 @@ Cholesky decomposition is widely used in several real-world applications, partic
 
 One of the most practical uses of Cholesky decomposition is solving systems of linear equations of the form:
 
-\[
+$$
 A x = b
-\]
+$$
 
 Where \( A \) is a symmetric positive-definite matrix, and \( b \) is a vector of constants. Instead of directly solving this equation, we can use Cholesky decomposition to reduce the computational complexity. The steps are:
-- Decompose \( A \) into \( L \cdot L^T \).
-- Solve \( L y = b \) for \( y \).
-- Solve \( L^T x = y \) for \( x \).
+1. Decompose:  
+   $$
+   A = L \cdot L^T
+   $$
+   
+2. Solve this equation:  
+   $$
+   L y = b
+   $$
+
+3. Then Solve this equation:  
+   $$
+   L^T x = y
+   $$
 
 Since \( L \) is a triangular matrix, solving these equations is computationally efficient.
 
