@@ -44,6 +44,8 @@ To understand what's really happening, I set up a controlled experiment using re
 
 **Why these dimensions matter**: 512×64 attention matrices fit comfortably in shared memory (256KB for Q, K, V combined), allowing us to see pure computational differences rather than memory-bound behavior.
 
+---
+
 ## Configuration 1: The Surprising Winner
 #### All Flags Disabled → CUDNN Takes Over
 
@@ -260,6 +262,7 @@ Here's how all four configurations stack up:
 | **Memory Efficient** | 29.58μs | **11.0x faster** | Memory-constrained scenarios |
 | **Math-based** | 1,631μs | 1.0x (baseline) | Debugging and research |
 
+---
 
 ### What This Means for Your Models
 
