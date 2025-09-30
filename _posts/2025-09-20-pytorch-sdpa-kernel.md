@@ -14,7 +14,7 @@ If you've ever wondered why your transformer model sometimes runs faster or slow
 
 Today, we're going to peek under the hood and see exactly which kernels PyTorch uses, how they perform, and when you should care about each one.
 
-## The Secret Configuration That Changes Everything
+### The Secret Configuration That Changes Everything
 
 PyTorch gives you control over which attention implementation to use through a seemingly simple function:
 
@@ -28,7 +28,7 @@ torch.backends.cuda.sdp_kernel(
 
 But what actually happens when you flip these switches? Let's find out through systematic profiling.
 
-## The Experiment: Profiling Real Attention Kernels
+### The Experiment: Profiling Real Attention Kernels
 
 To understand what's really happening, I set up a controlled experiment using realistic transformer dimensions:
 
@@ -45,7 +45,7 @@ To understand what's really happening, I set up a controlled experiment using re
 **Why these dimensions matter**: 512×64 attention matrices fit comfortably in shared memory (256KB for Q, K, V combined), allowing us to see pure computational differences rather than memory-bound behavior.
 
 ## Configuration 1: The Surprising Winner
-### All Flags Disabled → CUDNN Takes Over
+#### All Flags Disabled → CUDNN Takes Over
 
 ```python
 torch.backends.cuda.sdp_kernel(
@@ -82,8 +82,10 @@ The CUDNN kernel uses a sophisticated tiling strategy:
 
 **Why it's optimized**: NVIDIA's CUDNN engineers have access to internal GPU architecture details and can optimize for specific instruction scheduling, memory controller behavior, and even thermal characteristics that aren't publicly documented.
 
+---
+
 ## Configuration 2: The Popular Choice
-### FlashAttention — Fast and Well-Known
+#### FlashAttention — Fast and Well-Known
 
 ```python
 torch.backends.cuda.sdp_kernel(
@@ -129,8 +131,10 @@ Tile dimensions breakdown:
 
 **Scaling characteristics**: While only 8% slower at 512 tokens, FlashAttention's O(N) memory complexity vs traditional O(N²) becomes dominant at longer sequences. At 4K tokens, traditional attention would require 64MB just for the attention matrix, while FlashAttention needs <1MB.
 
+---
+
 ## Configuration 3: Math Backend
-### Traditional Math-Based Attention
+#### Traditional Math-Based Attention
 
 ```python
 torch.backends.cuda.sdp_kernel(
@@ -184,8 +188,10 @@ Overhead: Kernel launches (40 kernels, ~677.54μs)
 
 **When to use it:** Debugging, research, or when you need to understand exactly what each step is doing. Performance is not the goal here.
 
+---
+
 ## Configuration 4: The Memory Saver
-### When Every Byte Counts
+#### When Every Byte Counts
 
 ```python
 torch.backends.cuda.sdp_kernel(
@@ -241,7 +247,9 @@ Total: 19KB vs 49KB (FlashAttention) vs 40KB (CUDNN)
 - Memory-efficient: O(N) memory with constant small factors
 - Crossover point: ~1024 tokens where memory efficiency dominates
 
-## The Verdict: Performance vs. Purpose
+---
+
+## Performance vs. Purpose
 
 Here's how all four configurations stack up:
 
@@ -252,7 +260,8 @@ Here's how all four configurations stack up:
 | **Memory Efficient** | 29.58μs | **11.0x faster** | Memory-constrained scenarios |
 | **Math-based** | 1,631μs | 1.0x (baseline) | Debugging and research |
 
-## What This Means for Your Models
+
+### What This Means for Your Models
 
 The takeaway isn't just "use the fastest option." Each configuration serves a different purpose:
 
@@ -264,24 +273,8 @@ The takeaway isn't just "use the fastest option." Each configuration serves a di
 
 **For understanding and debugging:** The math-based approach shows you exactly what's happening at each step, even if it's painfully slow.
 
-## The Bigger Picture: Why Kernel Choice Matters
 
-This analysis reveals something important about modern deep learning: **algorithm-level optimizations often matter more than hardware upgrades**. The 20x speedup between fused and unfused attention implementations is massive — equivalent to upgrading to a GPU that's 20 generations newer.
-
-### For ML Engineers:
-- Don't assume default settings are optimal for your use case
-- Profile your specific workload — these results are hardware and sequence-length dependent
-- Consider the memory/speed tradeoff when choosing batch sizes
-
-### For Researchers:
-- The math-based implementation isn't just slow; it's pedagogically valuable for understanding attention mechanics
-- FlashAttention's success isn't just about being "fast" — it's about fundamentally changing the memory access patterns
-
-### For Infrastructure Teams:
-- CUDNN's fallback performance shows the value of deep hardware integration
-- Different workloads may benefit from different kernel choices, so flexibility matters
-
-## Reproducing This Analysis
+### Reproducing This Analysis
 
 The complete profiling setup used NVIDIA's Nsight Systems profiler integrated with PyTorch's profiler. The key insight was looking at the actual kernel names and execution times, not just high-level timing measurements.
 
@@ -302,7 +295,7 @@ with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=False, enabl
 # Export and analyze the Chrome trace
 prof.export_chrome_trace("trace.json")
 ```
-
-## The Bottom Line
+---
+### The Bottom Line
 
 Whether you're optimizing inference latency, maximizing training throughput, or just trying to understand how attention actually works, knowing which kernel PyTorch chooses and why can make the difference between a model that crawls and one that flies.
