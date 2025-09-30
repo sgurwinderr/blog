@@ -2,7 +2,7 @@
 layout: post
 title:  "Under the Hood: How PyTorch Chooses Attention Kernels and Why It Matters for Performance"
 author: Gurwinder
-categories: [ AI ]
+categories: [ AI , Pytorch ]
 image: assets/images/sdpa.png
 featured: false
 hidden: false
