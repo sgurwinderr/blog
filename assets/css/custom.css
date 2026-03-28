@@ -593,23 +593,6 @@ body.search-open {
     font-weight: 500;
 }
 
-/* Comments link */
-.medium-comment-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.82rem;
-    color: rgba(0,0,0,.44);
-    text-decoration: none;
-    transition: color 0.15s;
-    padding: 2px 4px;
-}
-
-.medium-comment-btn:hover {
-    color: #038252;
-    text-decoration: none;
-}
-
 /* ── Featured Post Cards ───────────────────────────── */
 .featured-card {
     border-radius: 10px;
@@ -973,20 +956,6 @@ code {
     color: #999;
 }
 
-/* ── Disqus Comments ────────────────────────────────── */
-.disqus-wrapper {
-    padding: 40px 0 20px;
-    border-top: 1px solid #eee;
-    margin-top: 16px;
-}
-
-.disqus-title {
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: #333;
-    margin-bottom: 24px;
-}
-
 /* ── Dark mode toggle button ────────────────────────── */
 .nav-dark-btn {
     display: inline-flex;
@@ -1099,9 +1068,7 @@ code {
 [data-theme="dark"] .medium-read,
 [data-theme="dark"] .medium-dot { color: var(--dm-text-muted); }
 [data-theme="dark"] .medium-clap-btn,
-[data-theme="dark"] .medium-comment-btn { color: var(--dm-text-muted); }
 [data-theme="dark"] .medium-clap-btn:hover,
-[data-theme="dark"] .medium-comment-btn:hover { color: var(--dm-green); }
 [data-theme="dark"] .medium-follow-btn {
     color: var(--dm-green);
     border-color: var(--dm-green);
@@ -1167,10 +1134,6 @@ code {
     border-color: var(--dm-border) !important;
 }
 [data-theme="dark"] .share p { color: var(--dm-text-muted); }
-
-/* Disqus wrapper */
-[data-theme="dark"] .disqus-wrapper { border-top-color: var(--dm-border); }
-[data-theme="dark"] .disqus-title { color: var(--dm-heading); }
 
 /* Pagination */
 [data-theme="dark"] .page-btn,

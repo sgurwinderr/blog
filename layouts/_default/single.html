@@ -47,16 +47,7 @@
                                             </svg>
                                             <span class="clap-count" id="clap-count">0</span>
                                         </button>
-                                        <span class="medium-dot">·</span>
-                                        <!-- Comments scroll link -->
-                                        {{ if ne .Params.comments false }}
-                                        <a class="medium-comment-btn" href="#comments-section" aria-label="Comments">
-                                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7">
-                                                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-                                            </svg>
-                                            <span>Comments</span>
-                                        </a>
-                                        {{ end }}
+
                                     </div>
                                 </div>
                             </div>
@@ -100,10 +91,6 @@
         <!-- End Article -->
         {{- partial "single-partials/suggested-posts.html" . -}}
 
-        {{/* Show Disqus unless post explicitly sets comments: false */}}
-        {{ if ne .Params.comments false }}
-            {{- partial "single-partials/comments.html" . -}}
-        {{ end }}
     </div>
     {{- partial "_shared/alertbar.html" . -}}
 {{ end }}

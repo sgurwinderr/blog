@@ -14,10 +14,6 @@ enableEmoji = true
   term     = ["HTML"]
   page     = ["HTML"]
 
-# Disqus comments
-[services.disqus]
-  shortname = "sgurwinderr"
-
 # Google Analytics GA4
 [services.googleAnalytics]
   id = "G-KD3KXHFEQM"
