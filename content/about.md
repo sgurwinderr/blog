@@ -2,7 +2,7 @@
 title: "About Me"
 date: '2024-01-01T00:00:00Z'
 author: Gurwinder
-layout: page
+layout: clean
 comments: false
 ---
 <div style="text-align:center; margin-bottom:2rem;">

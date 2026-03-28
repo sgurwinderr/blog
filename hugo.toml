@@ -41,6 +41,11 @@ enableEmoji = true
 [pagination]
   pagerSize = 9
 
+[markup.tableOfContents]
+  startLevel = 2
+  endLevel = 4
+  ordered = false
+
 [markup.goldmark.renderer]
   unsafe = true
 
