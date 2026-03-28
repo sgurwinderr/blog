@@ -10,7 +10,8 @@
         {{ $regular := where $allPosts ".Params.featured" "!=" true }}
 
         <!-- Featured Posts (first page only) -->
-        {{ if $featured }}
+        {{ $post_paginator := $.Paginate $regular 6 }}
+        {{ if and $featured (eq $post_paginator.PageNumber 1) }}
         <section class="featured-posts mb-5">
             <div class="section-title">
                 <h2><span>Featured</span></h2>
@@ -29,7 +30,6 @@
                 <h2><span>All Stories</span></h2>
             </div>
             <div class="row listrecent" id="posts-grid">
-                {{ $post_paginator := $.Paginate $regular 6 }}
                 {{ range $post_paginator.Pages }}
                     {{- partial "list-partials/postbox.html" . -}}
                 {{ end }}
