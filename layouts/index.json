@@ -1,0 +1,15 @@
+{{- $posts := where site.RegularPages "Section" "post" -}}
+[
+{{- range $i, $post := $posts -}}
+{{- if $i }},{{ end }}
+{
+  "title":      {{ $post.Title | jsonify }},
+  "url":        {{ $post.Permalink | jsonify }},
+  "summary":    {{ $post.Summary | plainify | truncate 160 | jsonify }},
+  "categories": {{ $post.Params.categories | jsonify }},
+  "date":       {{ dateFormat "Jan 2, 2006" $post.PublishDate | jsonify }},
+  "readingTime": {{ $post.ReadingTime }},
+  "image":      {{ with $post.Params.image }}{{ printf "/%s" . | jsonify }}{{ else }}""{{ end }}
+}
+{{- end }}
+]

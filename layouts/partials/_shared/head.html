@@ -1,0 +1,58 @@
+<head data-baseurl="{{ .Site.BaseURL }}">
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<meta name="theme-color" content="#038252">
+	<!-- Apply dark mode before first paint to avoid flash -->
+	<script>
+		(function(){
+			var t=localStorage.getItem('color-scheme')||'light';
+			if(t==='dark')document.documentElement.setAttribute('data-theme','dark');
+		})();
+	</script>
+	{{ hugo.Generator }}
+	<!-- Google Analytics (injected only in production builds) -->
+	{{ template "_internal/google_analytics.html" . }}
+	{{ with .Site.Params.logo }}
+	<link rel="icon" href="{{ . | urlize | relURL }}">
+	{{ end }}
+	<title>{{ .Page.Title }} | {{ .Site.Title }}</title>
+	{{ with .Site.Params.meta.description }}<meta name="description" content="{{ . }}">{{ end }}
+	{{ with .Site.Params.meta.keywords }}<meta name="keywords" content="{{ . }}">{{ end }}
+
+	<!-- Safe OG/Twitter meta (avoids internal template summary byte-slice bug) -->
+	{{ $desc := "" }}
+	{{ if .Description }}
+		{{ $desc = .Description }}
+	{{ else if .IsPage }}
+		{{ $desc = .Content | plainify | truncate 200 }}
+	{{ else }}
+		{{ $desc = .Site.Params.description }}
+	{{ end }}
+	<meta property="og:title" content="{{ .Title }}" />
+	<meta property="og:description" content="{{ $desc }}" />
+	<meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}" />
+	<meta property="og:url" content="{{ .Permalink }}" />
+	{{ with .Params.image }}<meta property="og:image" content="{{ . | absURL }}" />{{ end }}
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="{{ .Title }}" />
+	<meta name="twitter:description" content="{{ $desc }}" />
+	{{ with .Params.image }}<meta name="twitter:image" content="{{ . | absURL }}" />{{ end }}
+
+	<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+	<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
+	<link href="https://fonts.googleapis.com/css?family=Righteous%7CMerriweather:300,300i,400,400i,700,700i" rel="stylesheet">
+
+	{{ $medium := resources.Get "/css/medium.css" | resources.Fingerprint }}
+	<link rel="stylesheet" href="{{ $medium.RelPermalink | absURL }}" integrity="{{ $medium.Data.Integrity }}">
+
+	{{ $additional := resources.Get "/css/additional.css" | resources.Fingerprint }}
+	<link rel="stylesheet" href="{{ $additional.RelPermalink | absURL }}" integrity="{{ $additional.Data.Integrity }}">
+
+	<!-- Custom css — minified & fingerprinted via Hugo Pipes -->
+	{{ range .Site.Params.customCSS -}}
+	{{ $stylePath := strings.TrimLeft "/" . }}
+	{{ $style := resources.Get $stylePath | resources.Minify | resources.Fingerprint }}
+	<link rel="stylesheet" href="{{ $style.RelPermalink }}" integrity="{{ $style.Data.Integrity }}" crossorigin="anonymous" media="screen">
+	{{- end }}
+</head>

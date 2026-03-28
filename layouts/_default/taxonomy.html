@@ -1,0 +1,24 @@
+{{ define "header"}}
+    {{- partial "_shared/navbar.html" . -}}
+{{ end }}
+
+{{ define "main" }}
+    <div class="main-content">
+        <section class="recent-posts">
+            <div class="section-title">
+                <h2><span>{{ .Title }}</span></h2>
+            </div>
+            <div class="row listrecent">
+                {{ $post_paginator := .Paginate .Pages 6 }}
+                {{ range $post_paginator.Pages }}
+                    {{- partial "list-partials/postbox.html" . -}}
+                {{ end }}
+            </div>
+            {{- partial "list-partials/pagination.html" $post_paginator -}}
+        </section>
+    </div>
+{{ end }}
+
+{{ define "footer"}}
+    {{- partial "_shared/footer.html" . -}}
+{{ end }}

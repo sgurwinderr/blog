@@ -1,0 +1,69 @@
+{{/* Suggested posts: same category first, fallback to recents, exclude current */}}
+{{ $currentPermalink := .Permalink }}
+{{ $currentCats := .Params.categories }}
+
+{{/* Collect candidates: posts sharing a category */}}
+{{ $related := slice }}
+{{ range $currentCats }}
+    {{ $cat := . }}
+    {{ range where site.RegularPages "Type" "post" }}
+        {{ if and (ne .Permalink $currentPermalink) (in .Params.categories $cat) }}
+            {{ $related = $related | append . }}
+        {{ end }}
+    {{ end }}
+{{ end }}
+
+{{/* De-duplicate by permalink */}}
+{{ $seen := slice }}
+{{ $deduped := slice }}
+{{ range $related }}
+    {{ if not (in $seen .Permalink) }}
+        {{ $deduped = $deduped | append . }}
+        {{ $seen = $seen | append .Permalink }}
+    {{ end }}
+{{ end }}
+
+{{/* If fewer than 3, pad with recent posts */}}
+{{ if lt (len $deduped) 3 }}
+    {{ range where site.RegularPages "Type" "post" }}
+        {{ if and (ne .Permalink $currentPermalink) (not (in $seen .Permalink)) }}
+            {{ $deduped = $deduped | append . }}
+            {{ $seen = $seen | append .Permalink }}
+        {{ end }}
+    {{ end }}
+{{ end }}
+
+{{ $suggested := first 3 $deduped }}
+
+{{ if $suggested }}
+<section class="suggested-posts">
+    <div class="container">
+        <div class="suggested-header">
+            <span class="suggested-label">More Stories</span>
+            <div class="suggested-divider"></div>
+        </div>
+        <div class="row suggested-grid">
+            {{ range $suggested }}
+            <div class="col-md-4 suggested-col">
+                <a href="{{ .Permalink }}" class="suggested-card">
+                    {{ with .Params.image }}
+                    <div class="suggested-img-wrap">
+                        <img src="/{{ . }}" alt="{{ $.Title }}" loading="lazy" decoding="async" class="suggested-img">
+                    </div>
+                    {{ end }}
+                    <div class="suggested-body">
+                        {{ with .Params.categories }}
+                        <span class="suggested-cat">{{ index . 0 }}</span>
+                        {{ end }}
+                        <h3 class="suggested-title">{{ .Title }}</h3>
+                        <div class="suggested-meta">
+                            {{ dateFormat "Jan 2, 2006" .PublishDate }} &middot; {{ .ReadingTime }} min read
+                        </div>
+                    </div>
+                </a>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+</section>
+{{ end }}

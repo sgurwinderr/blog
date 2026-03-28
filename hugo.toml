@@ -1,0 +1,110 @@
+baseURL = "https://sgurwinderr.github.io/blog/"
+languageCode = "en-us"
+title = "Gurwinder's Blog: AI & Graphics"
+theme = "medium"
+summaryLength = 25
+copyright = "Gurwinder - All rights reserved"
+enableEmoji = true
+
+# Disable RSS feeds — keep only HTML + JSON (search index) for home; sitemap
+[outputs]
+  home     = ["HTML", "JSON", "Sitemap"]
+  section  = ["HTML"]
+  taxonomy = ["HTML"]
+  term     = ["HTML"]
+  page     = ["HTML"]
+
+# Disqus comments
+[services.disqus]
+  shortname = "your-disqus-shortname"
+
+# Google Analytics GA4
+[services.googleAnalytics]
+  id = "G-XXXXXXXXXX"
+
+# Server cache headers (applied by Hugo dev server; mirror in your production web server)
+[[server.headers]]
+  for = "/**.css"
+  [server.headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[server.headers]]
+  for = "/**.js"
+  [server.headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[server.headers]]
+  for = "/assets/images/**"
+  [server.headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[pagination]
+  pagerSize = 9
+
+[markup.goldmark.renderer]
+  unsafe = true
+
+[markup.goldmark.extensions.passthrough]
+  enable = true
+
+[markup.goldmark.extensions.passthrough.delimiters]
+  block = [["$$", "$$"]]
+  inline = [["\\(", "\\)"]]
+
+[markup.highlight]
+  style = "github-dark"
+  lineNos = false
+  noClasses = true
+  tabWidth = 4
+
+[params]
+  logo = "/assets/images/logo.png"
+  description = "GPU SDE | AI & Graphics @ Intel, Loves to Work on AI, Games & AR/VR"
+  customCSS = ["/css/custom.css"]
+
+[params.author]
+  name = "Gurwinder"
+  thumbnail = "/assets/images/avatar.jpg"
+  description = "GPU SDE | AI & Graphics @ Intel, Loves to Work on AI, Games & AR/VR"
+
+[params.index]
+  picture = "/assets/images/avatar.jpg"
+  title = "Gurwinder"
+  subtitle = "GPU SDE | AI & Graphics @ Intel"
+  mdtext = "I write about AI, Graphics, Game Development, and more."
+  alertbar = false
+
+[params.social]
+  linkedin = "sgurwinderr"
+  github = "sgurwinderr"
+
+## Main Menu — edit name/url here; remove an entry to hide it from the navbar
+[[menu.main]]
+    name = "About"
+    weight = 600
+    identifier = "about"
+    url = "/about"
+
+[[menu.main]]
+    name = "Blog"
+    weight = 100
+    identifier = "blog"
+    url = "/"
+
+[[menu.main]]
+    name = "PyTorch"
+    weight = 500
+    identifier = "cat-pytorch"
+    url = "/categories/pytorch"
+
+[[menu.main]]
+    name = "AI"
+    weight = 200
+    identifier = "cat-ai"
+    url = "/categories/ai"
+
+[[menu.main]]
+    name = "Game Dev"
+    weight = 300
+    identifier = "cat-gamedev"
+    url = "/categories/game-development"

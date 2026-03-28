@@ -1,0 +1,45 @@
+{{ define "header"}}
+    {{- partial "_shared/navbar.html" . -}}
+{{ end }}
+
+{{ define "main" }}
+    <div class="main-content">
+
+        {{ $allPosts := where site.RegularPages "Section" "post" }}
+        {{ $featured := where $allPosts ".Params.featured" true }}
+        {{ $regular := where $allPosts ".Params.featured" "!=" true }}
+
+        <!-- Featured Posts (first page only) -->
+        {{ if $featured }}
+        <section class="featured-posts mb-5">
+            <div class="section-title">
+                <h2><span>Featured</span></h2>
+            </div>
+            <div class="row">
+                {{ range $featured }}
+                    {{- partial "list-partials/featuredbox.html" . -}}
+                {{ end }}
+            </div>
+        </section>
+        {{ end }}
+
+        <!-- All Stories -->
+        <section class="recent-posts">
+            <div class="section-title">
+                <h2><span>All Stories</span></h2>
+            </div>
+            <div class="row listrecent" id="posts-grid">
+                {{ $post_paginator := $.Paginate $regular 6 }}
+                {{ range $post_paginator.Pages }}
+                    {{- partial "list-partials/postbox.html" . -}}
+                {{ end }}
+            </div>
+            {{- partial "list-partials/pagination.html" $post_paginator -}}
+        </section>
+
+    </div>
+{{ end }}
+
+{{ define "footer"}}
+    {{- partial "_shared/footer.html" . -}}
+{{ end }}

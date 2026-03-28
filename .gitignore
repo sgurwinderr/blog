@@ -1,5 +1,11 @@
-_site
+# Hugo build output — built by GitHub Actions, not committed
+public/
+
+# Hugo lock file
+.hugo_build.lock
+
+# OS / editor noise
 .DS_Store
+Thumbs.db
+.vscode/
 *.swp
-.sass-cache
-*~
