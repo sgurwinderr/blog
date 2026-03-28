@@ -20,7 +20,7 @@ enableEmoji = true
 
 # Google Analytics GA4
 [services.googleAnalytics]
-  id = "G-XXXXXXXXXX"
+  id = "G-KD3KXHFEQM"
 
 # Server cache headers (applied by Hugo dev server; mirror in your production web server)
 [[server.headers]]
