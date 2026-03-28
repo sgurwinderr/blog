@@ -69,11 +69,11 @@ enableEmoji = true
 
 [params.author]
   name = "Gurwinder"
-  thumbnail = "/assets/images/avatar.jpg"
+  thumbnail = "assets/images/avatar.jpg"
   description = "GPU SDE | AI & Graphics @ Intel, Loves to Work on AI, Games & AR/VR"
 
 [params.index]
-  picture = "/assets/images/avatar.jpg"
+  picture = "assets/images/avatar.jpg"
   title = "Gurwinder"
   subtitle = "GPU SDE | AI & Graphics @ Intel"
   mdtext = "I write about AI, Graphics, Game Development, and more."
