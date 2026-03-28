@@ -16,7 +16,7 @@ enableEmoji = true
 
 # Disqus comments
 [services.disqus]
-  shortname = "disqus_BYYue8SFWp"
+  shortname = "sgurwinderr"
 
 # Google Analytics GA4
 [services.googleAnalytics]
