@@ -395,6 +395,7 @@ body.search-open {
     z-index: 100;
     scrollbar-width: thin;
     scrollbar-color: #ddd transparent;
+    transition: opacity 0.25s ease;
     /* Only show on large screens */
     display: none;
 }
