@@ -6,7 +6,7 @@ layout: page
 comments: false
 ---
 <div style="text-align:center; margin-bottom:2rem;">
-  <img src="/assets/images/profile.jpg" alt="Gurwinder Singh"
+  <img src="assets/images/profile.jpg" alt="Gurwinder Singh"
        style="width:220px; height:auto; border-radius:10px; box-shadow:0 4px 24px rgba(0,0,0,0.12);" />
   <h2 style="margin-bottom:0.25rem;">Gurwinder Singh</h2>
   <p style="color:#666; margin:0;">AI SDE &amp; GPU Engineer · Intel India · Bangalore</p>

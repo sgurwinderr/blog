@@ -3,13 +3,13 @@
     <div class="featured-card">
         <a href="{{ .Permalink }}" class="featured-card-img-wrap">
             {{ with .Params.image }}
-            <img src="/{{ . }}" alt="{{ $.Title }}" class="featured-card-img" loading="lazy" decoding="async">
+            <img src="{{ . | relURL }}" alt="{{ $.Title }}" class="featured-card-img" loading="lazy" decoding="async">
             {{ end }}
         </a>
         <div class="featured-card-body">
             {{ with .Params.categories }}
             <div class="featured-card-cat">
-                {{ range first 1 . }}<a href="/categories/{{ . | urlize }}">{{ . }}</a>{{ end }}
+                {{ range first 1 . }}<a href="{{ "/categories/" | relLangURL }}{{ . | urlize }}">{{ . }}</a>{{ end }}
             </div>
             {{ end }}
             <h2 class="featured-card-title">

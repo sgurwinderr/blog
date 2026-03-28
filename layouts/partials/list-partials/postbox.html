@@ -4,14 +4,14 @@
         <div class="maxthumb">
             <a href="{{ .Permalink }}">
                 {{ with .Params.image }}
-                    <img class="img-fluid" src="/{{ . }}" alt="A thumbnail image" loading="lazy" decoding="async">
+                    <img class="img-fluid" src="{{ . | relURL }}" alt="A thumbnail image" loading="lazy" decoding="async">
                 {{ end }}
             </a>
         </div>
         <div class="card-body">
             {{ with .Params.categories }}
             <div class="featured-card-cat">
-                {{ range first 1 . }}<a href="/categories/{{ . | urlize }}">{{ . }}</a>{{ end }}
+                {{ range first 1 . }}<a href="{{ "/categories/" | relLangURL }}{{ . | urlize }}">{{ . }}</a>{{ end }}
             </div>
             {{ end }}
             <h2 class="card-title"><a class="text-dark" href="{{ .Permalink }}">{{ .Title }}</a></h2>

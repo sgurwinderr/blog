@@ -64,7 +64,7 @@
                     </div>
 
                     {{ with .Params.image }}
-                        <img class="featured-image img-fluid" src="/{{ . }}" alt="thumbnail for this post" loading="lazy" decoding="async">
+                        <img class="featured-image img-fluid" src="{{ . | relURL }}" alt="thumbnail for this post" loading="lazy" decoding="async">
                     {{ end }}
 
                     <div class="article-post">

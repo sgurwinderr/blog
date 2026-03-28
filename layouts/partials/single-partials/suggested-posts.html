@@ -48,7 +48,7 @@
                 <a href="{{ .Permalink }}" class="suggested-card">
                     {{ with .Params.image }}
                     <div class="suggested-img-wrap">
-                        <img src="/{{ . }}" alt="{{ $.Title }}" loading="lazy" decoding="async" class="suggested-img">
+                        <img src="{{ . | relURL }}" alt="{{ $.Title }}" loading="lazy" decoding="async" class="suggested-img">
                     </div>
                     {{ end }}
                     <div class="suggested-body">
