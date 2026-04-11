@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /categories/
+Disallow: /tags/
+Disallow: /search
+
+Sitemap: https://sgurwinderr.com/sitemap.xml
