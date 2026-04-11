@@ -621,7 +621,8 @@ body.search-open {
 .featured-card-img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: center;
     transition: transform 0.35s ease;
 }
 
@@ -698,6 +699,7 @@ body.search-open {
 .card-group .card {
     transition: box-shadow 0.2s, transform 0.2s;
     overflow: hidden;
+    border-radius: 8px;
 }
 
 .card-group .card:hover {
@@ -714,7 +716,8 @@ body.search-open {
 .card-group .maxthumb img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: center;
     display: block;
     transition: transform 0.35s ease;
 }
@@ -917,7 +920,8 @@ code {
 .suggested-img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: center;
     transition: transform 0.35s ease;
 }
 

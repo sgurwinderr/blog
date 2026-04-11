@@ -5,7 +5,9 @@
             <a target="_blank" href="https://twitter.com/intent/tweet?text={{ .Title | urlquery }}&url={{ .Permalink | urlquery }}"
                onclick="window.open(this.href,'twitter-share','width=550,height=435');return false;"
                title="Share on Twitter">
-                <i class="fab fa-twitter"></i>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                    <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.847h-7.406l-5.8-7.58-6.63 7.58H.48l8.6-9.83L0 1.154h7.594l5.243 6.932zM17.61 20.645h2.04L6.486 3.24H4.298z"/>
+                </svg>
             </a>
         </li>
 
@@ -13,7 +15,9 @@
             <a target="_blank" href="https://www.linkedin.com/shareArticle?mini=true&url={{ .Permalink | urlquery }}&title={{ .Title | urlquery }}"
                onclick="window.open(this.href,'linkedin-share','width=600,height=500');return false;"
                title="Share on LinkedIn">
-                <i class="fab fa-linkedin-in"></i>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                    <path d="M4.98 3.5C4.98 4.88 3.87 6 2.49 6S0 4.88 0 3.5 1.11 1 2.49 1s2.49 1.12 2.49 2.5zM.5 8h3.98v12H.5zM8 8h3.81v1.71h.05C12.39 8.69 13.8 8 15.72 8 20.06 8 21 10.74 21 14.3V20h-4v-5.05c0-1.2-.02-2.74-1.72-2.74-1.72 0-1.98 1.3-1.98 2.65V20H9.3V8z"/>
+                </svg>
             </a>
         </li>
     </ul>

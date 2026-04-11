@@ -1,109 +1,104 @@
-jQuery(document).ready(function($){
+(function () {
+  var nav = document.querySelector('nav');
+  var backToTop = document.querySelector('.back-to-top');
+  var alertbar = document.querySelector('.alertbar');
+  var toggler = document.querySelector('.navbar-toggler');
+  var navbarCollapse = document.querySelector('#navbarMediumish');
+  var lastScrollTop = 0;
+  var delta = 5;
+  var ticking = false;
 
-    var offset = 1250; 
-    var duration = 800; 
-    jQuery(window).scroll(function() { 
-        if (jQuery(this).scrollTop() > offset) { 
-        jQuery('.back-to-top').fadeIn(duration); 
-        } else { 
-        jQuery('.back-to-top').fadeOut(duration); 
-        }
-    });
-    jQuery('.back-to-top').click(function(event) { 
-    event.preventDefault(); 
-    jQuery('html, body').animate({scrollTop: 0}, duration); 
-    return false; 
-    })
+  function onScroll() {
+    var y = window.scrollY || window.pageYOffset;
 
-
-    // alertbar later
-    $(document).scroll(function () {
-        var maxScroll = $(document).height() - $(window).height();
-        var y = $(this).scrollTop();
-        if (y > 350 || y + 100 > maxScroll) {
-            $('.alertbar').fadeIn();
-        } else {
-            $('.alertbar').fadeOut();
-        }
-    });
-
-
-    // Smooth on external page
-    $(function() {
-      setTimeout(function() {
-        if (location.hash) {
-          /* we need to scroll to the top of the window first, because the browser will always jump to the anchor first before JavaScript is ready, thanks Stack Overflow: http://stackoverflow.com/a/3659116 */
-          window.scrollTo(0, 0);
-          target = location.hash.split('#');
-          smoothScrollTo($('#'+target[1]));
-        }
-      }, 1);
-
-      // taken from: https://css-tricks.com/snippets/jquery/smooth-scrolling/
-      $('a[href*=\\#]:not([href=\\#])').click(function() {
-        if (location.pathname.replace(/^\//,'') == this.pathname.replace(/^\//,'') && location.hostname == this.hostname) {
-          smoothScrollTo($(this.hash));
-          return false;
-        }
-      });
-
-      function smoothScrollTo(target) {
-        target = target.length ? target : $('[name=' + this.hash.slice(1) +']');
-
-        if (target.length) {
-          $('html,body').animate({
-            scrollTop: target.offset().top
-          }, 1000);
-        }
-      }
-    });
-    
-    
-    // Hide Header on on scroll down
-    var didScroll;
-    var lastScrollTop = 0;
-    var delta = 5;
-    var navbarHeight = $('nav').outerHeight();
-
-    $(window).scroll(function(event){
-        didScroll = true;
-    });
-
-    setInterval(function() {
-        if (didScroll) {
-            hasScrolled();
-            didScroll = false;
-        }
-    }, 250);
-
-    function hasScrolled() {
-        var st = $(this).scrollTop();
-        
-        // Make sure they scroll more than delta
-        if(Math.abs(lastScrollTop - st) <= delta)
-            return;
-
-        // If they scrolled down and are past the navbar, add class .nav-up.
-        // This is necessary so you never see what is "behind" the navbar.
-        if (st > lastScrollTop && st > navbarHeight){
-            // Scroll Down            
-            $('nav').removeClass('nav-down').addClass('nav-up'); 
-            $('.nav-up').css('top', - $('nav').outerHeight() + 'px');
-           
-        } else {
-            // Scroll Up
-            if(st + $(window).height() < $(document).height()) {               
-                $('nav').removeClass('nav-up').addClass('nav-down');
-                $('.nav-up, .nav-down').css('top', '0px');             
-            }
-        }
-
-        lastScrollTop = st;
+    if (backToTop) {
+      var show = y > 1250;
+      backToTop.style.opacity = show ? '1' : '0';
+      backToTop.style.pointerEvents = show ? 'auto' : 'none';
     }
-    
-    
-    //$('.site-content').css('margin-top', $('header').outerHeight() + 'px');
 
+    if (alertbar) {
+      var maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      var showAlert = y > 350 || y + 100 > maxScroll;
+      alertbar.style.display = showAlert ? 'block' : 'none';
+    }
 
+    if (nav) {
+      if (Math.abs(lastScrollTop - y) > delta) {
+        var navHeight = nav.offsetHeight;
+        if (y > lastScrollTop && y > navHeight) {
+          nav.classList.remove('nav-down');
+          nav.classList.add('nav-up');
+          nav.style.top = -navHeight + 'px';
+        } else if (y + window.innerHeight < document.documentElement.scrollHeight) {
+          nav.classList.remove('nav-up');
+          nav.classList.add('nav-down');
+          nav.style.top = '0px';
+        }
+        lastScrollTop = y;
+      }
+    }
+  }
 
-});
+  function smoothToHash(hash) {
+    if (!hash || hash === '#') return;
+    var id = hash.slice(1);
+    var target = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  if (backToTop) {
+    backToTop.addEventListener('click', function (event) {
+      event.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    backToTop.style.opacity = '0';
+    backToTop.style.pointerEvents = 'none';
+  }
+
+  document.addEventListener('click', function (event) {
+    var link = event.target.closest('a[href*="#"]');
+    if (!link) return;
+    var url = new URL(link.href, window.location.origin);
+    if (url.pathname === window.location.pathname && url.hash) {
+      event.preventDefault();
+      smoothToHash(url.hash);
+    }
+  });
+
+  if (window.location.hash) {
+    setTimeout(function () {
+      window.scrollTo(0, 0);
+      smoothToHash(window.location.hash);
+    }, 1);
+  }
+
+  if (toggler && navbarCollapse) {
+    toggler.addEventListener('click', function () {
+      var expanded = toggler.getAttribute('aria-expanded') === 'true';
+      toggler.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      navbarCollapse.classList.toggle('show', !expanded);
+    });
+
+    navbarCollapse.querySelectorAll('a').forEach(function (a) {
+      a.addEventListener('click', function () {
+        toggler.setAttribute('aria-expanded', 'false');
+        navbarCollapse.classList.remove('show');
+      });
+    });
+  }
+
+  window.addEventListener('scroll', function () {
+    if (!ticking) {
+      window.requestAnimationFrame(function () {
+        onScroll();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }, { passive: true });
+
+  onScroll();
+})();

@@ -1,4 +1,3 @@
-/* global Fuse */
 (function () {
     var overlay  = document.getElementById('search-overlay');
     var input    = document.getElementById('search-input');
@@ -10,28 +9,40 @@
 
     if (!overlay || !input) return;
 
-    var fuse = null;
+    var indexData = null;
     var indexUrl = (document.querySelector('head[data-baseurl]') || {}).dataset
         ? (document.querySelector('head').dataset.baseurl || '').replace(/\/$/, '') + '/index.json'
         : '/index.json';
 
     function loadIndex(cb) {
-        if (fuse) { cb(); return; }
+        if (indexData) { cb(); return; }
         fetch(indexUrl)
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                fuse = new Fuse(data, {
-                    keys: [
-                        { name: 'title',      weight: 0.6 },
-                        { name: 'summary',    weight: 0.3 },
-                        { name: 'categories', weight: 0.1 }
-                    ],
-                    threshold: 0.35,
-                    includeScore: true,
-                    minMatchCharLength: 2
-                });
+                indexData = data || [];
                 cb();
             });
+    }
+
+    function rank(query, post) {
+        var q = query.toLowerCase();
+        var title = String(post.title || '').toLowerCase();
+        var summary = String(post.summary || '').toLowerCase();
+        var categories = (post.categories || []).join(' ').toLowerCase();
+        var score = 0;
+
+        if (title.indexOf(q) !== -1) score += title.startsWith(q) ? 7 : 5;
+        if (summary.indexOf(q) !== -1) score += 2;
+        if (categories.indexOf(q) !== -1) score += 1;
+
+        // Fuzzy-like token match fallback for multi-word queries.
+        q.split(/\s+/).filter(Boolean).forEach(function (tok) {
+            if (tok.length < 2) return;
+            if (title.indexOf(tok) !== -1) score += 2;
+            if (summary.indexOf(tok) !== -1) score += 1;
+        });
+
+        return score;
     }
 
     function openSearch() {
@@ -49,12 +60,20 @@
     }
 
     function renderResults(query) {
-        if (!fuse || query.length < 2) {
+        if (!indexData || query.length < 2) {
             results.innerHTML = '';
             footer.style.display = 'none';
             return;
         }
-        var hits = fuse.search(query).slice(0, 8);
+
+        var hits = indexData
+            .map(function (p) {
+                return { item: p, rank: rank(query, p) };
+            })
+            .filter(function (h) { return h.rank > 0; })
+            .sort(function (a, b) { return b.rank - a.rank; })
+            .slice(0, 8);
+
         if (!hits.length) {
             results.innerHTML = '<p class="search-no-results">No results for <strong>' + escHtml(query) + '</strong></p>';
             footer.style.display = 'none';
