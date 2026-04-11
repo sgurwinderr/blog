@@ -9,10 +9,10 @@ enableEmoji = true
 # Disable RSS feeds — keep only HTML + JSON (search index) for home; sitemap
 [outputs]
   home     = ["HTML", "JSON", "Sitemap"]
-  section  = ["HTML"]
+  section  = ["HTML", "Sitemap"]
   taxonomy = ["HTML"]
   term     = ["HTML"]
-  page     = ["HTML"]
+  page     = ["HTML", "Sitemap"]
 
 [permalinks]
   post = "/:slug/"
