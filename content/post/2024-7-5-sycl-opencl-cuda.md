@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - AI
 date: '2024-07-05T00:00:00Z'
+slug: 'sycl-opencl-cuda'
+aliases:
+- /post/2024-7-5-sycl-opencl-cuda/
 featured: false
 hidden: false
 image: assets/images/syclcuda.jpg

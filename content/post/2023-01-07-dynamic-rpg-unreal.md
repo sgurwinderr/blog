@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - Game Development
 date: '2023-01-07T00:00:00Z'
+slug: 'dynamic-rpg-unreal'
+aliases:
+- /post/2023-01-07-dynamic-rpg-unreal/
 featured: false
 hidden: false
 image: assets/images/unreal-rpg-6.webp

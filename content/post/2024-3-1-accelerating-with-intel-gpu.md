@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - AI
 date: '2024-03-01T00:00:00Z'
+slug: 'accelerating-with-intel-gpu'
+aliases:
+- /post/2024-3-1-accelerating-with-intel-gpu/
 featured: false
 hidden: false
 image: assets/images/pytorch-onnx.webp

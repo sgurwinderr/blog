@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - Game Development
 date: '2024-01-10T00:00:00Z'
+slug: 'mastering-fps-capture'
+aliases:
+- /post/2024-1-10-mastering-fps-capture/
 featured: false
 hidden: false
 image: assets/images/present-mon-fps.webp

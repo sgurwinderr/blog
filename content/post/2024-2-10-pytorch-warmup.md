@@ -4,6 +4,9 @@ categories:
 - AI
 - Pytorch
 date: '2024-02-10T00:00:00Z'
+slug: 'pytorch-warmup'
+aliases:
+- /post/2024-2-10-pytorch-warmup/
 featured: false
 hidden: false
 image: assets/images/pytorch.png

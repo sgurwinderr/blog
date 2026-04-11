@@ -4,6 +4,9 @@ categories:
 - AI
 - Pytorch
 date: '2025-09-20T00:00:00Z'
+slug: 'pytorch-sdpa-kernel'
+aliases:
+- /post/2025-09-20-pytorch-sdpa-kernel/
 featured: false
 hidden: false
 image: assets/images/sdpa.png

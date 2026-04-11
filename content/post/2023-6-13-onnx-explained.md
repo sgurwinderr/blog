@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - AI
 date: '2023-06-13T00:00:00Z'
+slug: 'onnx-explained'
+aliases:
+- /post/2023-6-13-onnx-explained/
 featured: false
 hidden: false
 image: assets/images/ONNX.png

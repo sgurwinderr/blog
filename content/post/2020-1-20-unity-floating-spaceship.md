@@ -4,6 +4,9 @@ categories:
 - Game Development
 - Unity
 date: '2020-01-20T00:00:00Z'
+slug: 'unity-floating-spaceship'
+aliases:
+- /post/2020-1-20-unity-floating-spaceship/
 featured: false
 hidden: false
 image: assets/images/unity-spaceship-1.gif

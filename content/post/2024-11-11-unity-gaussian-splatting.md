@@ -4,6 +4,9 @@ categories:
 - Game Development
 - Unity
 date: '2024-11-11T00:00:00Z'
+slug: 'unity-gaussian-splatting'
+aliases:
+- /post/2024-11-11-unity-gaussian-splatting/
 featured: false
 hidden: false
 image: assets/images/GS3.png

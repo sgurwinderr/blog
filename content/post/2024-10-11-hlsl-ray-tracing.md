@@ -4,6 +4,9 @@ categories:
 - Game Development
 - Unity
 date: '2024-10-11T00:00:00Z'
+slug: 'hlsl-ray-tracing'
+aliases:
+- /post/2024-10-11-hlsl-ray-tracing/
 featured: false
 hidden: false
 image: assets/images/unity-raytracing.jpg

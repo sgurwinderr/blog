@@ -4,6 +4,9 @@ categories:
 - AI
 - Pytorch
 date: '2024-04-06T00:00:00Z'
+slug: 'pytorch-graph-acquistation'
+aliases:
+- /post/2024-4-6-pytorch-graph-acquistation/
 featured: true
 hidden: false
 image: assets/images/pytorch-2.0-compiler.jpg

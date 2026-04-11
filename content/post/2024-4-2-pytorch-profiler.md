@@ -4,6 +4,9 @@ categories:
 - AI
 - Pytorch
 date: '2024-04-02T00:00:00Z'
+slug: 'pytorch-profiler'
+aliases:
+- /post/2024-4-2-pytorch-profiler/
 featured: false
 hidden: false
 image: assets/images/pytorch.png

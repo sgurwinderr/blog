@@ -4,6 +4,9 @@ categories:
 - AI
 - Pytorch
 date: '2025-01-05T00:00:00Z'
+slug: 'pytorch-quant-dequant'
+aliases:
+- /post/2025-1-5-pytorch-quant-dequant/
 featured: false
 hidden: false
 image: assets/images/quant2.png

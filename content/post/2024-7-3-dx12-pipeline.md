@@ -3,6 +3,9 @@ author: Gurwinder
 categories:
 - Game Development
 date: '2024-07-03T00:00:00Z'
+slug: 'dx12-pipeline'
+aliases:
+- /post/2024-7-3-dx12-pipeline/
 featured: false
 hidden: false
 image: assets/images/dx12-pipeline.png
