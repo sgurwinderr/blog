@@ -5,10 +5,8 @@ categories:
 - Quantization
 date: '2026-03-31T00:00:00Z'
 slug: 'turboquant'
-aliases:
-- /post/2026-03-31-turboquant/
 featured: false
-hidden: true
+draft: true
 image: assets/images/turboquant.svg
 title: 'TurboQuant from First Principles: One Example to the End'
 ---

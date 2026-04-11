@@ -5,10 +5,8 @@ categories:
 - Pytorch
 date: '2024-04-02T00:00:00Z'
 slug: 'pytorch-profiler'
-aliases:
-- /post/2024-4-2-pytorch-profiler/
 featured: false
-hidden: false
+draft: false
 image: assets/images/pytorch.png
 title: Profiling ResNet Models with PyTorch Profiler for Performance Optimization
 ---

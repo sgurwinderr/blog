@@ -5,10 +5,8 @@ categories:
 - Unity
 date: '2022-06-01T00:00:00Z'
 slug: 'ar-with-unity'
-aliases:
-- /post/2022-6-1-ar-with-unity/
 featured: false
-hidden: false
+draft: false
 image: assets/images/AR-With-Unity.png
 title: 'Augmented Reality with Unity: A Developer''s Guide'
 ---

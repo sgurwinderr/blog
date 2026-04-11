@@ -5,10 +5,8 @@ categories:
 - Pytorch
 date: '2024-11-25T00:00:00Z'
 slug: 'vision-transformer'
-aliases:
-- /post/2024-11-25-vision-transformer/
 featured: false
-hidden: false
+draft: false
 image: assets/images/vision-transformer-1.webp
 title: 'Breaking Down Vision Transformers: A Code-Driven Explanation'
 ---

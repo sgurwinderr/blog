@@ -4,10 +4,8 @@ categories:
 - AI
 date: '2023-06-13T00:00:00Z'
 slug: 'onnx-explained'
-aliases:
-- /post/2023-6-13-onnx-explained/
 featured: false
-hidden: false
+draft: false
 image: assets/images/ONNX.png
 title: 'Delving into ONNX: Comprehending Computation Graphs and Structure'
 ---

@@ -4,10 +4,8 @@ categories:
 - AI
 date: '2024-07-31T00:00:00Z'
 slug: 'pyautogen'
-aliases:
-- /post/2024-7-31-pyautogen/
 featured: false
-hidden: false
+draft: false
 image: assets/images/llama.jpg
 title: 'Code, Run, Debug on AutoPilot: Let Your Local Llama Do All Your Heavy Lifting!'
 ---

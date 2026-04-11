@@ -4,10 +4,8 @@ categories:
 - Math
 date: '2024-08-10T00:00:00Z'
 slug: 'cholesky-decomp'
-aliases:
-- /post/2024-8-10-cholesky-decomp/
 featured: false
-hidden: false
+draft: false
 image: assets/images/cholesky.png
 title: Understanding Cholesky Decomposition with PyTorch
 ---

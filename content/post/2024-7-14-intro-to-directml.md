@@ -4,10 +4,8 @@ categories:
 - AI
 date: '2024-07-14T00:00:00Z'
 slug: 'intro-to-directml'
-aliases:
-- /post/2024-7-14-intro-to-directml/
 featured: false
-hidden: false
+draft: false
 image: assets/images/DirectML-Platform.png
 title: 'Deep Learning for Graphics Programmers: Performing Tensor Operations with DirectML and Direct3D 12'
 ---

@@ -5,10 +5,8 @@ categories:
 - Unity
 date: '2020-01-20T00:00:00Z'
 slug: 'unity-floating-spaceship'
-aliases:
-- /post/2020-1-20-unity-floating-spaceship/
 featured: false
-hidden: false
+draft: false
 image: assets/images/unity-spaceship-1.gif
 title: 'Unity’s Floating Spaceships: Quick and Effortless Creation for Stunning Visuals'
 ---

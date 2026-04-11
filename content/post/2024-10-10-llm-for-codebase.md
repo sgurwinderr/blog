@@ -4,10 +4,8 @@ categories:
 - AI
 date: '2024-10-10T00:00:00Z'
 slug: 'llm-for-codebase'
-aliases:
-- /post/2024-10-10-llm-for-codebase/
 featured: false
-hidden: false
+draft: false
 image: assets/images/llama_logo.png
 title: 'Harnessing Local Llama to Process Complete Projects: How I use AI for code suggestions and refactoring my Projects'
 ---

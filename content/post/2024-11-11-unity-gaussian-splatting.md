@@ -5,10 +5,8 @@ categories:
 - Unity
 date: '2024-11-11T00:00:00Z'
 slug: 'unity-gaussian-splatting'
-aliases:
-- /post/2024-11-11-unity-gaussian-splatting/
 featured: false
-hidden: false
+draft: false
 image: assets/images/GS3.png
 title: Turn 3D Gaussian Splat Files into Stunning Assets in Unity 6
 ---

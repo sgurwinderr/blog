@@ -5,10 +5,8 @@ categories:
 - Unity
 date: '2024-10-20T00:00:00Z'
 slug: 'gpu-kernel-scheduling'
-aliases:
-- /post/2024-10-20-gpu-kernel-scheduling/
 featured: false
-hidden: false
+draft: false
 image: assets/images/intel-arc.webp
 title: 'Intel GPU Scheduling: Exploring Matrix Addition with SYCL and PyTorch'
 ---

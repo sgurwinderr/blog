@@ -5,10 +5,8 @@ categories:
 - Unity
 date: '2022-11-20T00:00:00Z'
 slug: 'raycast-example-in-unity'
-aliases:
-- /post/2022-11-20-raycast-example-in-unity/
 featured: false
-hidden: false
+draft: false
 image: assets/images/raycast-example-1.gif
 title: RAYCAST EXAMPLE IN UNITY
 ---

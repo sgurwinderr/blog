@@ -5,10 +5,8 @@ categories:
 - PyTorch
 date: '2026-03-19T00:00:00Z'
 slug: 'triton-kernel-first-principles'
-aliases:
-- /post/2026-03-19-triton-kernel-first-principles/
 featured: false
-hidden: false
+draft: false
 image: assets/images/triton.png
 title: 'Understanding Triton Kernels from First Principles'
 ---

@@ -4,10 +4,8 @@ categories:
 - Game Development
 date: '2023-01-07T00:00:00Z'
 slug: 'dynamic-rpg-unreal'
-aliases:
-- /post/2023-01-07-dynamic-rpg-unreal/
 featured: false
-hidden: false
+draft: false
 image: assets/images/unreal-rpg-6.webp
 title: 'Designing Dynamic RPG Systems: Quick Solutions for Health and Mana in Unreal Engine'
 ---
