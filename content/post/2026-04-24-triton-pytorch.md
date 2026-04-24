@@ -6,10 +6,10 @@ categories:
 - Triton
 date: '2026-04-24T00:00:00Z'
 slug: 'triton-custom-kernels-pytorch'
-featured: false
+featured: true
 draft: false
 image: assets/images/Triton_Relu_Pytorch.jpg
-title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model'
+title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model with Dynamo and AOT Autograd Backend'
 ---
 
 How to write Triton Kernel, wire it into model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what torch.compile does with your custom op.
@@ -43,18 +43,6 @@ def relu_kernel(input_ptr, output_ptr, num_elem, block_size: tl.constexpr):
 ```
 
 **How to read this line by line:** for a deeper foundation, see [Understanding Triton Kernels from First Principles](/post/triton-kernel-first-principles/).
-
-| Line | What it does |
-|------|--------------|
-| @triton.jit | Compile this Python function to GPU machine code. |
-| block_size: tl.constexpr | block_size is a compile-time constant — the compiler can unroll loops and emit vector instructions. |
-| pid = tl.program_id(axis=0) | Each GPU *program* (think: a group of threads) gets a unique integer ID along the first grid axis. |
-| block_start = pid * block_size | Compute the starting element index for this program. Programs do not communicate — this is embarrassingly parallel. |
-| offsets = block_start + tl.arange(0, block_size) | tl.arange generates a vector [0, 1, ..., block_size-1]. Adding block_start gives the global element indices this program owns. |
-| mask = offsets < num_elem | Guard against reading past the end of the tensor when num_elem is not a multiple of block_size. |
-| tl.load(..., mask=mask) | Load a contiguous block from GPU memory. Masked lanes produce zero. |
-| tl.maximum(x, 0) | Vectorised elementwise max — this *is* ReLU. |
-| tl.store(..., mask=mask) | Write results back. Masked lanes are skipped. |
 
 **The Python launcher:**
 
