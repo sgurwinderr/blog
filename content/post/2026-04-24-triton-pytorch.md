@@ -18,7 +18,6 @@ How to write Triton Kernel, wire it into model with full gradient support, and t
 
 We will use **LeNet** as the vehicle: simple enough to read in one sitting, realistic enough to show every stage of the pipeline.
 
-![LeNet architecture with TritonReLU activations](/assets/images/triton-lenet-arch.png)
 
 ---
 
@@ -470,7 +469,6 @@ The grad_fn=<CompiledFunctionBackward> confirms that our Triton ReLU backward is
 
 ## 6. The Full Pipeline at a Glance
 
-![torch.compile pipeline from Python model to device code](/assets/images/triton-pipeline.png)
 
 ```
 Python model
