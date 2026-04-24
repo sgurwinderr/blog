@@ -5,10 +5,10 @@ categories:
 - PyTorch
 - Triton
 date: '2026-04-24T00:00:00Z'
-slug: 'triton-custom-kernels-pytorch-lenet'
+slug: 'triton-custom-kernels-pytorch'
 featured: false
 draft: false
-image: assets/images/triton.png
+image: assets/images/Triton_Relu_Pytorch.jpg
 title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model'
 ---
 
