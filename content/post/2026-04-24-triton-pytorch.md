@@ -438,12 +438,17 @@ class GraphModule(torch.nn.Module):
 
 **What changed compared to the Dynamo graph:**
 
-| Dynamo graph | AOT Autograd graph |
-|---|---|
-| autograd_function_apply(fwd_body_N, ...) | triton_kernel_wrapper_functional(kernel_idx=0, grid=[(N,1,1)], ...) |
-| No shape information | Every tensor annotated: "f32[4, 6, 28, 28]" |
-| Weights are module attributes | Weights are plain primals_N tensor arguments |
-| Returns (logits,) | Returns logits + 18 saved tensors for the backward |
+Three critical transformations happened:
+
+1. **Custom ops lowered to device kernels:** Each autograd_function_apply(fwd_body_N, ...) became triton_kernel_wrapper_functional(kernel_idx=0, grid=[(N,1,1)], ...). Dynamo saw your Triton op as an opaque black box; AOT Autograd opened it up and linked it to the actual GPU kernel.
+
+2. **Shapes concretized:** Dynamo's graph had no tensor shape information. AOT Autograd annotated every tensor with its concrete dtype and shape: "f32[4, 6, 28, 28]". This matters: the grid size computation (19, 13, 1, 1 programs) is only possible when you know the exact tensor size.
+
+3. **Weights flattened to arguments:** In the Dynamo graph, weights were module attributes (L_self_modules_convnet_0_parameters_weight_). In the AOT graph, they are plain function arguments (primals_1, primals_2, ...). This makes the graph stateless and easier for the compiler to reason about.
+
+4. **Backward state packed into return:** Dynamo returned only the logits. AOT Autograd returned logits + 18 saved tensors (intermediate activations, pool indices, etc.) needed to compute gradients. The compiler now has everything it needs to generate both forward and backward code.
+
+
 
 **Return value:**
 
