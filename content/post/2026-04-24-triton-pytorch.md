@@ -12,7 +12,7 @@ image: assets/images/Triton_Relu_Pytorch.jpg
 title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model'
 ---
 
-When you call `nn.ReLU()` in PyTorch you are trusting someone else's GPU kernel. This post shows you how to write that kernel yourself with Triton, wire it into a real model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what `torch.compile` does with your custom op.
+How to write that kernel yourself with Triton, wire it into a real model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what `torch.compile` does with your custom op.
 
 > Important: this implementation is intentionally a teaching example. It keeps pieces separate so the pipeline is easy to inspect. For production performance, prefer fused ops/kernels (for example fused activation + bias/residual paths, and fused backward) to reduce memory traffic and launch overhead.
 
@@ -182,7 +182,7 @@ model = torch.compile(model, backend=test_backend)
 model(input)
 ```
 
-**Full output — the traced Python source:**
+**Full Output — the traced Python source:**
 
 ```python
 def forward(self,
@@ -253,7 +253,7 @@ def forward(self,
     return (input_12,)
 ```
 
-**Full node table:**
+**Full Node table:**
 
 ```
 opcode         name                     target                       args / kwargs
@@ -296,21 +296,6 @@ output         output                   output       ((input_12,),)
 
 Each of our four `TritonReLU` activations appears as `autograd_function_apply(fwd_body_N, bwd_body_N, ...)`. Dynamo has not seen through the `autograd.Function` — it treats the entire forward+backward pair as an opaque higher-order op. The standard convolutions and linear layers are rendered as ordinary `call_function` nodes referencing `torch.conv2d` / `torch._C._nn.linear`.
 
-**Return value (4 MNIST images, 10 classes, random weights):**
-
-```
-tensor([[-0.0694, -0.0130, -0.0509, -0.0597,  0.0875, -0.0513, -0.1406,  0.0744,
-         -0.0721, -0.0655],
-        [-0.0681, -0.0049, -0.0492, -0.0581,  0.0901, -0.0521, -0.1420,  0.0706,
-         -0.0735, -0.0657],
-        [-0.0705, -0.0109, -0.0524, -0.0560,  0.0862, -0.0562, -0.1403,  0.0739,
-         -0.0738, -0.0642],
-        [-0.0718, -0.0133, -0.0516, -0.0564,  0.0869, -0.0490, -0.1432,  0.0733,
-         -0.0731, -0.0626]], device='xpu:0', grad_fn=<AddmmBackward0>)
-```
-
-These are unnormalised logits. `grad_fn=<AddmmBackward0>` confirms autograd is tracking the computation through the final linear layer.
-
 ---
 
 ## 5. Stage 2: AOT Autograd — Tracing Forward and Backward Together
@@ -344,7 +329,7 @@ model = torch.compile(LeNet(), backend=aot_backend).to("xpu")
 model(input)
 ```
 
-**Full AOT forward graph:**
+**Full Output AOT forward graph:**
 
 ```python
 class GraphModule(torch.nn.Module):
@@ -471,12 +456,6 @@ class GraphModule(torch.nn.Module):
 | No shape information | Every tensor annotated: `"f32[4, 6, 28, 28]"` |
 | Weights are module attributes | Weights are plain `primals_N` tensor arguments |
 | Returns `(logits,)` | Returns logits + 18 saved tensors for the backward |
-
-The `grid` sizes are concrete and correct:
-- `(19, 1, 1)` for `[4,6,28,28]` = 18 816 elements → $\lceil 18816/1024 \rceil = 19$
-- `(13, 1, 1)` for `[4,16,14,14]` = 12 544 elements → $\lceil 12544/1024 \rceil = 13$
-- `(1, 1, 1)` for `[4,120]` = 480 elements → $\lceil 480/1024 \rceil = 1$
-- `(1, 1, 1)` for `[4,84]` = 336 elements → $\lceil 336/1024 \rceil = 1$
 
 **Return value:**
 
