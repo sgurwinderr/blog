@@ -9,7 +9,7 @@ slug: 'triton-custom-kernels-pytorch-lenet'
 featured: false
 draft: false
 image: assets/images/triton.png
-title: 'How PyTorch Sees Your Triton Kernel: A First-Principles Walkthrough'
+title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model'
 ---
 
 When you call `nn.ReLU()` in PyTorch you are trusting someone else's GPU kernel. This post shows you how to write that kernel yourself with Triton, wire it into a real model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what `torch.compile` does with your custom op.
@@ -22,21 +22,7 @@ We will use **LeNet** as the vehicle: simple enough to read in one sitting, real
 
 ---
 
-## 1. Why Write a Custom Kernel at All?
-
-A GPU executes work in *warps* of 32 threads. All 32 threads execute the same instruction at the same time (SIMT). Stock PyTorch kernels are written conservatively so that they work correctly across every GPU and every input shape. You, writing for a specific op on a specific piece of hardware, can do better:
-
-- **Fewer memory round-trips**: fuse elementwise ops so intermediate results stay in registers, never touching DRAM.
-- **Tuned block sizes**: match the block size to the hardware's warp size and L1 cache line.
-- **Novel activations**: if your activation is not in PyTorch's catalogue, you have no choice.
-
-Triton lets you write those kernels in Python. It compiles them via LLVM to PTX (NVIDIA) or SPIR-V (Intel XPU / SYCL).
-
-In this post we deliberately start from an unfused ReLU kernel because it is the clearest way to understand grid mapping, autograd integration, and graph lowering. Once that mental model is clear, the next step is to fuse neighboring ops.
-
----
-
-## 2. The Triton ReLU Kernel
+## 1. The Triton ReLU Kernel
 
 ![Triton kernel grid: programs mapping to tensor elements](/assets/images/triton-kernel-grid.png)
 
@@ -56,7 +42,7 @@ def relu_kernel(input_ptr, output_ptr, num_elem, block_size: tl.constexpr):
     tl.store(output_ptr + offsets, z, mask=mask)
 ```
 
-**How to read this line by line:**
+**How to read this line by line:** for a deeper foundation, see [Understanding Triton Kernels from First Principles](/post/triton-kernel-first-principles/).
 
 | Line | What it does |
 |------|--------------|
@@ -86,7 +72,7 @@ def triton_relu(x):
 
 ---
 
-## 3. Making the Kernel Differentiable
+## 2. Making the Kernel Differentiable
 
 ![ReLU forward pass and sub-gradient used in backward](/assets/images/triton-relu-grad.png)
 
@@ -107,7 +93,11 @@ class TritonReLUFn(torch.autograd.Function):
         return grad
 ```
 
-The math: ReLU is $f(x) = \max(x, 0)$. Its derivative is:
+The math: ReLU is:
+
+$$f(x) = \max(x, 0)$$
+
+Its derivative is:
 
 $$\frac{\partial f}{\partial x} = \begin{cases} 1 & x > 0 \\ 0 & x \leq 0 \end{cases}$$
 
@@ -123,7 +113,7 @@ class TritonReLU(nn.Module):
 
 ---
 
-## 4. Building LeNet with TritonReLU
+## 3. Building LeNet with TritonReLU
 
 ```python
 class LeNet(nn.Module):
@@ -174,7 +164,7 @@ Linear(84→10)  → [4, 10]          (logits)
 
 ---
 
-## 5. Stage 1: The Dynamo FX Graph
+## 4. Stage 1: The Dynamo FX Graph
 
 `torch.compile` begins with **Dynamo**, which symbolically traces the `forward` method and converts it into an FX graph — a data structure that represents the computation as a list of nodes. We can intercept this graph by writing a custom backend:
 
@@ -323,7 +313,7 @@ These are unnormalised logits. `grad_fn=<AddmmBackward0>` confirms autograd is t
 
 ---
 
-## 6. Stage 2: AOT Autograd — Tracing Forward and Backward Together
+## 5. Stage 2: AOT Autograd — Tracing Forward and Backward Together
 
 `test_backend` returned the graph unchanged, so no compilation happened. The real pipeline passes through **AOT Autograd** (`aot_module_simplified`), which:
 
@@ -506,7 +496,7 @@ The `grad_fn=<CompiledFunctionBackward>` confirms that our Triton ReLU backward 
 
 ---
 
-## 7. The Full Pipeline at a Glance
+## 6. The Full Pipeline at a Glance
 
 ![torch.compile pipeline from Python model to device code](/assets/images/triton-pipeline.png)
 
@@ -532,30 +522,3 @@ Device code (SPIR-V / PTX)
 The key insight: **your Triton kernel is a first-class citizen at every stage**. Dynamo wraps it in `autograd_function_apply`. AOT Autograd lowers it to `triton_kernel_wrapper_functional` with concrete grids. The downstream compiler sees it as just another op to schedule alongside convolutions and matrix multiplications.
 
 ---
-
-## 8. What This Means Practically
-
-This notebook is the "understanding-first" version of the workflow, not the highest-throughput version.
-
-You do not need to leave the PyTorch ecosystem to write fast custom GPU code. The recipe is:
-
-1. **`@triton.jit`** — write the kernel in Triton DSL, think in programs and blocks.
-2. **`torch.autograd.Function`** — give the kernel a backward pass; PyTorch handles the rest of the graph automatically.
-3. **`nn.Module` wrapper** — drop it in anywhere `nn.ReLU()` would go.
-4. **`torch.compile`** — the compiler sees through your custom op, represents it faithfully, and compiles the entire forward+backward jointly.
-
-For real training/inference systems, the same workflow should move toward fused kernels as early as practical.
-Examples:
-- fuse `bias + activation` into one kernel
-- fuse residual add + activation
-- fuse backward masking and scaling into one pass
-- reduce temporary `empty_like` buffers where possible
-
----
-
-## Next Steps
-
-- Write a fused backward kernel: instead of masking `grad_output` in Python, write a second Triton kernel that does it on-device.
-- Add `@triton.autotune` to pick the best `block_size` for the target hardware rather than hardcoding 1024.
-- Swap `backend=aot_backend` for `backend="inductor"` and compare the generated SYCL/PTX against your hand-written kernel.
-
