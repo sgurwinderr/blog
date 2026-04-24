@@ -12,7 +12,7 @@ image: assets/images/Triton_Relu_Pytorch.jpg
 title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model'
 ---
 
-How to write that kernel yourself with Triton, wire it into a real model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what `torch.compile` does with your custom op.
+How to write Triton Kernel, wire it into model with full gradient support, and then trace the entire compilation pipeline — from Python source to the AOT Autograd graph — so you understand exactly what torch.compile does with your custom op.
 
 > Important: this implementation is intentionally a teaching example. It keeps pieces separate so the pipeline is easy to inspect. For production performance, prefer fused ops/kernels (for example fused activation + bias/residual paths, and fused backward) to reduce memory traffic and launch overhead.
 
@@ -46,15 +46,15 @@ def relu_kernel(input_ptr, output_ptr, num_elem, block_size: tl.constexpr):
 
 | Line | What it does |
 |------|--------------|
-| `@triton.jit` | Compile this Python function to GPU machine code. |
-| `block_size: tl.constexpr` | `block_size` is a compile-time constant — the compiler can unroll loops and emit vector instructions. |
-| `pid = tl.program_id(axis=0)` | Each GPU *program* (think: a group of threads) gets a unique integer ID along the first grid axis. |
-| `block_start = pid * block_size` | Compute the starting element index for this program. Programs do not communicate — this is embarrassingly parallel. |
-| `offsets = block_start + tl.arange(0, block_size)` | `tl.arange` generates a vector `[0, 1, ..., block_size-1]`. Adding `block_start` gives the global element indices this program owns. |
-| `mask = offsets < num_elem` | Guard against reading past the end of the tensor when `num_elem` is not a multiple of `block_size`. |
-| `tl.load(..., mask=mask)` | Load a contiguous block from GPU memory. Masked lanes produce zero. |
-| `tl.maximum(x, 0)` | Vectorised elementwise max — this *is* ReLU. |
-| `tl.store(..., mask=mask)` | Write results back. Masked lanes are skipped. |
+| @triton.jit | Compile this Python function to GPU machine code. |
+| block_size: tl.constexpr | block_size is a compile-time constant — the compiler can unroll loops and emit vector instructions. |
+| pid = tl.program_id(axis=0) | Each GPU *program* (think: a group of threads) gets a unique integer ID along the first grid axis. |
+| block_start = pid * block_size | Compute the starting element index for this program. Programs do not communicate — this is embarrassingly parallel. |
+| offsets = block_start + tl.arange(0, block_size) | tl.arange generates a vector [0, 1, ..., block_size-1]. Adding block_start gives the global element indices this program owns. |
+| mask = offsets < num_elem | Guard against reading past the end of the tensor when num_elem is not a multiple of block_size. |
+| tl.load(..., mask=mask) | Load a contiguous block from GPU memory. Masked lanes produce zero. |
+| tl.maximum(x, 0) | Vectorised elementwise max — this *is* ReLU. |
+| tl.store(..., mask=mask) | Write results back. Masked lanes are skipped. |
 
 **The Python launcher:**
 
@@ -68,7 +68,7 @@ def triton_relu(x):
     return output
 ```
 
-`triton.cdiv(num_elem, block_size)` is ceiling division — it computes how many programs we need so that every element is covered. With `block_size=1024` and, say, 18 816 elements (a `[4, 6, 28, 28]` tensor), that is $\lceil 18816 / 1024 \rceil = 19$ programs. That grid of 19 programs runs concurrently on the GPU.
+triton.cdiv(num_elem, block_size) is ceiling division — it computes how many programs we need so that every element is covered. With block_size=1024 and, say, 18 816 elements (a [4, 6, 28, 28] tensor), that is 18816/1024 = 19 programs. That grid of 19 programs runs concurrently on the GPU.
 
 ---
 
@@ -76,7 +76,7 @@ def triton_relu(x):
 
 ![ReLU forward pass and sub-gradient used in backward](/assets/images/triton-relu-grad.png)
 
-`triton_relu` is a raw GPU call. PyTorch's autograd engine has no idea how to backpropagate through it. `torch.autograd.Function` is the bridge:
+triton_relu is a raw GPU call. PyTorch's autograd engine has no idea how to backpropagate through it. torch.autograd.Function is the bridge:
 
 ```python
 class TritonReLUFn(torch.autograd.Function):
@@ -101,9 +101,9 @@ Its derivative is:
 
 $$\frac{\partial f}{\partial x} = \begin{cases} 1 & x > 0 \\ 0 & x \leq 0 \end{cases}$$
 
-So during backprop, the upstream gradient `grad_output` just passes through wherever the pre-activation input was positive, and is zeroed out elsewhere. That is exactly what `grad[x <= 0] = 0` does.
+So during backprop, the upstream gradient grad_output just passes through wherever the pre-activation input was positive, and is zeroed out elsewhere. That is exactly what grad[x <= 0] = 0 does.
 
-Wrapping in an `nn.Module` makes it a drop-in replacement for `nn.ReLU()`:
+Wrapping in an nn.Module makes it a drop-in replacement for nn.ReLU():
 
 ```python
 class TritonReLU(nn.Module):
@@ -142,7 +142,7 @@ class LeNet(nn.Module):
         return x
 ```
 
-The architecture is unchanged from the 1998 original. The only difference from a stock PyTorch implementation is that every `nn.ReLU()` has been replaced with `TritonReLU()`. The 4 activations in the network — after Conv1, Conv2, Linear(784→120), Linear(120→84) — will each dispatch to our custom Triton kernel.
+The architecture is unchanged from the 1998 original. The only difference from a stock PyTorch implementation is that every nn.ReLU() has been replaced with TritonReLU(). The 4 activations in the network — after Conv1, Conv2, Linear(784→120), Linear(120→84) — will each dispatch to our custom Triton kernel.
 
 **Tensor shape flow through the convnet:**
 
@@ -166,7 +166,7 @@ Linear(84→10)  → [4, 10]          (logits)
 
 ## 4. Stage 1: The Dynamo FX Graph
 
-`torch.compile` begins with **Dynamo**, which symbolically traces the `forward` method and converts it into an FX graph — a data structure that represents the computation as a list of nodes. We can intercept this graph by writing a custom backend:
+torch.compile begins with **Dynamo**, which symbolically traces the forward method and converts it into an FX graph — a data structure that represents the computation as a list of nodes. We can intercept this graph by writing a custom backend:
 
 ```python
 def test_backend(gm, inputs):
@@ -294,16 +294,16 @@ output         output                   output       ((input_12,),)
 
 **What this tells us:**
 
-Each of our four `TritonReLU` activations appears as `autograd_function_apply(fwd_body_N, bwd_body_N, ...)`. Dynamo has not seen through the `autograd.Function` — it treats the entire forward+backward pair as an opaque higher-order op. The standard convolutions and linear layers are rendered as ordinary `call_function` nodes referencing `torch.conv2d` / `torch._C._nn.linear`.
+Each of our four TritonReLU activations appears as autograd_function_apply(fwd_body_N, bwd_body_N, ...). Dynamo has not seen through the autograd.Function — it treats the entire forward+backward pair as an opaque higher-order op. The standard convolutions and linear layers are rendered as ordinary call_function nodes referencing torch.conv2d / torch._C._nn.linear.
 
 ---
 
 ## 5. Stage 2: AOT Autograd — Tracing Forward and Backward Together
 
-`test_backend` returned the graph unchanged, so no compilation happened. The real pipeline passes through **AOT Autograd** (`aot_module_simplified`), which:
+test_backend returned the graph unchanged, so no compilation happened. The real pipeline passes through **AOT Autograd** (aot_module_simplified), which:
 
 1. Traces *both* forward and backward in one symbolic pass.
-2. Lowers `autograd_function_apply` nodes into concrete aten ops + `triton_kernel_wrapper_functional` calls.
+2. Lowers autograd_function_apply nodes into concrete aten ops + triton_kernel_wrapper_functional calls.
 3. Annotates every tensor with its dtype and concrete shape.
 
 We hook into both compiler slots to print what it produces:
@@ -452,10 +452,10 @@ class GraphModule(torch.nn.Module):
 
 | Dynamo graph | AOT Autograd graph |
 |---|---|
-| `autograd_function_apply(fwd_body_N, ...)` | `triton_kernel_wrapper_functional(kernel_idx=0, grid=[(N,1,1)], ...)` |
-| No shape information | Every tensor annotated: `"f32[4, 6, 28, 28]"` |
-| Weights are module attributes | Weights are plain `primals_N` tensor arguments |
-| Returns `(logits,)` | Returns logits + 18 saved tensors for the backward |
+| autograd_function_apply(fwd_body_N, ...) | triton_kernel_wrapper_functional(kernel_idx=0, grid=[(N,1,1)], ...) |
+| No shape information | Every tensor annotated: "f32[4, 6, 28, 28]" |
+| Weights are module attributes | Weights are plain primals_N tensor arguments |
+| Returns (logits,) | Returns logits + 18 saved tensors for the backward |
 
 **Return value:**
 
@@ -471,7 +471,7 @@ tensor([[ 0.0359, -0.0539,  0.1029,  0.0510, -0.1029, -0.0747, -0.0963, -0.0808,
        grad_fn=<CompiledFunctionBackward>)
 ```
 
-The `grad_fn=<CompiledFunctionBackward>` confirms that our Triton ReLU backward is correctly wired into the compiled autograd graph. Calling `.backward()` on the loss would propagate gradients through the Triton kernel.
+The grad_fn=<CompiledFunctionBackward> confirms that our Triton ReLU backward is correctly wired into the compiled autograd graph. Calling .backward() on the loss would propagate gradients through the Triton kernel.
 
 ---
 
@@ -498,6 +498,6 @@ AOT Forward Graph
 Device code (SPIR-V / PTX)
 ```
 
-The key insight: **your Triton kernel is a first-class citizen at every stage**. Dynamo wraps it in `autograd_function_apply`. AOT Autograd lowers it to `triton_kernel_wrapper_functional` with concrete grids. The downstream compiler sees it as just another op to schedule alongside convolutions and matrix multiplications.
+The key insight: **your Triton kernel is a first-class citizen at every stage**. Dynamo wraps it in autograd_function_apply. AOT Autograd lowers it to triton_kernel_wrapper_functional with concrete grids. The downstream compiler sees it as just another op to schedule alongside convolutions and matrix multiplications.
 
 ---
