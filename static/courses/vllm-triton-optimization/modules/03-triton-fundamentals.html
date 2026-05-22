@@ -1,0 +1,314 @@
+<section class="module" id="module-3" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Introduction to Triton for Attention</h1>
+      <p class="module-subtitle">Why Triton exists, how it models GPU parallelism, and reading vLLM's attention kernels</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Triton -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why Custom Kernels?</h2>
+        <p>Standard PyTorch operations execute one operation at a time: matrix multiply, then softmax, then another multiply. Each operation reads from and writes to GPU <span class="term" data-definition="HBM (High Bandwidth Memory) is the main GPU memory. While it has high total bandwidth (~2TB/s on A100), accessing it is still much slower than using on-chip SRAM. Reducing HBM reads/writes is the primary optimization strategy.">HBM</span>. The data movement between operations is the bottleneck, not the math.</p>
+        <p><span class="term" data-definition="Triton is a Python-based language for writing GPU kernels. It operates at the block level - you write code that processes blocks of data, and Triton handles mapping to GPU threads. It is higher-level than CUDA but gives you control over memory access patterns.">Triton</span> lets you fuse multiple operations into one kernel. Data stays in fast on-chip <span class="term" data-definition="SRAM (Static Random-Access Memory) is the small but extremely fast on-chip memory on the GPU. On A100, each Streaming Multiprocessor has 192KB of shared SRAM. Accessing SRAM is ~100x faster than accessing HBM.">SRAM</span> between operations instead of making round-trips to slow HBM.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">P</div>
+            <h4 class="pattern-title">PyTorch Default</h4>
+            <p class="pattern-desc">Q*K -> HBM -> softmax -> HBM -> *V -> HBM. Three round trips to slow memory.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">T</div>
+            <h4 class="pattern-title">Triton Fused</h4>
+            <p class="pattern-desc">Load Q,K,V -> SRAM -> compute attention in tiles -> write output once. One HBM round trip.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">R</div>
+            <h4 class="pattern-title">Result</h4>
+            <p class="pattern-desc">2-4x speedup for attention. The math is identical - only the data movement changes.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Triton Programming Model -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Triton Programming Model</h2>
+        <p>Triton operates at the <span class="term" data-definition="In Triton, a program instance processes a block (tile) of data. Multiple program instances run in parallel across GPU cores. You index your position with tl.program_id() and process BLOCK_SIZE elements at once.">block level</span>. You write code that processes a tile of data, and the GPU launches thousands of these program instances in parallel. Think of it like a factory assembly line where each worker handles one box of parts, not individual screws.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>tl.program_id(axis)</strong>
+              <p>Each instance gets a unique ID. This tells it which tile of the output it is responsible for.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>tl.arange(0, BLOCK_SIZE)</strong>
+              <p>Generate offset indices within the tile. These map to the elements this instance processes.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>tl.load(ptr + offsets, mask=...)</strong>
+              <p>Load a tile of data from HBM into registers. The mask handles boundary conditions.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Compute (tl.dot, tl.sum, etc.)</strong>
+              <p>Process the tile entirely in fast registers/SRAM. This is where the actual math happens.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>tl.store(ptr + offsets, result)</strong>
+              <p>Write the computed tile back to HBM. Ideally, this is the only write to slow memory.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Memory Hierarchy Chat -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">GPU Memory Hierarchy</h2>
+        <p>Understanding where data lives is the key to writing fast Triton kernels. The hierarchy has three levels, each with dramatically different speed and capacity.</p>
+
+        <div class="chat-window" id="chat-module3">
+          <div class="chat-messages">
+            <div class="chat-message" data-msg="0" data-sender="hbm" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">H</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">HBM (80GB)</span>
+                <p>I store everything - model weights, KV cache, all tensors. But accessing me takes ~400 cycles. I am slow.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="1" data-sender="sram" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SRAM (20MB shared)</span>
+                <p>I am the middle layer - fast (~20 cycles) but small. Triton uses me for tiles being actively computed. I am the key to performance.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="2" data-sender="reg" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Registers (256KB per SM)</span>
+                <p>I am instant access (~1 cycle) but tiny. Each thread has its own registers. Accumulators live here.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="3" data-sender="hbm" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">H</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">HBM</span>
+                <p>The goal of every Triton kernel: load from me ONCE into SRAM, do ALL the computation there, then write back to me ONCE. Minimize my involvement.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="4" data-sender="sram" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SRAM</span>
+                <p>For attention: load a tile of Q and iterate over tiles of K,V. The Q tile stays in me the whole time. Only K,V tiles rotate through.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="5" data-sender="reg" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Registers</span>
+                <p>I hold the running softmax statistics (m_i, l_i) and the output accumulator. These never leave me until the final store.</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" style="background: var(--color-actor-2)">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Prefill Attention Kernel -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">vLLM Prefill Attention Kernel</h2>
+        <p>The prefill kernel processes all prompt tokens at once. Each program instance handles one tile of query positions for one attention head. It iterates over all key/value positions in tiles, computing attention scores with <span class="term" data-definition="Online softmax computes the softmax normalization incrementally as new values arrive, without needing to see all values first. It tracks a running maximum and sum, updating them as each new tile is processed. This avoids storing the full attention matrix in memory.">online softmax</span>.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/attention/ops/triton_prefill_attention.py</span></span>
+<span class="code-line">@triton.jit</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">_fwd_kernel</span>(Q, K, V, sm_scale, B_Start_Loc, B_Seqlen, Out,</span>
+<span class="code-line">    stride_qbs, stride_qh, stride_kbs, stride_kh, ...):</span>
+<span class="code-line">    cur_batch = tl.program_id(<span class="code-number">0</span>)</span>
+<span class="code-line">    cur_head = tl.program_id(<span class="code-number">1</span>)</span>
+<span class="code-line">    start_m = tl.program_id(<span class="code-number">2</span>)</span>
+<span class="code-line">    cur_kv_head = cur_head // kv_group_num</span>
+<span class="code-line">    cur_batch_seq_len = tl.load(B_Seqlen + cur_batch)</span>
+<span class="code-line">    <span class="code-comment"># initialize pointer to m and l</span></span>
+<span class="code-line">    m_i = tl.zeros([BLOCK_M], dtype=tl.float32) - <span class="code-function">float</span>(<span class="code-string">"inf"</span>)</span>
+<span class="code-line">    l_i = tl.zeros([BLOCK_M], dtype=tl.float32)</span>
+<span class="code-line">    acc = tl.zeros([BLOCK_M, BLOCK_DMODEL], dtype=tl.float32)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This Triton kernel runs one instance per (batch, head, query-tile) combination.</p>
+              <p class="tl">@triton.jit compiles this Python function into GPU machine code.</p>
+              <p class="tl">Three program IDs give us our position: which batch, which attention head, which query tile (start_m).</p>
+              <p class="tl">For grouped-query attention: multiple query heads share one KV head.</p>
+              <p class="tl">Load this batch item's sequence length from memory.</p>
+              <p class="tl">Online softmax state: m_i tracks the running maximum (starts at -infinity), l_i tracks the running sum of exponentials.</p>
+              <p class="tl">acc is the output accumulator - the weighted sum of values. All three live in registers throughout.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: The Attention Loop -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Core Attention Loop</h2>
+        <p>This is where the magic happens. The kernel iterates over tiles of keys, computing attention scores and accumulating the weighted values - all without writing intermediate results to HBM.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># The tiled attention loop (prefill kernel)</span></span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(start_n_limit, end_n_limit, BLOCK_N):</span>
+<span class="code-line">    k = tl.load(k_ptrs + start_n * stride_kbs,</span>
+<span class="code-line">                mask=(pos_k < cur_batch_seq_len))</span>
+<span class="code-line">    qk = tl.dot(q, k)</span>
+<span class="code-line">    qk = tl.where(mask, qk * sm_scale, <span class="code-number">-1.0e8</span>)</span>
+<span class="code-line">    m_ij = tl.maximum(m_i, tl.max(qk, <span class="code-number">1</span>))</span>
+<span class="code-line">    qk -= m_ij[:, None]</span>
+<span class="code-line">    p = tl.math.exp2(qk)</span>
+<span class="code-line">    l_ij = tl.sum(p, <span class="code-number">1</span>)</span>
+<span class="code-line">    alpha = tl.math.exp2(m_i - m_ij)</span>
+<span class="code-line">    l_i = l_i * alpha + l_ij</span>
+<span class="code-line">    acc = acc * alpha[:, None]</span>
+<span class="code-line">    v = tl.load(v_ptrs + start_n * stride_vbs, ...)</span>
+<span class="code-line">    acc += tl.dot(p, v)</span>
+<span class="code-line">    m_i = m_ij</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Iterate over key/value positions in tiles of BLOCK_N.</p>
+              <p class="tl">Load a tile of keys from HBM (this is the main memory read).</p>
+              <p class="tl">Compute QK dot product - attention scores for this tile.</p>
+              <p class="tl">Apply causal mask and scale. Masked positions get -inf (zero after softmax).</p>
+              <p class="tl">Online softmax: find new maximum across this tile.</p>
+              <p class="tl">Subtract maximum for numerical stability, then exponentiate (using exp2 for speed).</p>
+              <p class="tl">Sum the exponentials for this tile.</p>
+              <p class="tl">Correction factor: rescale previous results because the maximum changed.</p>
+              <p class="tl">Update running sum and rescale the output accumulator.</p>
+              <p class="tl">Load the corresponding value tile and add weighted contribution to output.</p>
+              <p class="tl">Update the running maximum for next iteration.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50d;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why exp2 instead of exp?</strong>
+            <p>GPUs have a dedicated hardware instruction for 2^x (exp2) that is faster than e^x (exp). The kernel uses sm_scale * log2(e) to convert between bases. Same result, fewer cycles.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Triton fuses multiple operations into one kernel, keeping data in fast SRAM between operations. The math is identical - only the memory access pattern changes."
+               data-explanation-wrong="Triton kernels are faster because they reduce memory traffic, not because they change the math. Data stays on-chip instead of bouncing to HBM between each operation.">
+            <h3 class="quiz-question">Why is a fused Triton attention kernel faster than separate PyTorch operations (matmul + softmax + matmul)?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton uses a more efficient attention algorithm with lower computational complexity</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Data stays in fast SRAM between operations instead of making round-trips to slow HBM</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton automatically uses lower precision to compute attention faster</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The three program IDs map to batch, head, and query-tile position. This creates a 3D grid of parallel instances, each computing one tile of the output."
+               data-explanation-wrong="The program IDs form a 3D grid: (batch, head, query_tile). Each combination runs independently in parallel on the GPU.">
+            <h3 class="quiz-question">In the prefill kernel, what do program_id(0), program_id(1), and program_id(2) represent?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Query position, key position, and value position</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>GPU core ID, thread ID, and warp ID</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Batch index, attention head, and query tile position (start_m)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Online softmax tracks a running maximum and sum, allowing the kernel to process keys in tiles without ever materializing the full N*N attention matrix. This is what makes flash attention memory-efficient."
+               data-explanation-wrong="Online softmax processes tiles incrementally, tracking running statistics. When the maximum changes, it applies a correction factor (alpha) to rescale previous results.">
+            <h3 class="quiz-question">What problem does online softmax solve in tiled attention?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It allows computing softmax without seeing all key scores at once, by tracking a running max and sum</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It reduces the computational complexity of softmax from O(n) to O(log n)</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It replaces softmax with a cheaper approximation that uses less GPU memory</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,304 @@
+<section class="module" id="module-1" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">vLLM Architecture Deep Dive</h1>
+      <p class="module-subtitle">How requests flow through the V1 engine, from API call to token generation</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: What vLLM Does -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What vLLM Actually Does</h2>
+        <p>vLLM is a high-throughput <span class="term" data-definition="Large Language Model inference means running a trained neural network to generate text token by token, converting input prompts into output completions.">LLM inference engine</span>. When you send a prompt to a model like Llama or Mistral, vLLM orchestrates the entire process: scheduling requests, managing GPU memory, and running optimized <span class="term" data-definition="A kernel is a function that runs on the GPU. Thousands of GPU cores execute the same kernel simultaneously on different data, which is what makes GPUs fast for parallel workloads.">kernels</span> to generate tokens as fast as possible.</p>
+        <p>Think of vLLM like an air traffic control system. Multiple planes (requests) arrive simultaneously, each needing runway time (GPU compute) and gate space (memory). The controller must land planes efficiently without collisions.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">E</div>
+            <h4 class="pattern-title">Engine</h4>
+            <p class="pattern-desc">The control tower. Receives requests and coordinates all other components.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">S</div>
+            <h4 class="pattern-title">Scheduler</h4>
+            <p class="pattern-desc">The runway controller. Decides which requests run and when, based on memory constraints.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">K</div>
+            <h4 class="pattern-title">KV Cache Manager</h4>
+            <p class="pattern-desc">The gate manager. Allocates and recycles GPU memory blocks for attention state.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">W</div>
+            <h4 class="pattern-title">Worker</h4>
+            <p class="pattern-desc">The pilot. Executes actual model computation on the GPU with optimized Triton kernels.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Request Flow Animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Request Lifecycle</h2>
+        <p>When you send a prompt to vLLM, here is the path your request takes through the system. Each step is a handoff between components, designed for maximum <span class="term" data-definition="Throughput is the number of requests (or tokens) processed per second. Higher throughput means the system handles more users simultaneously.">throughput</span>.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Client sends a prompt via the async API endpoint"},
+          {"highlight":"flow-actor-1","label":"AsyncLLM validates the request and queues it","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"EngineCore receives the request and forwards to Scheduler","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Scheduler checks memory budget and assigns KV cache blocks"},
+          {"highlight":"flow-actor-3","label":"Scheduler creates a SchedulerOutput with batch decisions","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Worker runs the model forward pass with Triton kernels"},
+          {"highlight":"flow-actor-4","label":"Worker returns generated tokens back to EngineCore","packet":true,"from":"actor-4","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"Detokenizer converts token IDs to text and streams to client","packet":true,"from":"actor-2","to":"actor-1"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">API</div>
+              <span>AsyncLLM</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">EC</div>
+              <span>EngineCore</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">S</div>
+              <span>Scheduler</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">W</div>
+              <span>Worker</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to trace a request through vLLM</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: V1 File Structure -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The V1 Architecture Directory</h2>
+        <p>The V1 engine lives in <code>vllm/v1/</code>. It was a ground-up rewrite of the original vLLM engine for better performance and simpler scheduling logic.</p>
+
+        <div class="file-tree">
+          <div class="ft-folder open">
+            <span class="ft-name">vllm/v1/</span>
+            <span class="ft-desc">The V1 engine root</span>
+            <div class="ft-children">
+              <div class="ft-folder open">
+                <span class="ft-name">engine/</span>
+                <span class="ft-desc">Request handling and coordination</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">async_llm.py</span>
+                    <span class="ft-desc">Async API frontend</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">core.py</span>
+                    <span class="ft-desc">Main engine loop</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">detokenizer.py</span>
+                    <span class="ft-desc">Token-to-text conversion</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">core/sched/</span>
+                <span class="ft-desc">Scheduling decisions</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">scheduler.py</span>
+                    <span class="ft-desc">Main scheduling logic</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">core/</span>
+                <span class="ft-desc">KV cache and memory management</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">kv_cache_manager.py</span>
+                    <span class="ft-desc">Block allocation for KV cache</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">block_pool.py</span>
+                    <span class="ft-desc">Prefix caching and block reuse</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">attention/ops/</span>
+                <span class="ft-desc">Triton attention kernels</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">triton_prefill_attention.py</span>
+                    <span class="ft-desc">Prefill phase attention kernel</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">triton_decode_attention.py</span>
+                    <span class="ft-desc">Decode phase attention kernel</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Scheduler Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Scheduling Algorithm</h2>
+        <p>The V1 scheduler has no concept of separate "prefill" or "decode" phases. Instead, it treats every request uniformly: each has <code>num_computed_tokens</code> and a target <code>num_tokens_with_spec</code>. The scheduler assigns compute budget to help each request catch up.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/sched/scheduler.py</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">schedule</span>(self) -> SchedulerOutput:</span>
+<span class="code-line">    <span class="code-comment"># Each request just has num_computed_tokens and</span></span>
+<span class="code-line">    <span class="code-comment"># num_tokens_with_spec. At each step, the scheduler</span></span>
+<span class="code-line">    <span class="code-comment"># tries to assign tokens so that each request's</span></span>
+<span class="code-line">    <span class="code-comment"># num_computed_tokens can catch up.</span></span>
+<span class="code-line">    scheduled_new_reqs: list[Request] = []</span>
+<span class="code-line">    scheduled_running_reqs: list[Request] = []</span>
+<span class="code-line">    preempted_reqs: list[Request] = []</span>
+<span class="code-line">    token_budget = self.max_num_scheduled_tokens</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This is the main scheduling function, called every step.</p>
+              <p class="tl">The unified approach: no prefill/decode phases. Each request just tracks how many tokens it has computed vs. how many it needs.</p>
+              <p class="tl">The scheduler fills tokens until the budget runs out.</p>
+              <p class="tl">Three buckets: new requests entering the system, requests currently running, and requests that got preempted (paused to free memory).</p>
+              <p class="tl">The token budget caps how many tokens can be processed in one step across all requests.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why unified scheduling matters</strong>
+            <p>By removing the prefill/decode distinction, vLLM V1 can handle chunked prefills, prefix caching, and speculative decoding with the same scheduling logic. One algorithm covers all cases.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Scheduling Policy -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Scheduling Policies</h2>
+        <p>The scheduler supports multiple <span class="term" data-definition="A scheduling policy determines the order in which waiting requests are served. FCFS (First Come First Served) processes requests in arrival order. Priority-based policies can reorder requests based on importance.">scheduling policies</span> to control which requests get compute time first.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/sched/scheduler.py</span></span>
+<span class="code-line"><span class="code-comment"># Scheduling constraints.</span></span>
+<span class="code-line">self.max_num_running_reqs = self.scheduler_config.max_num_seqs</span>
+<span class="code-line">self.max_num_scheduled_tokens = (</span>
+<span class="code-line">    self.scheduler_config.max_num_scheduled_tokens</span>
+<span class="code-line">    <span class="code-keyword">if</span> self.scheduler_config.max_num_scheduled_tokens</span>
+<span class="code-line">    <span class="code-keyword">else</span> self.scheduler_config.max_num_batched_tokens</span>
+<span class="code-line">)</span>
+<span class="code-line">self.policy = SchedulingPolicy(self.scheduler_config.policy)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Two hard limits control scheduling:</p>
+              <p class="tl">1. Maximum concurrent requests (how many planes can be in the air)</p>
+              <p class="tl">2. Maximum tokens per step (total runway capacity per time slice)</p>
+              <p class="tl">The token budget falls back to batched_tokens if not explicitly set.</p>
+              <p class="tl">The policy (FCFS or priority) determines the queue ordering.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. The V1 scheduler uses a unified token budget approach where each request simply tracks computed vs. target tokens, eliminating the need for separate phases."
+               data-explanation-wrong="The V1 scheduler actually removes this distinction entirely. It treats all requests uniformly with a token budget system.">
+            <h3 class="quiz-question">What distinguishes the V1 scheduler from traditional LLM schedulers?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It processes prefill and decode in separate phases for efficiency</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It has no prefill/decode distinction - all requests share one token budget</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It only supports decode operations, deferring prefill to a separate service</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The Scheduler makes batching decisions and allocates KV cache memory, then hands off to the Worker which runs the GPU kernels."
+               data-explanation-wrong="The Scheduler handles memory-aware batching decisions, not model execution. The Worker is responsible for running GPU kernels.">
+            <h3 class="quiz-question">A new request arrives but GPU memory is almost full. Which component decides whether to accept or preempt?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The Worker, since it manages GPU resources directly</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The AsyncLLM engine, which rejects the request at the API level</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The Scheduler, which checks memory budget before scheduling</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Chunked prefills, prefix caching, and speculative decoding all fit naturally because every request is just tokens-computed vs. tokens-needed."
+               data-explanation-wrong="The unified scheduling enables these advanced features naturally without special-casing.">
+            <h3 class="quiz-question">Why does the unified scheduling approach enable speculative decoding and chunked prefills?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because all features reduce to the same abstraction: closing the gap between computed and target tokens</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because the scheduler runs on a separate CPU thread from the GPU</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because it uses CUDA streams to overlap prefill and decode</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

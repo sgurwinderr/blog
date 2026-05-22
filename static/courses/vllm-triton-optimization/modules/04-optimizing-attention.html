@@ -1,0 +1,294 @@
+<section class="module" id="module-4" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Optimizing Triton Attention Kernels</h1>
+      <p class="module-subtitle">Identifying bottlenecks, tuning block sizes, and understanding vLLM's decode attention strategy</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Performance Landscape -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Roofline: Memory vs. Compute Bound</h2>
+        <p>Every kernel operation sits somewhere on the <span class="term" data-definition="The roofline model plots achievable performance (FLOPS) against arithmetic intensity (FLOPS per byte of memory traffic). Operations below the memory bandwidth line are memory-bound; operations below the compute peak are compute-bound. Most attention kernels are memory-bound during decode.">roofline</span>. Prefill attention is often compute-bound (large matrix multiplies). Decode attention is almost always memory-bound (loading KV cache for a single query token). Different optimizations apply to each.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">P</div>
+            <h4 class="pattern-title">Prefill (Compute-Bound)</h4>
+            <p class="pattern-desc">Many query tokens attend to many keys simultaneously. Large tl.dot operations saturate tensor cores. Optimize by maximizing tile occupancy.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">D</div>
+            <h4 class="pattern-title">Decode (Memory-Bound)</h4>
+            <p class="pattern-desc">One new query token reads the entire KV cache. The bottleneck is loading K,V from HBM. Optimize by reducing memory traffic and using split-KV parallelism.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The decode dilemma</strong>
+            <p>During decode, arithmetic intensity is extremely low: one query vector dot-producted with thousands of key vectors. The GPU finishes the math faster than memory can feed it data. This is why split-KV parallelism exists - it keeps more compute units busy by splitting the KV sequence across multiple program instances.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Split-KV Decode Strategy -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Split-KV: Parallelizing Decode Attention</h2>
+        <p>vLLM's decode kernel uses a two-stage approach. Stage 1 splits the KV sequence across <code>NUM_KV_SPLITS</code> parallel instances. Stage 2 merges their results. Think of it like parallel reading groups: each group reads a chapter of the book, then they combine their notes.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Single query token needs attention over 4096 key-value positions"},
+          {"highlight":"flow-actor-2","label":"Stage 1: Split into NUM_KV_SPLITS chunks (e.g., 8 chunks of 512 positions each)"},
+          {"highlight":"flow-actor-2","label":"Each split computes partial attention independently in parallel","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Split 0: processes positions 0-511, computes local max and sum"},
+          {"highlight":"flow-actor-3","label":"Split 1: processes positions 512-1023 simultaneously"},
+          {"highlight":"flow-actor-3","label":"All 8 splits finish. Each has a partial result with its own softmax statistics","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Stage 2: Merge partial results using log-sum-exp correction"},
+          {"highlight":"flow-actor-4","label":"Final output: mathematically identical to processing all 4096 positions sequentially"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">Q</div>
+              <span>Query Token</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">SP</div>
+              <span>Split Logic</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">KV</div>
+              <span>Parallel Splits</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">MG</div>
+              <span>Merge (Stage 2)</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see split-KV decode attention</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Decode Stage 1 Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Decode Stage 1: The Split-KV Kernel</h2>
+        <p>Each split instance processes a slice of the KV sequence. The key insight: it uses <span class="term" data-definition="In paged attention, tokens are stored in blocks (pages) that can be scattered in memory. The kernel must compute which page a given position lives in: page_number = position // PAGE_SIZE, offset_within_page = position % PAGE_SIZE.">paged memory access</span> to handle non-contiguous blocks while iterating over its assigned KV range.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/attention/ops/triton_decode_attention.py</span></span>
+<span class="code-line">@triton.jit</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">_fwd_kernel_stage1</span>(Q, K_Buffer, V_Buffer, sm_scale,</span>
+<span class="code-line">    Req_to_tokens, B_Seqlen, Att_Out, ...):</span>
+<span class="code-line">    cur_batch = tl.program_id(<span class="code-number">0</span>)</span>
+<span class="code-line">    cur_head = tl.program_id(<span class="code-number">1</span>)</span>
+<span class="code-line">    split_kv_id = tl.program_id(<span class="code-number">2</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">    kv_len_per_split = tl.cdiv(cur_batch_seq_len, NUM_KV_SPLITS)</span>
+<span class="code-line">    split_kv_start = kv_len_per_split * split_kv_id</span>
+<span class="code-line">    split_kv_end = tl.minimum(split_kv_start + kv_len_per_split,</span>
+<span class="code-line">                              cur_batch_seq_len)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Stage 1 of decode attention - each instance handles one split of the KV sequence.</p>
+              <p class="tl">Three axes of parallelism: across batches, across heads, and across KV splits.</p>
+              <p class="tl">program_id(2) is the split index - this instance handles one chunk of the sequence.</p>
+              <p class="tl">Calculate the range of KV positions this split is responsible for.</p>
+              <p class="tl">Ceiling division ensures all positions are covered even if sequence length is not evenly divisible.</p>
+              <p class="tl">Clamp the end to avoid reading past the actual sequence length.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Paged KV Access Pattern -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Paged KV Access in the Kernel</h2>
+        <p>The decode kernel handles paged memory by computing physical addresses from logical positions. This is the critical path where page table lookups happen at GPU speed.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># Inside the decode attention loop</span></span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(split_kv_start, split_kv_end, BLOCK_N):</span>
+<span class="code-line">    offs_n = start_n + tl.arange(<span class="code-number">0</span>, BLOCK_N)</span>
+<span class="code-line">    kv_page_number = tl.load(</span>
+<span class="code-line">        Req_to_tokens + stride_req_to_tokens_b * cur_batch_req_idx</span>
+<span class="code-line">        + offs_n // PAGE_SIZE,</span>
+<span class="code-line">        mask=offs_n < split_kv_end)</span>
+<span class="code-line">    kv_loc = kv_page_number * PAGE_SIZE + offs_n % PAGE_SIZE</span>
+<span class="code-line">    k = tl.load(K_Buffer + kv_loc[:, None] * stride_buf_kbs</span>
+<span class="code-line">        + cur_kv_head * stride_buf_kh + offs_d[None, :],</span>
+<span class="code-line">        mask=(offs_n[:, None] < split_kv_end) & mask_d)</span>
+<span class="code-line">    qk = tl.sum(q[None, :] * k, <span class="code-number">1</span>)</span>
+<span class="code-line">    qk *= sm_scale</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Loop over this split's assigned KV range in tiles of BLOCK_N positions.</p>
+              <p class="tl">Generate position indices for this tile.</p>
+              <p class="tl">PAGE TABLE LOOKUP: divide position by page size to get which page (block) it is in. Load the physical page number from the request's page table.</p>
+              <p class="tl">Compute the actual physical memory location: page_number * PAGE_SIZE gives the page start, plus the offset within the page (position % PAGE_SIZE).</p>
+              <p class="tl">Load key vectors from their scattered physical locations using computed addresses.</p>
+              <p class="tl">Compute attention score: element-wise multiply of query with each key, then sum. For decode, query is a single vector (not a matrix like in prefill).</p>
+              <p class="tl">Scale by 1/sqrt(d_head) for stable softmax.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Block Size Tuning -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Optimization: Block Size Tuning</h2>
+        <p>The <code>BLOCK_N</code> and <code>BLOCK_DMODEL</code> parameters control tile sizes. Choosing the right values is a trade-off between <span class="term" data-definition="Occupancy is the ratio of active warps to maximum supported warps on a GPU streaming multiprocessor. Higher occupancy helps hide memory latency because the GPU can switch between warps while others wait for data. But too-large tiles reduce occupancy by consuming too much shared memory per instance.">occupancy</span> and per-instance efficiency.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">S</div>
+            <h4 class="pattern-title">Small Tiles (BLOCK_N=32)</h4>
+            <p class="pattern-desc">High occupancy (many instances fit on SM), good for short sequences. But more loop iterations means more overhead per tile.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">M</div>
+            <h4 class="pattern-title">Medium Tiles (BLOCK_N=64)</h4>
+            <p class="pattern-desc">Balance between occupancy and per-tile efficiency. Often the sweet spot for decode attention.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">L</div>
+            <h4 class="pattern-title">Large Tiles (BLOCK_N=128)</h4>
+            <p class="pattern-desc">Better memory coalescing and amortized overhead. Best for long sequences in prefill. But may reduce occupancy.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f527;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Practical tuning tip</strong>
+            <p>vLLM uses tl.constexpr for BLOCK_N, meaning the compiler generates specialized code for each block size. You can benchmark different values by modifying the kernel launch configuration. The optimal choice depends on your GPU (A100 vs H100), sequence length, and batch size.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: FP8 Optimization -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">FP8 KV Cache: Halving Memory Traffic</h2>
+        <p>vLLM's decode kernel supports <span class="term" data-definition="FP8 (8-bit floating point) uses half the memory of FP16 per value. For KV cache, this means loading 2x more tokens per memory transaction. The kernel dequantizes to FP16/FP32 after loading, preserving computation accuracy while reducing memory bandwidth pressure.">FP8 quantized</span> KV cache. Since decode is memory-bound, halving the bytes read from HBM nearly doubles effective performance.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># FP8 dequantization in decode kernel</span></span>
+<span class="code-line">ks = tl.load(k_scale)</span>
+<span class="code-line">vs = tl.load(v_scale)</span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(split_kv_start, split_kv_end, BLOCK_N):</span>
+<span class="code-line">    k = tl.load(K_Buffer + offs_buf_k, mask=...)</span>
+<span class="code-line">    <span class="code-keyword">if</span> k.dtype.is_fp8():</span>
+<span class="code-line">        k = (k.to(tl.float32) * ks).to(q.dtype)</span>
+<span class="code-line">    qk = tl.sum(q[None, :] * k, <span class="code-number">1</span>)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Load the dequantization scale factors (one for keys, one for values). These are scalars shared across the tensor.</p>
+              <p class="tl">Normal tile loop - same structure as before.</p>
+              <p class="tl">Load key data from the buffer. If stored as FP8, each element is only 1 byte instead of 2 bytes.</p>
+              <p class="tl">Check if the data is FP8 at compile time (constexpr branch - zero runtime cost).</p>
+              <p class="tl">Dequantize: cast to float32, multiply by scale, then cast to query precision. This restores the original value range.</p>
+              <p class="tl">Continue with normal attention computation using the dequantized keys.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 7: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. During decode, one query token reads thousands of KV pairs. The GPU math is fast but waits for data to arrive from HBM. The bottleneck is memory bandwidth, not compute."
+               data-explanation-wrong="Decode attention has very low arithmetic intensity - one query vector against many keys. The GPU finishes math faster than memory can supply data, making it memory-bound.">
+            <h3 class="quiz-question">Your decode attention kernel achieves only 30% of peak FLOPS. What is the most likely bottleneck?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The softmax computation is too expensive for the GPU</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Memory bandwidth - the GPU is waiting for KV data to arrive from HBM</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Thread divergence from the causal mask causing idle cores</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Split-KV lets multiple program instances read different parts of the KV cache simultaneously, keeping more memory channels active. Stage 2 then merges results using log-sum-exp correction."
+               data-explanation-wrong="Split-KV parallelism increases effective memory bandwidth utilization by having multiple instances read different KV ranges simultaneously.">
+            <h3 class="quiz-question">Why does split-KV help decode performance if the bottleneck is memory bandwidth?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Multiple splits read from different memory locations simultaneously, better utilizing total bandwidth</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Splits reduce the total amount of data that needs to be read from memory</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Splits convert the operation from memory-bound to compute-bound</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. FP8 halves the bytes per value, so the same memory bandwidth moves twice as many tokens per second. Since decode is memory-bound, this directly translates to ~2x throughput improvement."
+               data-explanation-wrong="FP8 KV cache helps because it reduces memory traffic. With half the bytes, the GPU can load KV data twice as fast, directly addressing the memory bandwidth bottleneck.">
+            <h3 class="quiz-question">You switch from FP16 to FP8 KV cache. Where does the performance gain come from?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>FP8 math operations are computed faster on GPU tensor cores</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>FP8 uses less shared memory, allowing more thread blocks to run simultaneously</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Loading half the bytes means twice the effective memory bandwidth for the memory-bound kernel</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

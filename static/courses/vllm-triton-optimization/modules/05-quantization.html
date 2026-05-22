@@ -1,0 +1,270 @@
+<section class="module" id="module-5" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Quantization & Low-Precision Kernels</h1>
+      <p class="module-subtitle">Compressing model weights and KV cache to fit larger models and serve faster</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Quantization -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why Quantize?</h2>
+        <p><span class="term" data-definition="Quantization reduces the precision of numbers - e.g., from 16-bit floats (2 bytes each) to 8-bit (1 byte) or 4-bit (0.5 bytes). Lower precision means less memory usage and faster memory transfers, at the cost of some accuracy loss.">Quantization</span> solves two problems at once: it shrinks model size so larger models fit on fewer GPUs, and it reduces memory traffic so inference runs faster. A 70B parameter model in FP16 needs ~140GB of memory. In INT4, it fits in ~35GB - a single GPU.</p>
+        <p>Think of it like compressing a high-resolution photo to JPEG. You lose some subtle details, but the image is recognizable and loads much faster. The art is choosing compression levels that preserve quality where it matters.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-1)">16b</div>
+            <div>
+              <strong>FP16 / BF16 (Baseline)</strong>
+              <p>Full precision. 2 bytes per parameter. Best accuracy but most memory.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-2)">8b</div>
+            <div>
+              <strong>FP8 / INT8</strong>
+              <p>1 byte per parameter. ~0.1% accuracy loss. 2x memory reduction and bandwidth improvement.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-5)">4b</div>
+            <div>
+              <strong>INT4 (GPTQ, AWQ)</strong>
+              <p>0.5 bytes per parameter. 4x memory reduction. Requires careful calibration to preserve accuracy.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Quantization Schemes -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Quantization Granularity</h2>
+        <p>The <span class="term" data-definition="Scale factor determines how the full-precision range maps to the quantized range. Per-tensor uses one scale for the entire tensor. Per-channel uses one scale per output channel. Group-wise uses one scale per group of values (e.g., 128 consecutive elements).">scale factor</span> determines accuracy. Finer granularity preserves more information but adds overhead. vLLM supports all three strategies.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">T</div>
+            <div class="step-body">
+              <strong>Per-Tensor Quantization</strong>
+              <p>One scale for the entire weight matrix. Fastest dequantization but lowest accuracy - outlier values stretch the range for all other values.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">C</div>
+            <div class="step-body">
+              <strong>Per-Channel Quantization</strong>
+              <p>One scale per output channel. Good balance - each row/column gets its own range. Used by SmoothQuant.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">G</div>
+            <div class="step-body">
+              <strong>Group-wise Quantization (128 elements)</strong>
+              <p>One scale per group of 128 values. Best accuracy preservation - used by GPTQ and AWQ. Slightly more dequantization work.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The outlier problem</strong>
+            <p>LLMs have activation outliers - a few values 10-100x larger than the rest. Per-tensor quantization wastes most of its range on these outliers, crushing the majority of values into a few quantization levels. Group-wise quantization isolates outliers to their local group.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: vLLM Quantization Directory -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">vLLM Quantization Methods</h2>
+        <p>vLLM supports a comprehensive set of quantization methods, each with different trade-offs between accuracy, speed, and memory savings.</p>
+
+        <div class="file-tree">
+          <div class="ft-folder open">
+            <span class="ft-name">vllm/model_executor/layers/quantization/</span>
+            <span class="ft-desc">All quantization implementations</span>
+            <div class="ft-children">
+              <div class="ft-file">
+                <span class="ft-name">fp8.py</span>
+                <span class="ft-desc">FP8 weight and activation quantization (fastest, minimal accuracy loss)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">auto_gptq.py</span>
+                <span class="ft-desc">GPTQ: 4-bit weight quantization with calibration data</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">awq.py</span>
+                <span class="ft-desc">AWQ: activation-aware 4-bit quantization</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">awq_marlin.py</span>
+                <span class="ft-desc">AWQ with Marlin kernel backend (optimized W4A16 GEMM)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">kv_cache.py</span>
+                <span class="ft-desc">KV cache quantization (FP8 cache for memory savings)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">fbgemm_fp8.py</span>
+                <span class="ft-desc">FBGEMM FP8 backend (Meta-optimized kernels)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: FP8 Implementation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">FP8 Quantization in Practice</h2>
+        <p>FP8 is the sweet spot for inference: minimal accuracy degradation, hardware-accelerated on H100/MI300X, and transparent to the model architecture. vLLM implements FP8 for both linear layers and KV cache.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/model_executor/layers/quantization/fp8.py</span></span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.layers.quantization.base_config <span class="code-keyword">import</span> (</span>
+<span class="code-line">    QuantizationConfig, QuantizeMethodBase)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.layers.quantization.kv_cache <span class="code-keyword">import</span> (</span>
+<span class="code-line">    BaseKVCacheMethod)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.kernels.linear <span class="code-keyword">import</span> (</span>
+<span class="code-line">    init_fp8_linear_kernel)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.kernels.linear.scaled_mm <span class="code-keyword">import</span> (</span>
+<span class="code-line">    CutlassFP8ScaledMMLinearKernel,</span>
+<span class="code-line">    MarlinFP8ScaledMMLinearKernel)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">FP8 quantization integrates with vLLM's base config system and supports both linear layers and KV cache.</p>
+              <p class="tl">QuantizationConfig defines the interface: how to quantize weights, how to create quantized methods for layers.</p>
+              <p class="tl">BaseKVCacheMethod handles FP8 quantization of the KV cache specifically (what we saw in Module 4's decode kernel).</p>
+              <p class="tl">The actual matrix multiplication uses optimized backends:</p>
+              <p class="tl">CutlassFP8 for NVIDIA GPUs (Cutlass library), Marlin for further-optimized 4-bit/8-bit GEMM kernels.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Quantized Kernel Flow -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">How Quantized Inference Works</h2>
+        <p>The quantized forward pass adds a dequantization step before (or fused into) each linear operation. The key optimization is fusing dequantization with the <span class="term" data-definition="GEMM stands for General Matrix Multiplication. It is the core operation in neural networks - every linear layer, every attention projection, every FFN layer is fundamentally a matrix multiply. GEMM performance dominates inference time.">GEMM</span> so there is no extra memory traffic.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Input activations arrive in FP16/BF16 precision"},
+          {"highlight":"flow-actor-2","label":"Quantized weights (INT4/FP8) loaded from GPU memory - 2-4x less data than FP16","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"Scale factors loaded alongside weights (one per group of 128 elements)"},
+          {"highlight":"flow-actor-3","label":"Fused kernel: dequantize + GEMM in one operation (no intermediate write to HBM)","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Matrix multiply happens in higher precision (FP16/FP32) after dequantization"},
+          {"highlight":"flow-actor-4","label":"Output activations written in FP16 - ready for next layer","packet":true,"from":"actor-3","to":"actor-4"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">X</div>
+              <span>Input (FP16)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">W</div>
+              <span>Quantized Weights</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">*</div>
+              <span>Fused GEMM</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">Y</div>
+              <span>Output (FP16)</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see quantized inference flow</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. LLM inference is memory-bound, so loading fewer bytes (quantized weights) directly translates to faster execution. The dequantization cost is negligible compared to the memory bandwidth savings."
+               data-explanation-wrong="Quantization speeds up inference primarily by reducing memory traffic. Since LLM inference is memory-bound, loading 4x fewer bytes means ~4x faster weight loading.">
+            <h3 class="quiz-question">A model is quantized from FP16 to INT4. The accuracy drops by only 0.5%. Where does the speed improvement come from?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>INT4 arithmetic is computed faster by the GPU tensor cores</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Loading 4x fewer bytes from memory - the bottleneck in inference is memory bandwidth</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Smaller weights mean more model fits in L2 cache, eliminating HBM access entirely</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. Group-wise quantization (e.g., groups of 128) gives each small group of values its own scale factor. Outliers only affect their local group, not the entire tensor."
+               data-explanation-wrong="The outlier problem is solved by using finer-grained quantization. Group-wise quantization isolates outliers to their local group of 128 values.">
+            <h3 class="quiz-question">Your model has a few attention heads where one activation value is 50x larger than the rest. What quantization strategy minimizes accuracy loss?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Per-tensor quantization with a larger scale to accommodate the outliers</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Skip quantization for those layers and keep them in FP16</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Group-wise quantization so outliers only affect their local group of 128 values</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Fusing dequantization into the GEMM kernel means quantized values are loaded from HBM, dequantized in registers, and immediately used for computation - no intermediate memory write needed."
+               data-explanation-wrong="The fused approach avoids writing dequantized values back to HBM. Instead, dequantization happens in-register right before the multiply-accumulate.">
+            <h3 class="quiz-question">Why does vLLM fuse dequantization with the GEMM operation instead of dequantizing first, then doing a standard GEMM?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion avoids writing full-precision weights to HBM - dequantize in registers and compute immediately</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion allows using INT4 arithmetic in the GEMM itself, which is faster than FP16</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion is only needed for backward pass gradients, not forward inference</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,342 @@
+<section class="module" id="module-6" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Distributed Inference & Advanced Topics</h1>
+      <p class="module-subtitle">Scaling across GPUs, continuous batching, speculative decoding, and profiling strategies</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Distribute -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Scaling Beyond One GPU</h2>
+        <p>Large models (70B+ parameters) exceed single-GPU memory even with quantization. vLLM supports splitting models across multiple GPUs using <span class="term" data-definition="Tensor parallelism splits individual layers across GPUs. Each GPU holds a slice of every weight matrix and computes a partial result. Results are combined via all-reduce communication. This keeps all GPUs busy on every token.">tensor parallelism</span> and <span class="term" data-definition="Pipeline parallelism assigns different layers to different GPUs. GPU 1 runs layers 0-15, GPU 2 runs layers 16-31, etc. Tokens flow through GPUs sequentially, like an assembly line. Good for latency but can leave GPUs idle.">pipeline parallelism</span>.</p>
+        <p>Think of it like a relay race vs. parallel swimmers. Tensor parallelism is parallel swimmers: everyone works on the same lap simultaneously and syncs at the wall. Pipeline parallelism is a relay: each swimmer handles one leg sequentially.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">TP</div>
+            <h4 class="pattern-title">Tensor Parallelism</h4>
+            <p class="pattern-desc">Split weight matrices column/row-wise across GPUs. Each GPU computes partial attention/FFN. Requires all-reduce after each layer.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">PP</div>
+            <h4 class="pattern-title">Pipeline Parallelism</h4>
+            <p class="pattern-desc">Assign layer ranges to GPUs. Lower communication overhead but harder to keep all GPUs busy. Used for very large models.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">DP</div>
+            <h4 class="pattern-title">Data Parallelism</h4>
+            <p class="pattern-desc">Each GPU has a full model copy and processes different requests. Simple but requires enough memory per GPU for the full model.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Communication Primitives -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Communication Primitives</h2>
+        <p>Tensor parallelism requires GPUs to exchange partial results after each layer. vLLM uses <span class="term" data-definition="All-reduce is a collective communication operation where every GPU contributes a tensor and receives the element-wise sum of all contributions. For tensor parallelism, each GPU computes a partial matrix multiply result, and all-reduce sums them to get the full result.">all-reduce</span> for this synchronization.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/distributed/communication_op.py</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">tensor_model_parallel_all_reduce</span>(</span>
+<span class="code-line">    input_: torch.Tensor) -> torch.Tensor:</span>
+<span class="code-line">    <span class="code-string">"""All-reduce the input tensor across</span></span>
+<span class="code-line"><span class="code-string">       model parallel group."""</span></span>
+<span class="code-line">    <span class="code-keyword">return</span> get_tp_group().all_reduce(input_)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">tensor_model_parallel_all_gather</span>(</span>
+<span class="code-line">    input_: torch.Tensor, dim: <span class="code-keyword">int</span> = -<span class="code-number">1</span></span>
+<span class="code-line">) -> torch.Tensor:</span>
+<span class="code-line">    <span class="code-string">"""All-gather the input tensor across</span></span>
+<span class="code-line"><span class="code-string">       model parallel group."""</span></span>
+<span class="code-line">    <span class="code-keyword">return</span> get_tp_group().all_gather(input_, dim)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This file defines the communication primitives used in distributed inference.</p>
+              <p class="tl">All-reduce: every GPU sends its partial result and receives the sum of all partials. After attention QKV projection, each GPU has a slice of the output - all-reduce combines them.</p>
+              <p class="tl">get_tp_group() returns the tensor-parallel communication group (the set of GPUs sharing one model).</p>
+              <p class="tl">All-gather: each GPU contributes its slice, everyone receives the full concatenated tensor. Used when a layer needs the complete hidden state (e.g., before FFN in some parallelization schemes).</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Tensor Parallelism Flow -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Tensor Parallel Attention</h2>
+        <p>In tensor-parallel attention, each GPU handles a subset of attention heads. After computing attention for its heads, results are combined via all-reduce before passing to the next layer.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Input hidden states broadcast to all GPUs (or each GPU already has a copy)"},
+          {"highlight":"flow-actor-2","label":"GPU 0: computes attention for heads 0-15 using its KV cache slice","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-3","label":"GPU 1: computes attention for heads 16-31 simultaneously","packet":true,"from":"actor-1","to":"actor-3"},
+          {"highlight":"flow-actor-2","label":"Each GPU runs its Triton attention kernel independently on its head subset"},
+          {"highlight":"flow-actor-3","label":"Each GPU has partial output: full sequence length but only its heads"},
+          {"highlight":"flow-actor-4","label":"All-reduce: sum partial outputs across GPUs to get complete result","packet":true,"from":"actor-2","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"All-reduce: sum partial outputs across GPUs to get complete result","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Both GPUs now have identical full output - ready for FFN layer"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">X</div>
+              <span>Input Hidden</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">G0</div>
+              <span>GPU 0 (Heads 0-15)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">G1</div>
+              <span>GPU 1 (Heads 16-31)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">AR</div>
+              <span>All-Reduce</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see tensor-parallel attention</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Continuous Batching -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Continuous Batching</h2>
+        <p><span class="term" data-definition="Continuous batching (also called iteration-level scheduling) allows new requests to join the batch at every decode step, and finished requests to leave immediately. Unlike static batching (wait for all requests to finish), continuous batching keeps GPU utilization high even with variable-length outputs.">Continuous batching</span> is vLLM's scheduling superpower. Instead of waiting for all requests in a batch to finish before starting new ones, the scheduler inserts and removes requests at every step.</p>
+
+        <div class="chat-window" id="chat-module6">
+          <div class="chat-messages">
+            <div class="chat-message" data-msg="0" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>Step 1: I have requests A, B, C in the batch. All three need one more decode token.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="1" data-sender="worker" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">Worker</span>
+                <p>Done. Request B hit its stop token - it is finished.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="2" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>Step 2: Remove B, add new request D from the queue. Batch is now A, C, D. No GPU cycles wasted waiting.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="3" data-sender="worker" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">Worker</span>
+                <p>Done. Request D needs prefill (512 tokens). Should I do it all at once?</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="4" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>No - chunked prefill. Process 128 tokens of D per step while A and C continue decoding. Fair sharing of the token budget.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="5" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>This is why vLLM V1 has no prefill/decode phases. Everything is just tokens needing computation, scheduled within one budget.</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" style="background: var(--color-actor-2)">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Speculative Decoding -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Speculative Decoding</h2>
+        <p><span class="term" data-definition="Speculative decoding uses a small, fast draft model to predict multiple tokens ahead, then the large target model verifies them in one forward pass. Correct predictions save time (multiple tokens for the cost of one target pass). Incorrect predictions are rejected and only the correct prefix is kept.">Speculative decoding</span> is vLLM's approach to reducing latency. A small draft model guesses the next several tokens, then the large model verifies them in parallel. When guesses are correct, you get multiple tokens from one expensive forward pass.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Draft model generates K tokens</strong>
+              <p>A small model (e.g., 1B params) quickly predicts tokens t+1, t+2, ..., t+K. This is cheap because the model is small.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Target model verifies all K tokens in one pass</strong>
+              <p>The large model (70B) runs one forward pass on all K draft tokens simultaneously. It computes what it would have generated at each position.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Accept matching tokens, reject the rest</strong>
+              <p>If the draft matches the target at positions 1-3 but diverges at position 4, we keep tokens 1-3 (3 tokens for one pass) and resample position 4.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Net gain: multiple tokens per target pass</strong>
+              <p>If the draft model is 80% accurate, we get ~3-4 tokens per target forward pass instead of 1. Latency drops proportionally.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f527;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Connection to the V1 scheduler</strong>
+            <p>Speculative decoding fits naturally into V1's unified scheduling: draft tokens increase num_tokens_with_spec, and the scheduler handles them identically to regular tokens. Rejected draft tokens simply don't increment num_computed_tokens.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Profiling -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Profiling & Debugging Strategies</h2>
+        <p>Optimizing kernels requires measurement. Here are the key tools and what they reveal about vLLM performance.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">NS</div>
+            <h4 class="pattern-title">nsys (NVIDIA Nsight Systems)</h4>
+            <p class="pattern-desc">Timeline view of all GPU activity. Shows kernel launch gaps, communication overhead, and scheduling inefficiency. Start here for system-level issues.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">NC</div>
+            <h4 class="pattern-title">ncu (Nsight Compute)</h4>
+            <p class="pattern-desc">Deep per-kernel analysis. Shows memory throughput, compute utilization, occupancy, and roofline position. Use for optimizing individual Triton kernels.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">TP</div>
+            <h4 class="pattern-title">Triton Profiler</h4>
+            <p class="pattern-desc">Built into Triton. Shows auto-tuning results, compiled PTX, and tile scheduling. Use when debugging Triton-specific issues like register pressure.</p>
+          </div>
+        </div>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <code class="badge-code">nsys profile python -m vllm.entrypoints.openai.api_server</code>
+            <span class="badge-desc">Profile a full vLLM server run</span>
+          </div>
+          <div class="badge-item">
+            <code class="badge-code">ncu --set full python benchmark.py</code>
+            <span class="badge-desc">Deep-dive into a single kernel</span>
+          </div>
+          <div class="badge-item">
+            <code class="badge-code">TRITON_PRINT_AUTOTUNING=1</code>
+            <span class="badge-desc">See which kernel configurations Triton selects</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 7: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Tensor parallelism splits weight matrices across GPUs and uses all-reduce to combine partial results. Each GPU runs attention for its subset of heads, then results are summed."
+               data-explanation-wrong="Tensor parallelism splits the computation within each layer. Each GPU handles a slice of the weight matrix (subset of heads) and all-reduce combines the results.">
+            <h3 class="quiz-question">In 2-way tensor parallel attention, GPU 0 computes heads 0-15 and GPU 1 computes heads 16-31. How do they produce the final output?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>GPU 0 sends its results to GPU 1, which concatenates them</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>All-reduce sums the partial output projections so both GPUs have the full result</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Each GPU stores its half of the output and the next layer reads from both</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Continuous batching inserts new requests immediately when slots open. The scheduler adds E to the batch at the very next step, maximizing GPU utilization."
+               data-explanation-wrong="Continuous batching means new requests can join the batch at every decode step. No waiting for other requests to finish.">
+            <h3 class="quiz-question">Requests A, B, C are decoding. B finishes and new request E arrives. What happens in continuous batching?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E immediately joins the batch in the next step, replacing B's slot</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E waits until A and C also finish, then a new batch of E, F, G starts</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E gets queued for the next scheduling cycle (typically every 100ms)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. nsys gives the timeline view showing gaps between kernels, communication bubbles, and scheduling delays. Once you identify which kernel is slow, use ncu to dive deep into that specific kernel."
+               data-explanation-wrong="Start with nsys for the system-level timeline (where is time being spent?), then use ncu to analyze specific slow kernels in detail.">
+            <h3 class="quiz-question">You suspect your vLLM deployment has communication overhead between GPUs. Which profiling tool do you start with?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>ncu (Nsight Compute) to analyze the all-reduce kernel</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton profiler to check if attention kernels are waiting for communication</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>nsys (Nsight Systems) to see the timeline and identify communication gaps</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

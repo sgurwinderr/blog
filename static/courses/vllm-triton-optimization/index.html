@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vLLM Triton Kernel Optimization</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #2A7B9B;
+      --color-accent-hover: #1F6280;
+      --color-accent-light: #E4F2F7;
+      --color-accent-muted: #5A9DB8;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">vLLM Triton Kernel Optimization</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Architecture" role="tab" aria-label="Module 1: Architecture"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Memory & KV Cache" role="tab" aria-label="Module 2: Memory & KV Cache"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Triton Fundamentals" role="tab" aria-label="Module 3: Triton Fundamentals"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Optimizing Attention" role="tab" aria-label="Module 4: Optimizing Attention"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Quantization" role="tab" aria-label="Module 5: Quantization"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Distributed & Advanced" role="tab" aria-label="Module 6: Distributed & Advanced"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">vLLM Architecture Deep Dive</h1>
+      <p class="module-subtitle">How requests flow through the V1 engine, from API call to token generation</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: What vLLM Does -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What vLLM Actually Does</h2>
+        <p>vLLM is a high-throughput <span class="term" data-definition="Large Language Model inference means running a trained neural network to generate text token by token, converting input prompts into output completions.">LLM inference engine</span>. When you send a prompt to a model like Llama or Mistral, vLLM orchestrates the entire process: scheduling requests, managing GPU memory, and running optimized <span class="term" data-definition="A kernel is a function that runs on the GPU. Thousands of GPU cores execute the same kernel simultaneously on different data, which is what makes GPUs fast for parallel workloads.">kernels</span> to generate tokens as fast as possible.</p>
+        <p>Think of vLLM like an air traffic control system. Multiple planes (requests) arrive simultaneously, each needing runway time (GPU compute) and gate space (memory). The controller must land planes efficiently without collisions.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">E</div>
+            <h4 class="pattern-title">Engine</h4>
+            <p class="pattern-desc">The control tower. Receives requests and coordinates all other components.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">S</div>
+            <h4 class="pattern-title">Scheduler</h4>
+            <p class="pattern-desc">The runway controller. Decides which requests run and when, based on memory constraints.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">K</div>
+            <h4 class="pattern-title">KV Cache Manager</h4>
+            <p class="pattern-desc">The gate manager. Allocates and recycles GPU memory blocks for attention state.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">W</div>
+            <h4 class="pattern-title">Worker</h4>
+            <p class="pattern-desc">The pilot. Executes actual model computation on the GPU with optimized Triton kernels.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Request Flow Animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Request Lifecycle</h2>
+        <p>When you send a prompt to vLLM, here is the path your request takes through the system. Each step is a handoff between components, designed for maximum <span class="term" data-definition="Throughput is the number of requests (or tokens) processed per second. Higher throughput means the system handles more users simultaneously.">throughput</span>.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Client sends a prompt via the async API endpoint"},
+          {"highlight":"flow-actor-1","label":"AsyncLLM validates the request and queues it","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"EngineCore receives the request and forwards to Scheduler","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Scheduler checks memory budget and assigns KV cache blocks"},
+          {"highlight":"flow-actor-3","label":"Scheduler creates a SchedulerOutput with batch decisions","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Worker runs the model forward pass with Triton kernels"},
+          {"highlight":"flow-actor-4","label":"Worker returns generated tokens back to EngineCore","packet":true,"from":"actor-4","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"Detokenizer converts token IDs to text and streams to client","packet":true,"from":"actor-2","to":"actor-1"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">API</div>
+              <span>AsyncLLM</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">EC</div>
+              <span>EngineCore</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">S</div>
+              <span>Scheduler</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">W</div>
+              <span>Worker</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to trace a request through vLLM</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: V1 File Structure -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The V1 Architecture Directory</h2>
+        <p>The V1 engine lives in <code>vllm/v1/</code>. It was a ground-up rewrite of the original vLLM engine for better performance and simpler scheduling logic.</p>
+
+        <div class="file-tree">
+          <div class="ft-folder open">
+            <span class="ft-name">vllm/v1/</span>
+            <span class="ft-desc">The V1 engine root</span>
+            <div class="ft-children">
+              <div class="ft-folder open">
+                <span class="ft-name">engine/</span>
+                <span class="ft-desc">Request handling and coordination</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">async_llm.py</span>
+                    <span class="ft-desc">Async API frontend</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">core.py</span>
+                    <span class="ft-desc">Main engine loop</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">detokenizer.py</span>
+                    <span class="ft-desc">Token-to-text conversion</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">core/sched/</span>
+                <span class="ft-desc">Scheduling decisions</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">scheduler.py</span>
+                    <span class="ft-desc">Main scheduling logic</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">core/</span>
+                <span class="ft-desc">KV cache and memory management</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">kv_cache_manager.py</span>
+                    <span class="ft-desc">Block allocation for KV cache</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">block_pool.py</span>
+                    <span class="ft-desc">Prefix caching and block reuse</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ft-folder open">
+                <span class="ft-name">attention/ops/</span>
+                <span class="ft-desc">Triton attention kernels</span>
+                <div class="ft-children">
+                  <div class="ft-file">
+                    <span class="ft-name">triton_prefill_attention.py</span>
+                    <span class="ft-desc">Prefill phase attention kernel</span>
+                  </div>
+                  <div class="ft-file">
+                    <span class="ft-name">triton_decode_attention.py</span>
+                    <span class="ft-desc">Decode phase attention kernel</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Scheduler Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Scheduling Algorithm</h2>
+        <p>The V1 scheduler has no concept of separate "prefill" or "decode" phases. Instead, it treats every request uniformly: each has <code>num_computed_tokens</code> and a target <code>num_tokens_with_spec</code>. The scheduler assigns compute budget to help each request catch up.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/sched/scheduler.py</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">schedule</span>(self) -> SchedulerOutput:</span>
+<span class="code-line">    <span class="code-comment"># Each request just has num_computed_tokens and</span></span>
+<span class="code-line">    <span class="code-comment"># num_tokens_with_spec. At each step, the scheduler</span></span>
+<span class="code-line">    <span class="code-comment"># tries to assign tokens so that each request's</span></span>
+<span class="code-line">    <span class="code-comment"># num_computed_tokens can catch up.</span></span>
+<span class="code-line">    scheduled_new_reqs: list[Request] = []</span>
+<span class="code-line">    scheduled_running_reqs: list[Request] = []</span>
+<span class="code-line">    preempted_reqs: list[Request] = []</span>
+<span class="code-line">    token_budget = self.max_num_scheduled_tokens</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This is the main scheduling function, called every step.</p>
+              <p class="tl">The unified approach: no prefill/decode phases. Each request just tracks how many tokens it has computed vs. how many it needs.</p>
+              <p class="tl">The scheduler fills tokens until the budget runs out.</p>
+              <p class="tl">Three buckets: new requests entering the system, requests currently running, and requests that got preempted (paused to free memory).</p>
+              <p class="tl">The token budget caps how many tokens can be processed in one step across all requests.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why unified scheduling matters</strong>
+            <p>By removing the prefill/decode distinction, vLLM V1 can handle chunked prefills, prefix caching, and speculative decoding with the same scheduling logic. One algorithm covers all cases.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Scheduling Policy -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Scheduling Policies</h2>
+        <p>The scheduler supports multiple <span class="term" data-definition="A scheduling policy determines the order in which waiting requests are served. FCFS (First Come First Served) processes requests in arrival order. Priority-based policies can reorder requests based on importance.">scheduling policies</span> to control which requests get compute time first.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/sched/scheduler.py</span></span>
+<span class="code-line"><span class="code-comment"># Scheduling constraints.</span></span>
+<span class="code-line">self.max_num_running_reqs = self.scheduler_config.max_num_seqs</span>
+<span class="code-line">self.max_num_scheduled_tokens = (</span>
+<span class="code-line">    self.scheduler_config.max_num_scheduled_tokens</span>
+<span class="code-line">    <span class="code-keyword">if</span> self.scheduler_config.max_num_scheduled_tokens</span>
+<span class="code-line">    <span class="code-keyword">else</span> self.scheduler_config.max_num_batched_tokens</span>
+<span class="code-line">)</span>
+<span class="code-line">self.policy = SchedulingPolicy(self.scheduler_config.policy)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Two hard limits control scheduling:</p>
+              <p class="tl">1. Maximum concurrent requests (how many planes can be in the air)</p>
+              <p class="tl">2. Maximum tokens per step (total runway capacity per time slice)</p>
+              <p class="tl">The token budget falls back to batched_tokens if not explicitly set.</p>
+              <p class="tl">The policy (FCFS or priority) determines the queue ordering.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. The V1 scheduler uses a unified token budget approach where each request simply tracks computed vs. target tokens, eliminating the need for separate phases."
+               data-explanation-wrong="The V1 scheduler actually removes this distinction entirely. It treats all requests uniformly with a token budget system.">
+            <h3 class="quiz-question">What distinguishes the V1 scheduler from traditional LLM schedulers?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It processes prefill and decode in separate phases for efficiency</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It has no prefill/decode distinction - all requests share one token budget</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It only supports decode operations, deferring prefill to a separate service</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The Scheduler makes batching decisions and allocates KV cache memory, then hands off to the Worker which runs the GPU kernels."
+               data-explanation-wrong="The Scheduler handles memory-aware batching decisions, not model execution. The Worker is responsible for running GPU kernels.">
+            <h3 class="quiz-question">A new request arrives but GPU memory is almost full. Which component decides whether to accept or preempt?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The Worker, since it manages GPU resources directly</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The AsyncLLM engine, which rejects the request at the API level</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The Scheduler, which checks memory budget before scheduling</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Chunked prefills, prefix caching, and speculative decoding all fit naturally because every request is just tokens-computed vs. tokens-needed."
+               data-explanation-wrong="The unified scheduling enables these advanced features naturally without special-casing.">
+            <h3 class="quiz-question">Why does the unified scheduling approach enable speculative decoding and chunked prefills?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because all features reduce to the same abstraction: closing the gap between computed and target tokens</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because the scheduler runs on a separate CPU thread from the GPU</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because it uses CUDA streams to overlap prefill and decode</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-2" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Memory Management & KV Cache</h1>
+      <p class="module-subtitle">How vLLM manages GPU memory with block-based allocation and paged attention</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Memory Matters -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Memory Bottleneck</h2>
+        <p>LLM inference is <span class="term" data-definition="Memory-bound means the GPU spends more time waiting for data to arrive from memory than actually computing. The bottleneck is bandwidth (how fast data moves), not arithmetic (how fast math happens).">memory-bound</span>, not compute-bound. The GPU has enormous arithmetic power but limited memory bandwidth. The KV cache - storing key and value tensors from previous tokens - dominates GPU memory usage during inference.</p>
+        <p>Think of it like a library with limited shelf space. Each book (token) needs a reserved spot on the shelves (memory blocks). Without clever management, you run out of shelves long before you run out of reading capacity.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-1)">80G</div>
+            <div>
+              <strong>GPU Memory (A100: 80GB HBM2e)</strong>
+              <p>Total available memory. Model weights take ~14GB for a 7B model in FP16. The rest is for KV cache.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-2)">KV</div>
+            <div>
+              <strong>KV Cache per Token</strong>
+              <p>Each token stores a key and value vector per layer per head. For Llama-70B: ~1.25MB per token across all layers.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-3)">BLK</div>
+            <div>
+              <strong>Block Size (typically 16 tokens)</strong>
+              <p>Memory is allocated in fixed-size blocks, not per-token. This reduces fragmentation and enables sharing.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Block-Based Allocation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Block-Based Memory Allocation</h2>
+        <p>vLLM pioneered <span class="term" data-definition="Paged attention borrows the idea of virtual memory paging from operating systems. Instead of allocating one contiguous chunk of memory per sequence, memory is split into fixed-size blocks (pages) that can be placed anywhere in GPU memory.">paged attention</span> - the key insight that made high-throughput LLM serving possible. Instead of reserving maximum-length contiguous memory for each request, vLLM allocates memory in small blocks that can be scattered across GPU memory.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Request arrives</strong>
+              <p>Scheduler asks KV Cache Manager for blocks based on prompt length</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Blocks allocated from free pool</strong>
+              <p>Manager pulls blocks from FreeKVCacheBlockQueue - no contiguous requirement</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Tokens fill blocks</strong>
+              <p>As tokens are generated, they fill the current block. When full, a new block is allocated</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Request completes</strong>
+              <p>Blocks return to the free pool (or stay cached for prefix reuse)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why blocks beat contiguous allocation</strong>
+            <p>Without paging, a request expecting 2048 tokens must reserve all 2048 tokens of memory upfront - even if it only generates 50. With blocks, memory grows on-demand. This single change improved memory utilization from ~50% to ~95% in practice.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: KVCacheBlocks Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">KV Cache Data Structure</h2>
+        <p>The <code>KVCacheBlocks</code> dataclass is the interface between the Scheduler and the KV Cache Manager. It hides internal memory details from scheduling logic.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/kv_cache_manager.py</span></span>
+<span class="code-line">@dataclass</span>
+<span class="code-line"><span class="code-keyword">class</span> <span class="code-function">KVCacheBlocks</span>:</span>
+<span class="code-line">    blocks: tuple[Sequence[KVCacheBlock], ...]</span>
+<span class="code-line">    <span class="code-comment"># blocks[i][j] refers to the i-th kv_cache_group</span></span>
+<span class="code-line">    <span class="code-comment"># and the j-th block of tokens.</span></span>
+<span class="code-line"></span>
+<span class="code-line">    <span class="code-keyword">def</span> <span class="code-function">__add__</span>(self, other) -> <span class="code-string">"KVCacheBlocks"</span>:</span>
+<span class="code-line">        <span class="code-keyword">return</span> KVCacheBlocks(</span>
+<span class="code-line">            tuple(list(itertools.chain(blk1, blk2))</span>
+<span class="code-line">                  <span class="code-keyword">for</span> blk1, blk2 <span class="code-keyword">in</span> zip(self.blocks, other.blocks))</span>
+<span class="code-line">        )</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This is the memory allocation receipt - it tells the scheduler what blocks were allocated.</p>
+              <p class="tl">The blocks field is a tuple of sequences. First dimension is the cache group (for multi-head attention), second is the block index within that group.</p>
+              <p class="tl">The __add__ method lets you combine two allocations (e.g., extending a request that needs more blocks) by chaining their block lists together.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Block Pool and Prefix Caching -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Prefix Caching with Block Hashing</h2>
+        <p>When two requests share the same prefix (e.g., the same system prompt), vLLM can reuse the computed KV cache blocks instead of recomputing them. This is done via <span class="term" data-definition="A hash is a fingerprint for data. If two sequences of tokens produce the same hash, their KV cache blocks are identical and can be shared. This avoids redundant computation.">content-addressable hashing</span> of block contents.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/block_pool.py</span></span>
+<span class="code-line"><span class="code-keyword">class</span> <span class="code-function">BlockHashToBlockMap</span>:</span>
+<span class="code-line">    <span class="code-string">"""Cache of blocks used for prefix caching.</span></span>
+<span class="code-line"><span class="code-string">    Maps hash directly to a block or multiple blocks</span></span>
+<span class="code-line"><span class="code-string">    (i.e. {block_hash: KVCacheBlocks})</span></span>
+<span class="code-line"><span class="code-string">    A cached block is a full block with a block hash</span></span>
+<span class="code-line"><span class="code-string">    that can be used for prefix caching.</span></span>
+<span class="code-line"><span class="code-string">    The cached block may be used by running requests</span></span>
+<span class="code-line"><span class="code-string">    or in the free_block_queue that could</span></span>
+<span class="code-line"><span class="code-string">    potentially be evicted."""</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This class is the "library card catalog" - it maps block content fingerprints to actual memory blocks.</p>
+              <p class="tl">When a block is full (all token slots used), it gets a hash computed from its token content.</p>
+              <p class="tl">If another request needs the same prefix, we look up the hash and find the existing block - no recomputation needed.</p>
+              <p class="tl">Cached blocks can be in two states: actively used by a request, or sitting in the free queue (evictable but still available for reuse).</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Memory Layout Animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Memory Access in Paged Attention</h2>
+        <p>The attention kernel must handle non-contiguous blocks. For each query token, it looks up which physical blocks hold the relevant keys and values using a <span class="term" data-definition="A page table is a mapping from logical (sequential) block indices to physical (actual) memory addresses. The attention kernel uses this table to find where each block of KV cache actually lives in GPU memory.">page table</span> (Req_to_tokens mapping).</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Query token needs attention over all previous keys"},
+          {"highlight":"flow-actor-2","label":"Kernel reads page table: logical block 0 is at physical location 47"},
+          {"highlight":"flow-actor-2","label":"Kernel reads page table: logical block 1 is at physical location 12","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"GPU loads K/V from physical block 47 into SRAM","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Compute attention scores for this block of keys"},
+          {"highlight":"flow-actor-3","label":"GPU loads K/V from physical block 12 into SRAM","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Accumulate attention with online softmax (no full materialization)"},
+          {"highlight":"flow-actor-4","label":"Write final output: weighted sum of all value blocks"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">Q</div>
+              <span>Query</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">PT</div>
+              <span>Page Table</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">HBM</div>
+              <span>GPU Memory</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">SM</div>
+              <span>Compute Unit</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see paged attention memory access</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Block-based allocation means memory grows on-demand as tokens are generated. A request only uses what it needs, not worst-case maximum."
+               data-explanation-wrong="The key advantage is eliminating pre-allocation waste. Blocks are allocated incrementally as tokens are generated.">
+            <h3 class="quiz-question">A request might generate anywhere from 10 to 2000 tokens. Why does block-based allocation help here?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because blocks are stored in CPU memory until needed</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because memory is allocated block-by-block as tokens are generated, not reserved upfront for 2000</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because blocks can be compressed to use less memory per token</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. The block hash acts as a content fingerprint. If the hash matches, the KV values are identical, so the block can be shared without recomputation."
+               data-explanation-wrong="Prefix caching works by hashing block contents. When hashes match, the computed KV cache is reused directly.">
+            <h3 class="quiz-question">Two users send requests with the same 500-token system prompt. How does prefix caching help?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The hash of the shared prefix matches, so both requests point to the same physical KV blocks</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The system prompt is processed on CPU instead of GPU to save memory</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The second request is queued until the first completes and its memory is freed</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The page table (Req_to_tokens) maps logical sequence positions to physical block locations in GPU memory, allowing non-contiguous storage."
+               data-explanation-wrong="The attention kernel uses a page table to translate logical positions into physical memory addresses, allowing blocks to be scattered anywhere in GPU memory.">
+            <h3 class="quiz-question">During decode attention, how does the kernel find where block 5 of a request is stored in GPU memory?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Blocks are always contiguous, so it calculates offset = base + 5 * block_size</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It searches through all allocated blocks until it finds the right one</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It reads the page table (Req_to_tokens) which maps logical block index to physical address</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-3" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Introduction to Triton for Attention</h1>
+      <p class="module-subtitle">Why Triton exists, how it models GPU parallelism, and reading vLLM's attention kernels</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Triton -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why Custom Kernels?</h2>
+        <p>Standard PyTorch operations execute one operation at a time: matrix multiply, then softmax, then another multiply. Each operation reads from and writes to GPU <span class="term" data-definition="HBM (High Bandwidth Memory) is the main GPU memory. While it has high total bandwidth (~2TB/s on A100), accessing it is still much slower than using on-chip SRAM. Reducing HBM reads/writes is the primary optimization strategy.">HBM</span>. The data movement between operations is the bottleneck, not the math.</p>
+        <p><span class="term" data-definition="Triton is a Python-based language for writing GPU kernels. It operates at the block level - you write code that processes blocks of data, and Triton handles mapping to GPU threads. It is higher-level than CUDA but gives you control over memory access patterns.">Triton</span> lets you fuse multiple operations into one kernel. Data stays in fast on-chip <span class="term" data-definition="SRAM (Static Random-Access Memory) is the small but extremely fast on-chip memory on the GPU. On A100, each Streaming Multiprocessor has 192KB of shared SRAM. Accessing SRAM is ~100x faster than accessing HBM.">SRAM</span> between operations instead of making round-trips to slow HBM.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">P</div>
+            <h4 class="pattern-title">PyTorch Default</h4>
+            <p class="pattern-desc">Q*K -> HBM -> softmax -> HBM -> *V -> HBM. Three round trips to slow memory.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">T</div>
+            <h4 class="pattern-title">Triton Fused</h4>
+            <p class="pattern-desc">Load Q,K,V -> SRAM -> compute attention in tiles -> write output once. One HBM round trip.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">R</div>
+            <h4 class="pattern-title">Result</h4>
+            <p class="pattern-desc">2-4x speedup for attention. The math is identical - only the data movement changes.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Triton Programming Model -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Triton Programming Model</h2>
+        <p>Triton operates at the <span class="term" data-definition="In Triton, a program instance processes a block (tile) of data. Multiple program instances run in parallel across GPU cores. You index your position with tl.program_id() and process BLOCK_SIZE elements at once.">block level</span>. You write code that processes a tile of data, and the GPU launches thousands of these program instances in parallel. Think of it like a factory assembly line where each worker handles one box of parts, not individual screws.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>tl.program_id(axis)</strong>
+              <p>Each instance gets a unique ID. This tells it which tile of the output it is responsible for.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>tl.arange(0, BLOCK_SIZE)</strong>
+              <p>Generate offset indices within the tile. These map to the elements this instance processes.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>tl.load(ptr + offsets, mask=...)</strong>
+              <p>Load a tile of data from HBM into registers. The mask handles boundary conditions.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Compute (tl.dot, tl.sum, etc.)</strong>
+              <p>Process the tile entirely in fast registers/SRAM. This is where the actual math happens.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>tl.store(ptr + offsets, result)</strong>
+              <p>Write the computed tile back to HBM. Ideally, this is the only write to slow memory.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Memory Hierarchy Chat -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">GPU Memory Hierarchy</h2>
+        <p>Understanding where data lives is the key to writing fast Triton kernels. The hierarchy has three levels, each with dramatically different speed and capacity.</p>
+
+        <div class="chat-window" id="chat-module3">
+          <div class="chat-messages">
+            <div class="chat-message" data-msg="0" data-sender="hbm" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">H</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">HBM (80GB)</span>
+                <p>I store everything - model weights, KV cache, all tensors. But accessing me takes ~400 cycles. I am slow.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="1" data-sender="sram" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SRAM (20MB shared)</span>
+                <p>I am the middle layer - fast (~20 cycles) but small. Triton uses me for tiles being actively computed. I am the key to performance.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="2" data-sender="reg" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Registers (256KB per SM)</span>
+                <p>I am instant access (~1 cycle) but tiny. Each thread has its own registers. Accumulators live here.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="3" data-sender="hbm" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">H</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">HBM</span>
+                <p>The goal of every Triton kernel: load from me ONCE into SRAM, do ALL the computation there, then write back to me ONCE. Minimize my involvement.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="4" data-sender="sram" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SRAM</span>
+                <p>For attention: load a tile of Q and iterate over tiles of K,V. The Q tile stays in me the whole time. Only K,V tiles rotate through.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="5" data-sender="reg" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">R</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">Registers</span>
+                <p>I hold the running softmax statistics (m_i, l_i) and the output accumulator. These never leave me until the final store.</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" style="background: var(--color-actor-2)">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Prefill Attention Kernel -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">vLLM Prefill Attention Kernel</h2>
+        <p>The prefill kernel processes all prompt tokens at once. Each program instance handles one tile of query positions for one attention head. It iterates over all key/value positions in tiles, computing attention scores with <span class="term" data-definition="Online softmax computes the softmax normalization incrementally as new values arrive, without needing to see all values first. It tracks a running maximum and sum, updating them as each new tile is processed. This avoids storing the full attention matrix in memory.">online softmax</span>.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/attention/ops/triton_prefill_attention.py</span></span>
+<span class="code-line">@triton.jit</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">_fwd_kernel</span>(Q, K, V, sm_scale, B_Start_Loc, B_Seqlen, Out,</span>
+<span class="code-line">    stride_qbs, stride_qh, stride_kbs, stride_kh, ...):</span>
+<span class="code-line">    cur_batch = tl.program_id(<span class="code-number">0</span>)</span>
+<span class="code-line">    cur_head = tl.program_id(<span class="code-number">1</span>)</span>
+<span class="code-line">    start_m = tl.program_id(<span class="code-number">2</span>)</span>
+<span class="code-line">    cur_kv_head = cur_head // kv_group_num</span>
+<span class="code-line">    cur_batch_seq_len = tl.load(B_Seqlen + cur_batch)</span>
+<span class="code-line">    <span class="code-comment"># initialize pointer to m and l</span></span>
+<span class="code-line">    m_i = tl.zeros([BLOCK_M], dtype=tl.float32) - <span class="code-function">float</span>(<span class="code-string">"inf"</span>)</span>
+<span class="code-line">    l_i = tl.zeros([BLOCK_M], dtype=tl.float32)</span>
+<span class="code-line">    acc = tl.zeros([BLOCK_M, BLOCK_DMODEL], dtype=tl.float32)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This Triton kernel runs one instance per (batch, head, query-tile) combination.</p>
+              <p class="tl">@triton.jit compiles this Python function into GPU machine code.</p>
+              <p class="tl">Three program IDs give us our position: which batch, which attention head, which query tile (start_m).</p>
+              <p class="tl">For grouped-query attention: multiple query heads share one KV head.</p>
+              <p class="tl">Load this batch item's sequence length from memory.</p>
+              <p class="tl">Online softmax state: m_i tracks the running maximum (starts at -infinity), l_i tracks the running sum of exponentials.</p>
+              <p class="tl">acc is the output accumulator - the weighted sum of values. All three live in registers throughout.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: The Attention Loop -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Core Attention Loop</h2>
+        <p>This is where the magic happens. The kernel iterates over tiles of keys, computing attention scores and accumulating the weighted values - all without writing intermediate results to HBM.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># The tiled attention loop (prefill kernel)</span></span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(start_n_limit, end_n_limit, BLOCK_N):</span>
+<span class="code-line">    k = tl.load(k_ptrs + start_n * stride_kbs,</span>
+<span class="code-line">                mask=(pos_k < cur_batch_seq_len))</span>
+<span class="code-line">    qk = tl.dot(q, k)</span>
+<span class="code-line">    qk = tl.where(mask, qk * sm_scale, <span class="code-number">-1.0e8</span>)</span>
+<span class="code-line">    m_ij = tl.maximum(m_i, tl.max(qk, <span class="code-number">1</span>))</span>
+<span class="code-line">    qk -= m_ij[:, None]</span>
+<span class="code-line">    p = tl.math.exp2(qk)</span>
+<span class="code-line">    l_ij = tl.sum(p, <span class="code-number">1</span>)</span>
+<span class="code-line">    alpha = tl.math.exp2(m_i - m_ij)</span>
+<span class="code-line">    l_i = l_i * alpha + l_ij</span>
+<span class="code-line">    acc = acc * alpha[:, None]</span>
+<span class="code-line">    v = tl.load(v_ptrs + start_n * stride_vbs, ...)</span>
+<span class="code-line">    acc += tl.dot(p, v)</span>
+<span class="code-line">    m_i = m_ij</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Iterate over key/value positions in tiles of BLOCK_N.</p>
+              <p class="tl">Load a tile of keys from HBM (this is the main memory read).</p>
+              <p class="tl">Compute QK dot product - attention scores for this tile.</p>
+              <p class="tl">Apply causal mask and scale. Masked positions get -inf (zero after softmax).</p>
+              <p class="tl">Online softmax: find new maximum across this tile.</p>
+              <p class="tl">Subtract maximum for numerical stability, then exponentiate (using exp2 for speed).</p>
+              <p class="tl">Sum the exponentials for this tile.</p>
+              <p class="tl">Correction factor: rescale previous results because the maximum changed.</p>
+              <p class="tl">Update running sum and rescale the output accumulator.</p>
+              <p class="tl">Load the corresponding value tile and add weighted contribution to output.</p>
+              <p class="tl">Update the running maximum for next iteration.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50d;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why exp2 instead of exp?</strong>
+            <p>GPUs have a dedicated hardware instruction for 2^x (exp2) that is faster than e^x (exp). The kernel uses sm_scale * log2(e) to convert between bases. Same result, fewer cycles.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Triton fuses multiple operations into one kernel, keeping data in fast SRAM between operations. The math is identical - only the memory access pattern changes."
+               data-explanation-wrong="Triton kernels are faster because they reduce memory traffic, not because they change the math. Data stays on-chip instead of bouncing to HBM between each operation.">
+            <h3 class="quiz-question">Why is a fused Triton attention kernel faster than separate PyTorch operations (matmul + softmax + matmul)?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton uses a more efficient attention algorithm with lower computational complexity</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Data stays in fast SRAM between operations instead of making round-trips to slow HBM</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton automatically uses lower precision to compute attention faster</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The three program IDs map to batch, head, and query-tile position. This creates a 3D grid of parallel instances, each computing one tile of the output."
+               data-explanation-wrong="The program IDs form a 3D grid: (batch, head, query_tile). Each combination runs independently in parallel on the GPU.">
+            <h3 class="quiz-question">In the prefill kernel, what do program_id(0), program_id(1), and program_id(2) represent?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Query position, key position, and value position</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>GPU core ID, thread ID, and warp ID</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Batch index, attention head, and query tile position (start_m)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Online softmax tracks a running maximum and sum, allowing the kernel to process keys in tiles without ever materializing the full N*N attention matrix. This is what makes flash attention memory-efficient."
+               data-explanation-wrong="Online softmax processes tiles incrementally, tracking running statistics. When the maximum changes, it applies a correction factor (alpha) to rescale previous results.">
+            <h3 class="quiz-question">What problem does online softmax solve in tiled attention?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It allows computing softmax without seeing all key scores at once, by tracking a running max and sum</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It reduces the computational complexity of softmax from O(n) to O(log n)</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It replaces softmax with a cheaper approximation that uses less GPU memory</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-4" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Optimizing Triton Attention Kernels</h1>
+      <p class="module-subtitle">Identifying bottlenecks, tuning block sizes, and understanding vLLM's decode attention strategy</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Performance Landscape -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Roofline: Memory vs. Compute Bound</h2>
+        <p>Every kernel operation sits somewhere on the <span class="term" data-definition="The roofline model plots achievable performance (FLOPS) against arithmetic intensity (FLOPS per byte of memory traffic). Operations below the memory bandwidth line are memory-bound; operations below the compute peak are compute-bound. Most attention kernels are memory-bound during decode.">roofline</span>. Prefill attention is often compute-bound (large matrix multiplies). Decode attention is almost always memory-bound (loading KV cache for a single query token). Different optimizations apply to each.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">P</div>
+            <h4 class="pattern-title">Prefill (Compute-Bound)</h4>
+            <p class="pattern-desc">Many query tokens attend to many keys simultaneously. Large tl.dot operations saturate tensor cores. Optimize by maximizing tile occupancy.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">D</div>
+            <h4 class="pattern-title">Decode (Memory-Bound)</h4>
+            <p class="pattern-desc">One new query token reads the entire KV cache. The bottleneck is loading K,V from HBM. Optimize by reducing memory traffic and using split-KV parallelism.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The decode dilemma</strong>
+            <p>During decode, arithmetic intensity is extremely low: one query vector dot-producted with thousands of key vectors. The GPU finishes the math faster than memory can feed it data. This is why split-KV parallelism exists - it keeps more compute units busy by splitting the KV sequence across multiple program instances.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Split-KV Decode Strategy -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Split-KV: Parallelizing Decode Attention</h2>
+        <p>vLLM's decode kernel uses a two-stage approach. Stage 1 splits the KV sequence across <code>NUM_KV_SPLITS</code> parallel instances. Stage 2 merges their results. Think of it like parallel reading groups: each group reads a chapter of the book, then they combine their notes.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Single query token needs attention over 4096 key-value positions"},
+          {"highlight":"flow-actor-2","label":"Stage 1: Split into NUM_KV_SPLITS chunks (e.g., 8 chunks of 512 positions each)"},
+          {"highlight":"flow-actor-2","label":"Each split computes partial attention independently in parallel","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Split 0: processes positions 0-511, computes local max and sum"},
+          {"highlight":"flow-actor-3","label":"Split 1: processes positions 512-1023 simultaneously"},
+          {"highlight":"flow-actor-3","label":"All 8 splits finish. Each has a partial result with its own softmax statistics","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Stage 2: Merge partial results using log-sum-exp correction"},
+          {"highlight":"flow-actor-4","label":"Final output: mathematically identical to processing all 4096 positions sequentially"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">Q</div>
+              <span>Query Token</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">SP</div>
+              <span>Split Logic</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">KV</div>
+              <span>Parallel Splits</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">MG</div>
+              <span>Merge (Stage 2)</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see split-KV decode attention</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Decode Stage 1 Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Decode Stage 1: The Split-KV Kernel</h2>
+        <p>Each split instance processes a slice of the KV sequence. The key insight: it uses <span class="term" data-definition="In paged attention, tokens are stored in blocks (pages) that can be scattered in memory. The kernel must compute which page a given position lives in: page_number = position // PAGE_SIZE, offset_within_page = position % PAGE_SIZE.">paged memory access</span> to handle non-contiguous blocks while iterating over its assigned KV range.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/attention/ops/triton_decode_attention.py</span></span>
+<span class="code-line">@triton.jit</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">_fwd_kernel_stage1</span>(Q, K_Buffer, V_Buffer, sm_scale,</span>
+<span class="code-line">    Req_to_tokens, B_Seqlen, Att_Out, ...):</span>
+<span class="code-line">    cur_batch = tl.program_id(<span class="code-number">0</span>)</span>
+<span class="code-line">    cur_head = tl.program_id(<span class="code-number">1</span>)</span>
+<span class="code-line">    split_kv_id = tl.program_id(<span class="code-number">2</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">    kv_len_per_split = tl.cdiv(cur_batch_seq_len, NUM_KV_SPLITS)</span>
+<span class="code-line">    split_kv_start = kv_len_per_split * split_kv_id</span>
+<span class="code-line">    split_kv_end = tl.minimum(split_kv_start + kv_len_per_split,</span>
+<span class="code-line">                              cur_batch_seq_len)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Stage 1 of decode attention - each instance handles one split of the KV sequence.</p>
+              <p class="tl">Three axes of parallelism: across batches, across heads, and across KV splits.</p>
+              <p class="tl">program_id(2) is the split index - this instance handles one chunk of the sequence.</p>
+              <p class="tl">Calculate the range of KV positions this split is responsible for.</p>
+              <p class="tl">Ceiling division ensures all positions are covered even if sequence length is not evenly divisible.</p>
+              <p class="tl">Clamp the end to avoid reading past the actual sequence length.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Paged KV Access Pattern -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Paged KV Access in the Kernel</h2>
+        <p>The decode kernel handles paged memory by computing physical addresses from logical positions. This is the critical path where page table lookups happen at GPU speed.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># Inside the decode attention loop</span></span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(split_kv_start, split_kv_end, BLOCK_N):</span>
+<span class="code-line">    offs_n = start_n + tl.arange(<span class="code-number">0</span>, BLOCK_N)</span>
+<span class="code-line">    kv_page_number = tl.load(</span>
+<span class="code-line">        Req_to_tokens + stride_req_to_tokens_b * cur_batch_req_idx</span>
+<span class="code-line">        + offs_n // PAGE_SIZE,</span>
+<span class="code-line">        mask=offs_n < split_kv_end)</span>
+<span class="code-line">    kv_loc = kv_page_number * PAGE_SIZE + offs_n % PAGE_SIZE</span>
+<span class="code-line">    k = tl.load(K_Buffer + kv_loc[:, None] * stride_buf_kbs</span>
+<span class="code-line">        + cur_kv_head * stride_buf_kh + offs_d[None, :],</span>
+<span class="code-line">        mask=(offs_n[:, None] < split_kv_end) & mask_d)</span>
+<span class="code-line">    qk = tl.sum(q[None, :] * k, <span class="code-number">1</span>)</span>
+<span class="code-line">    qk *= sm_scale</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Loop over this split's assigned KV range in tiles of BLOCK_N positions.</p>
+              <p class="tl">Generate position indices for this tile.</p>
+              <p class="tl">PAGE TABLE LOOKUP: divide position by page size to get which page (block) it is in. Load the physical page number from the request's page table.</p>
+              <p class="tl">Compute the actual physical memory location: page_number * PAGE_SIZE gives the page start, plus the offset within the page (position % PAGE_SIZE).</p>
+              <p class="tl">Load key vectors from their scattered physical locations using computed addresses.</p>
+              <p class="tl">Compute attention score: element-wise multiply of query with each key, then sum. For decode, query is a single vector (not a matrix like in prefill).</p>
+              <p class="tl">Scale by 1/sqrt(d_head) for stable softmax.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Block Size Tuning -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Optimization: Block Size Tuning</h2>
+        <p>The <code>BLOCK_N</code> and <code>BLOCK_DMODEL</code> parameters control tile sizes. Choosing the right values is a trade-off between <span class="term" data-definition="Occupancy is the ratio of active warps to maximum supported warps on a GPU streaming multiprocessor. Higher occupancy helps hide memory latency because the GPU can switch between warps while others wait for data. But too-large tiles reduce occupancy by consuming too much shared memory per instance.">occupancy</span> and per-instance efficiency.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">S</div>
+            <h4 class="pattern-title">Small Tiles (BLOCK_N=32)</h4>
+            <p class="pattern-desc">High occupancy (many instances fit on SM), good for short sequences. But more loop iterations means more overhead per tile.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">M</div>
+            <h4 class="pattern-title">Medium Tiles (BLOCK_N=64)</h4>
+            <p class="pattern-desc">Balance between occupancy and per-tile efficiency. Often the sweet spot for decode attention.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">L</div>
+            <h4 class="pattern-title">Large Tiles (BLOCK_N=128)</h4>
+            <p class="pattern-desc">Better memory coalescing and amortized overhead. Best for long sequences in prefill. But may reduce occupancy.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f527;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Practical tuning tip</strong>
+            <p>vLLM uses tl.constexpr for BLOCK_N, meaning the compiler generates specialized code for each block size. You can benchmark different values by modifying the kernel launch configuration. The optimal choice depends on your GPU (A100 vs H100), sequence length, and batch size.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: FP8 Optimization -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">FP8 KV Cache: Halving Memory Traffic</h2>
+        <p>vLLM's decode kernel supports <span class="term" data-definition="FP8 (8-bit floating point) uses half the memory of FP16 per value. For KV cache, this means loading 2x more tokens per memory transaction. The kernel dequantizes to FP16/FP32 after loading, preserving computation accuracy while reducing memory bandwidth pressure.">FP8 quantized</span> KV cache. Since decode is memory-bound, halving the bytes read from HBM nearly doubles effective performance.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># FP8 dequantization in decode kernel</span></span>
+<span class="code-line">ks = tl.load(k_scale)</span>
+<span class="code-line">vs = tl.load(v_scale)</span>
+<span class="code-line"><span class="code-keyword">for</span> start_n <span class="code-keyword">in</span> range(split_kv_start, split_kv_end, BLOCK_N):</span>
+<span class="code-line">    k = tl.load(K_Buffer + offs_buf_k, mask=...)</span>
+<span class="code-line">    <span class="code-keyword">if</span> k.dtype.is_fp8():</span>
+<span class="code-line">        k = (k.to(tl.float32) * ks).to(q.dtype)</span>
+<span class="code-line">    qk = tl.sum(q[None, :] * k, <span class="code-number">1</span>)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Load the dequantization scale factors (one for keys, one for values). These are scalars shared across the tensor.</p>
+              <p class="tl">Normal tile loop - same structure as before.</p>
+              <p class="tl">Load key data from the buffer. If stored as FP8, each element is only 1 byte instead of 2 bytes.</p>
+              <p class="tl">Check if the data is FP8 at compile time (constexpr branch - zero runtime cost).</p>
+              <p class="tl">Dequantize: cast to float32, multiply by scale, then cast to query precision. This restores the original value range.</p>
+              <p class="tl">Continue with normal attention computation using the dequantized keys.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 7: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. During decode, one query token reads thousands of KV pairs. The GPU math is fast but waits for data to arrive from HBM. The bottleneck is memory bandwidth, not compute."
+               data-explanation-wrong="Decode attention has very low arithmetic intensity - one query vector against many keys. The GPU finishes math faster than memory can supply data, making it memory-bound.">
+            <h3 class="quiz-question">Your decode attention kernel achieves only 30% of peak FLOPS. What is the most likely bottleneck?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The softmax computation is too expensive for the GPU</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Memory bandwidth - the GPU is waiting for KV data to arrive from HBM</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Thread divergence from the causal mask causing idle cores</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Split-KV lets multiple program instances read different parts of the KV cache simultaneously, keeping more memory channels active. Stage 2 then merges results using log-sum-exp correction."
+               data-explanation-wrong="Split-KV parallelism increases effective memory bandwidth utilization by having multiple instances read different KV ranges simultaneously.">
+            <h3 class="quiz-question">Why does split-KV help decode performance if the bottleneck is memory bandwidth?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Multiple splits read from different memory locations simultaneously, better utilizing total bandwidth</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Splits reduce the total amount of data that needs to be read from memory</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Splits convert the operation from memory-bound to compute-bound</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. FP8 halves the bytes per value, so the same memory bandwidth moves twice as many tokens per second. Since decode is memory-bound, this directly translates to ~2x throughput improvement."
+               data-explanation-wrong="FP8 KV cache helps because it reduces memory traffic. With half the bytes, the GPU can load KV data twice as fast, directly addressing the memory bandwidth bottleneck.">
+            <h3 class="quiz-question">You switch from FP16 to FP8 KV cache. Where does the performance gain come from?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>FP8 math operations are computed faster on GPU tensor cores</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>FP8 uses less shared memory, allowing more thread blocks to run simultaneously</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Loading half the bytes means twice the effective memory bandwidth for the memory-bound kernel</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-5" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Quantization & Low-Precision Kernels</h1>
+      <p class="module-subtitle">Compressing model weights and KV cache to fit larger models and serve faster</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Quantization -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why Quantize?</h2>
+        <p><span class="term" data-definition="Quantization reduces the precision of numbers - e.g., from 16-bit floats (2 bytes each) to 8-bit (1 byte) or 4-bit (0.5 bytes). Lower precision means less memory usage and faster memory transfers, at the cost of some accuracy loss.">Quantization</span> solves two problems at once: it shrinks model size so larger models fit on fewer GPUs, and it reduces memory traffic so inference runs faster. A 70B parameter model in FP16 needs ~140GB of memory. In INT4, it fits in ~35GB - a single GPU.</p>
+        <p>Think of it like compressing a high-resolution photo to JPEG. You lose some subtle details, but the image is recognizable and loads much faster. The art is choosing compression levels that preserve quality where it matters.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-1)">16b</div>
+            <div>
+              <strong>FP16 / BF16 (Baseline)</strong>
+              <p>Full precision. 2 bytes per parameter. Best accuracy but most memory.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-2)">8b</div>
+            <div>
+              <strong>FP8 / INT8</strong>
+              <p>1 byte per parameter. ~0.1% accuracy loss. 2x memory reduction and bandwidth improvement.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-5)">4b</div>
+            <div>
+              <strong>INT4 (GPTQ, AWQ)</strong>
+              <p>0.5 bytes per parameter. 4x memory reduction. Requires careful calibration to preserve accuracy.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Quantization Schemes -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Quantization Granularity</h2>
+        <p>The <span class="term" data-definition="Scale factor determines how the full-precision range maps to the quantized range. Per-tensor uses one scale for the entire tensor. Per-channel uses one scale per output channel. Group-wise uses one scale per group of values (e.g., 128 consecutive elements).">scale factor</span> determines accuracy. Finer granularity preserves more information but adds overhead. vLLM supports all three strategies.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">T</div>
+            <div class="step-body">
+              <strong>Per-Tensor Quantization</strong>
+              <p>One scale for the entire weight matrix. Fastest dequantization but lowest accuracy - outlier values stretch the range for all other values.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">C</div>
+            <div class="step-body">
+              <strong>Per-Channel Quantization</strong>
+              <p>One scale per output channel. Good balance - each row/column gets its own range. Used by SmoothQuant.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">G</div>
+            <div class="step-body">
+              <strong>Group-wise Quantization (128 elements)</strong>
+              <p>One scale per group of 128 values. Best accuracy preservation - used by GPTQ and AWQ. Slightly more dequantization work.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The outlier problem</strong>
+            <p>LLMs have activation outliers - a few values 10-100x larger than the rest. Per-tensor quantization wastes most of its range on these outliers, crushing the majority of values into a few quantization levels. Group-wise quantization isolates outliers to their local group.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: vLLM Quantization Directory -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">vLLM Quantization Methods</h2>
+        <p>vLLM supports a comprehensive set of quantization methods, each with different trade-offs between accuracy, speed, and memory savings.</p>
+
+        <div class="file-tree">
+          <div class="ft-folder open">
+            <span class="ft-name">vllm/model_executor/layers/quantization/</span>
+            <span class="ft-desc">All quantization implementations</span>
+            <div class="ft-children">
+              <div class="ft-file">
+                <span class="ft-name">fp8.py</span>
+                <span class="ft-desc">FP8 weight and activation quantization (fastest, minimal accuracy loss)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">auto_gptq.py</span>
+                <span class="ft-desc">GPTQ: 4-bit weight quantization with calibration data</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">awq.py</span>
+                <span class="ft-desc">AWQ: activation-aware 4-bit quantization</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">awq_marlin.py</span>
+                <span class="ft-desc">AWQ with Marlin kernel backend (optimized W4A16 GEMM)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">kv_cache.py</span>
+                <span class="ft-desc">KV cache quantization (FP8 cache for memory savings)</span>
+              </div>
+              <div class="ft-file">
+                <span class="ft-name">fbgemm_fp8.py</span>
+                <span class="ft-desc">FBGEMM FP8 backend (Meta-optimized kernels)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: FP8 Implementation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">FP8 Quantization in Practice</h2>
+        <p>FP8 is the sweet spot for inference: minimal accuracy degradation, hardware-accelerated on H100/MI300X, and transparent to the model architecture. vLLM implements FP8 for both linear layers and KV cache.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/model_executor/layers/quantization/fp8.py</span></span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.layers.quantization.base_config <span class="code-keyword">import</span> (</span>
+<span class="code-line">    QuantizationConfig, QuantizeMethodBase)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.layers.quantization.kv_cache <span class="code-keyword">import</span> (</span>
+<span class="code-line">    BaseKVCacheMethod)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.kernels.linear <span class="code-keyword">import</span> (</span>
+<span class="code-line">    init_fp8_linear_kernel)</span>
+<span class="code-line"><span class="code-keyword">from</span> vllm.model_executor.kernels.linear.scaled_mm <span class="code-keyword">import</span> (</span>
+<span class="code-line">    CutlassFP8ScaledMMLinearKernel,</span>
+<span class="code-line">    MarlinFP8ScaledMMLinearKernel)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">FP8 quantization integrates with vLLM's base config system and supports both linear layers and KV cache.</p>
+              <p class="tl">QuantizationConfig defines the interface: how to quantize weights, how to create quantized methods for layers.</p>
+              <p class="tl">BaseKVCacheMethod handles FP8 quantization of the KV cache specifically (what we saw in Module 4's decode kernel).</p>
+              <p class="tl">The actual matrix multiplication uses optimized backends:</p>
+              <p class="tl">CutlassFP8 for NVIDIA GPUs (Cutlass library), Marlin for further-optimized 4-bit/8-bit GEMM kernels.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Quantized Kernel Flow -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">How Quantized Inference Works</h2>
+        <p>The quantized forward pass adds a dequantization step before (or fused into) each linear operation. The key optimization is fusing dequantization with the <span class="term" data-definition="GEMM stands for General Matrix Multiplication. It is the core operation in neural networks - every linear layer, every attention projection, every FFN layer is fundamentally a matrix multiply. GEMM performance dominates inference time.">GEMM</span> so there is no extra memory traffic.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Input activations arrive in FP16/BF16 precision"},
+          {"highlight":"flow-actor-2","label":"Quantized weights (INT4/FP8) loaded from GPU memory - 2-4x less data than FP16","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-2","label":"Scale factors loaded alongside weights (one per group of 128 elements)"},
+          {"highlight":"flow-actor-3","label":"Fused kernel: dequantize + GEMM in one operation (no intermediate write to HBM)","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"Matrix multiply happens in higher precision (FP16/FP32) after dequantization"},
+          {"highlight":"flow-actor-4","label":"Output activations written in FP16 - ready for next layer","packet":true,"from":"actor-3","to":"actor-4"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">X</div>
+              <span>Input (FP16)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">W</div>
+              <span>Quantized Weights</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">*</div>
+              <span>Fused GEMM</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">Y</div>
+              <span>Output (FP16)</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see quantized inference flow</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. LLM inference is memory-bound, so loading fewer bytes (quantized weights) directly translates to faster execution. The dequantization cost is negligible compared to the memory bandwidth savings."
+               data-explanation-wrong="Quantization speeds up inference primarily by reducing memory traffic. Since LLM inference is memory-bound, loading 4x fewer bytes means ~4x faster weight loading.">
+            <h3 class="quiz-question">A model is quantized from FP16 to INT4. The accuracy drops by only 0.5%. Where does the speed improvement come from?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>INT4 arithmetic is computed faster by the GPU tensor cores</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Loading 4x fewer bytes from memory - the bottleneck in inference is memory bandwidth</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Smaller weights mean more model fits in L2 cache, eliminating HBM access entirely</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. Group-wise quantization (e.g., groups of 128) gives each small group of values its own scale factor. Outliers only affect their local group, not the entire tensor."
+               data-explanation-wrong="The outlier problem is solved by using finer-grained quantization. Group-wise quantization isolates outliers to their local group of 128 values.">
+            <h3 class="quiz-question">Your model has a few attention heads where one activation value is 50x larger than the rest. What quantization strategy minimizes accuracy loss?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Per-tensor quantization with a larger scale to accommodate the outliers</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Skip quantization for those layers and keep them in FP16</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Group-wise quantization so outliers only affect their local group of 128 values</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Fusing dequantization into the GEMM kernel means quantized values are loaded from HBM, dequantized in registers, and immediately used for computation - no intermediate memory write needed."
+               data-explanation-wrong="The fused approach avoids writing dequantized values back to HBM. Instead, dequantization happens in-register right before the multiply-accumulate.">
+            <h3 class="quiz-question">Why does vLLM fuse dequantization with the GEMM operation instead of dequantizing first, then doing a standard GEMM?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion avoids writing full-precision weights to HBM - dequantize in registers and compute immediately</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion allows using INT4 arithmetic in the GEMM itself, which is faster than FP16</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Fusion is only needed for backward pass gradients, not forward inference</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-6" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Distributed Inference & Advanced Topics</h1>
+      <p class="module-subtitle">Scaling across GPUs, continuous batching, speculative decoding, and profiling strategies</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Distribute -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Scaling Beyond One GPU</h2>
+        <p>Large models (70B+ parameters) exceed single-GPU memory even with quantization. vLLM supports splitting models across multiple GPUs using <span class="term" data-definition="Tensor parallelism splits individual layers across GPUs. Each GPU holds a slice of every weight matrix and computes a partial result. Results are combined via all-reduce communication. This keeps all GPUs busy on every token.">tensor parallelism</span> and <span class="term" data-definition="Pipeline parallelism assigns different layers to different GPUs. GPU 1 runs layers 0-15, GPU 2 runs layers 16-31, etc. Tokens flow through GPUs sequentially, like an assembly line. Good for latency but can leave GPUs idle.">pipeline parallelism</span>.</p>
+        <p>Think of it like a relay race vs. parallel swimmers. Tensor parallelism is parallel swimmers: everyone works on the same lap simultaneously and syncs at the wall. Pipeline parallelism is a relay: each swimmer handles one leg sequentially.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">TP</div>
+            <h4 class="pattern-title">Tensor Parallelism</h4>
+            <p class="pattern-desc">Split weight matrices column/row-wise across GPUs. Each GPU computes partial attention/FFN. Requires all-reduce after each layer.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">PP</div>
+            <h4 class="pattern-title">Pipeline Parallelism</h4>
+            <p class="pattern-desc">Assign layer ranges to GPUs. Lower communication overhead but harder to keep all GPUs busy. Used for very large models.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">DP</div>
+            <h4 class="pattern-title">Data Parallelism</h4>
+            <p class="pattern-desc">Each GPU has a full model copy and processes different requests. Simple but requires enough memory per GPU for the full model.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Communication Primitives -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Communication Primitives</h2>
+        <p>Tensor parallelism requires GPUs to exchange partial results after each layer. vLLM uses <span class="term" data-definition="All-reduce is a collective communication operation where every GPU contributes a tensor and receives the element-wise sum of all contributions. For tensor parallelism, each GPU computes a partial matrix multiply result, and all-reduce sums them to get the full result.">all-reduce</span> for this synchronization.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/distributed/communication_op.py</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">tensor_model_parallel_all_reduce</span>(</span>
+<span class="code-line">    input_: torch.Tensor) -> torch.Tensor:</span>
+<span class="code-line">    <span class="code-string">"""All-reduce the input tensor across</span></span>
+<span class="code-line"><span class="code-string">       model parallel group."""</span></span>
+<span class="code-line">    <span class="code-keyword">return</span> get_tp_group().all_reduce(input_)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">tensor_model_parallel_all_gather</span>(</span>
+<span class="code-line">    input_: torch.Tensor, dim: <span class="code-keyword">int</span> = -<span class="code-number">1</span></span>
+<span class="code-line">) -> torch.Tensor:</span>
+<span class="code-line">    <span class="code-string">"""All-gather the input tensor across</span></span>
+<span class="code-line"><span class="code-string">       model parallel group."""</span></span>
+<span class="code-line">    <span class="code-keyword">return</span> get_tp_group().all_gather(input_, dim)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This file defines the communication primitives used in distributed inference.</p>
+              <p class="tl">All-reduce: every GPU sends its partial result and receives the sum of all partials. After attention QKV projection, each GPU has a slice of the output - all-reduce combines them.</p>
+              <p class="tl">get_tp_group() returns the tensor-parallel communication group (the set of GPUs sharing one model).</p>
+              <p class="tl">All-gather: each GPU contributes its slice, everyone receives the full concatenated tensor. Used when a layer needs the complete hidden state (e.g., before FFN in some parallelization schemes).</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Tensor Parallelism Flow -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Tensor Parallel Attention</h2>
+        <p>In tensor-parallel attention, each GPU handles a subset of attention heads. After computing attention for its heads, results are combined via all-reduce before passing to the next layer.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Input hidden states broadcast to all GPUs (or each GPU already has a copy)"},
+          {"highlight":"flow-actor-2","label":"GPU 0: computes attention for heads 0-15 using its KV cache slice","packet":true,"from":"actor-1","to":"actor-2"},
+          {"highlight":"flow-actor-3","label":"GPU 1: computes attention for heads 16-31 simultaneously","packet":true,"from":"actor-1","to":"actor-3"},
+          {"highlight":"flow-actor-2","label":"Each GPU runs its Triton attention kernel independently on its head subset"},
+          {"highlight":"flow-actor-3","label":"Each GPU has partial output: full sequence length but only its heads"},
+          {"highlight":"flow-actor-4","label":"All-reduce: sum partial outputs across GPUs to get complete result","packet":true,"from":"actor-2","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"All-reduce: sum partial outputs across GPUs to get complete result","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Both GPUs now have identical full output - ready for FFN layer"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">X</div>
+              <span>Input Hidden</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">G0</div>
+              <span>GPU 0 (Heads 0-15)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">G1</div>
+              <span>GPU 1 (Heads 16-31)</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">AR</div>
+              <span>All-Reduce</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see tensor-parallel attention</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Continuous Batching -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Continuous Batching</h2>
+        <p><span class="term" data-definition="Continuous batching (also called iteration-level scheduling) allows new requests to join the batch at every decode step, and finished requests to leave immediately. Unlike static batching (wait for all requests to finish), continuous batching keeps GPU utilization high even with variable-length outputs.">Continuous batching</span> is vLLM's scheduling superpower. Instead of waiting for all requests in a batch to finish before starting new ones, the scheduler inserts and removes requests at every step.</p>
+
+        <div class="chat-window" id="chat-module6">
+          <div class="chat-messages">
+            <div class="chat-message" data-msg="0" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>Step 1: I have requests A, B, C in the batch. All three need one more decode token.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="1" data-sender="worker" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">Worker</span>
+                <p>Done. Request B hit its stop token - it is finished.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="2" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>Step 2: Remove B, add new request D from the queue. Batch is now A, C, D. No GPU cycles wasted waiting.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="3" data-sender="worker" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">Worker</span>
+                <p>Done. Request D needs prefill (512 tokens). Should I do it all at once?</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="4" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>No - chunked prefill. Process 128 tokens of D per step while A and C continue decoding. Fair sharing of the token budget.</p>
+              </div>
+            </div>
+            <div class="chat-message" data-msg="5" data-sender="scheduler" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">Scheduler</span>
+                <p>This is why vLLM V1 has no prefill/decode phases. Everything is just tokens needing computation, scheduled within one budget.</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" style="background: var(--color-actor-2)">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+              <span class="typing-dot"></span>
+            </div>
+          </div>
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Speculative Decoding -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Speculative Decoding</h2>
+        <p><span class="term" data-definition="Speculative decoding uses a small, fast draft model to predict multiple tokens ahead, then the large target model verifies them in one forward pass. Correct predictions save time (multiple tokens for the cost of one target pass). Incorrect predictions are rejected and only the correct prefix is kept.">Speculative decoding</span> is vLLM's approach to reducing latency. A small draft model guesses the next several tokens, then the large model verifies them in parallel. When guesses are correct, you get multiple tokens from one expensive forward pass.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Draft model generates K tokens</strong>
+              <p>A small model (e.g., 1B params) quickly predicts tokens t+1, t+2, ..., t+K. This is cheap because the model is small.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Target model verifies all K tokens in one pass</strong>
+              <p>The large model (70B) runs one forward pass on all K draft tokens simultaneously. It computes what it would have generated at each position.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Accept matching tokens, reject the rest</strong>
+              <p>If the draft matches the target at positions 1-3 but diverges at position 4, we keep tokens 1-3 (3 tokens for one pass) and resample position 4.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Net gain: multiple tokens per target pass</strong>
+              <p>If the draft model is 80% accurate, we get ~3-4 tokens per target forward pass instead of 1. Latency drops proportionally.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f527;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Connection to the V1 scheduler</strong>
+            <p>Speculative decoding fits naturally into V1's unified scheduling: draft tokens increase num_tokens_with_spec, and the scheduler handles them identically to regular tokens. Rejected draft tokens simply don't increment num_computed_tokens.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Profiling -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Profiling & Debugging Strategies</h2>
+        <p>Optimizing kernels requires measurement. Here are the key tools and what they reveal about vLLM performance.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">NS</div>
+            <h4 class="pattern-title">nsys (NVIDIA Nsight Systems)</h4>
+            <p class="pattern-desc">Timeline view of all GPU activity. Shows kernel launch gaps, communication overhead, and scheduling inefficiency. Start here for system-level issues.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">NC</div>
+            <h4 class="pattern-title">ncu (Nsight Compute)</h4>
+            <p class="pattern-desc">Deep per-kernel analysis. Shows memory throughput, compute utilization, occupancy, and roofline position. Use for optimizing individual Triton kernels.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">TP</div>
+            <h4 class="pattern-title">Triton Profiler</h4>
+            <p class="pattern-desc">Built into Triton. Shows auto-tuning results, compiled PTX, and tile scheduling. Use when debugging Triton-specific issues like register pressure.</p>
+          </div>
+        </div>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <code class="badge-code">nsys profile python -m vllm.entrypoints.openai.api_server</code>
+            <span class="badge-desc">Profile a full vLLM server run</span>
+          </div>
+          <div class="badge-item">
+            <code class="badge-code">ncu --set full python benchmark.py</code>
+            <span class="badge-desc">Deep-dive into a single kernel</span>
+          </div>
+          <div class="badge-item">
+            <code class="badge-code">TRITON_PRINT_AUTOTUNING=1</code>
+            <span class="badge-desc">See which kernel configurations Triton selects</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 7: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Tensor parallelism splits weight matrices across GPUs and uses all-reduce to combine partial results. Each GPU runs attention for its subset of heads, then results are summed."
+               data-explanation-wrong="Tensor parallelism splits the computation within each layer. Each GPU handles a slice of the weight matrix (subset of heads) and all-reduce combines the results.">
+            <h3 class="quiz-question">In 2-way tensor parallel attention, GPU 0 computes heads 0-15 and GPU 1 computes heads 16-31. How do they produce the final output?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>GPU 0 sends its results to GPU 1, which concatenates them</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>All-reduce sums the partial output projections so both GPUs have the full result</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Each GPU stores its half of the output and the next layer reads from both</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. Continuous batching inserts new requests immediately when slots open. The scheduler adds E to the batch at the very next step, maximizing GPU utilization."
+               data-explanation-wrong="Continuous batching means new requests can join the batch at every decode step. No waiting for other requests to finish.">
+            <h3 class="quiz-question">Requests A, B, C are decoding. B finishes and new request E arrives. What happens in continuous batching?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E immediately joins the batch in the next step, replacing B's slot</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E waits until A and C also finish, then a new batch of E, F, G starts</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>E gets queued for the next scheduling cycle (typically every 100ms)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. nsys gives the timeline view showing gaps between kernels, communication bubbles, and scheduling delays. Once you identify which kernel is slow, use ncu to dive deep into that specific kernel."
+               data-explanation-wrong="Start with nsys for the system-level timeline (where is time being spent?), then use ncu to analyze specific slow kernels in detail.">
+            <h3 class="quiz-question">You suspect your vLLM deployment has communication overhead between GPUs. Which profiling tool do you start with?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>ncu (Nsight Compute) to analyze the all-reduce kernel</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Triton profiler to check if attention kernels are waiting for communication</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>nsys (Nsight Systems) to see the timeline and identify communication gaps</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,271 @@
+<section class="module" id="module-2" style="background: var(--color-bg)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Memory Management & KV Cache</h1>
+      <p class="module-subtitle">How vLLM manages GPU memory with block-based allocation and paged attention</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Why Memory Matters -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Memory Bottleneck</h2>
+        <p>LLM inference is <span class="term" data-definition="Memory-bound means the GPU spends more time waiting for data to arrive from memory than actually computing. The bottleneck is bandwidth (how fast data moves), not arithmetic (how fast math happens).">memory-bound</span>, not compute-bound. The GPU has enormous arithmetic power but limited memory bandwidth. The KV cache - storing key and value tensors from previous tokens - dominates GPU memory usage during inference.</p>
+        <p>Think of it like a library with limited shelf space. Each book (token) needs a reserved spot on the shelves (memory blocks). Without clever management, you run out of shelves long before you run out of reading capacity.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-1)">80G</div>
+            <div>
+              <strong>GPU Memory (A100: 80GB HBM2e)</strong>
+              <p>Total available memory. Model weights take ~14GB for a 7B model in FP16. The rest is for KV cache.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-2)">KV</div>
+            <div>
+              <strong>KV Cache per Token</strong>
+              <p>Each token stores a key and value vector per layer per head. For Llama-70B: ~1.25MB per token across all layers.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-actor-3)">BLK</div>
+            <div>
+              <strong>Block Size (typically 16 tokens)</strong>
+              <p>Memory is allocated in fixed-size blocks, not per-token. This reduces fragmentation and enables sharing.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Block-Based Allocation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Block-Based Memory Allocation</h2>
+        <p>vLLM pioneered <span class="term" data-definition="Paged attention borrows the idea of virtual memory paging from operating systems. Instead of allocating one contiguous chunk of memory per sequence, memory is split into fixed-size blocks (pages) that can be placed anywhere in GPU memory.">paged attention</span> - the key insight that made high-throughput LLM serving possible. Instead of reserving maximum-length contiguous memory for each request, vLLM allocates memory in small blocks that can be scattered across GPU memory.</p>
+
+        <div class="step-cards">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Request arrives</strong>
+              <p>Scheduler asks KV Cache Manager for blocks based on prompt length</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Blocks allocated from free pool</strong>
+              <p>Manager pulls blocks from FreeKVCacheBlockQueue - no contiguous requirement</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Tokens fill blocks</strong>
+              <p>As tokens are generated, they fill the current block. When full, a new block is allocated</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Request completes</strong>
+              <p>Blocks return to the free pool (or stay cached for prefix reuse)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why blocks beat contiguous allocation</strong>
+            <p>Without paging, a request expecting 2048 tokens must reserve all 2048 tokens of memory upfront - even if it only generates 50. With blocks, memory grows on-demand. This single change improved memory utilization from ~50% to ~95% in practice.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: KVCacheBlocks Code -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">KV Cache Data Structure</h2>
+        <p>The <code>KVCacheBlocks</code> dataclass is the interface between the Scheduler and the KV Cache Manager. It hides internal memory details from scheduling logic.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/kv_cache_manager.py</span></span>
+<span class="code-line">@dataclass</span>
+<span class="code-line"><span class="code-keyword">class</span> <span class="code-function">KVCacheBlocks</span>:</span>
+<span class="code-line">    blocks: tuple[Sequence[KVCacheBlock], ...]</span>
+<span class="code-line">    <span class="code-comment"># blocks[i][j] refers to the i-th kv_cache_group</span></span>
+<span class="code-line">    <span class="code-comment"># and the j-th block of tokens.</span></span>
+<span class="code-line"></span>
+<span class="code-line">    <span class="code-keyword">def</span> <span class="code-function">__add__</span>(self, other) -> <span class="code-string">"KVCacheBlocks"</span>:</span>
+<span class="code-line">        <span class="code-keyword">return</span> KVCacheBlocks(</span>
+<span class="code-line">            tuple(list(itertools.chain(blk1, blk2))</span>
+<span class="code-line">                  <span class="code-keyword">for</span> blk1, blk2 <span class="code-keyword">in</span> zip(self.blocks, other.blocks))</span>
+<span class="code-line">        )</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This is the memory allocation receipt - it tells the scheduler what blocks were allocated.</p>
+              <p class="tl">The blocks field is a tuple of sequences. First dimension is the cache group (for multi-head attention), second is the block index within that group.</p>
+              <p class="tl">The __add__ method lets you combine two allocations (e.g., extending a request that needs more blocks) by chaining their block lists together.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Block Pool and Prefix Caching -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Prefix Caching with Block Hashing</h2>
+        <p>When two requests share the same prefix (e.g., the same system prompt), vLLM can reuse the computed KV cache blocks instead of recomputing them. This is done via <span class="term" data-definition="A hash is a fingerprint for data. If two sequences of tokens produce the same hash, their KV cache blocks are identical and can be shared. This avoids redundant computation.">content-addressable hashing</span> of block contents.</p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># vllm/v1/core/block_pool.py</span></span>
+<span class="code-line"><span class="code-keyword">class</span> <span class="code-function">BlockHashToBlockMap</span>:</span>
+<span class="code-line">    <span class="code-string">"""Cache of blocks used for prefix caching.</span></span>
+<span class="code-line"><span class="code-string">    Maps hash directly to a block or multiple blocks</span></span>
+<span class="code-line"><span class="code-string">    (i.e. {block_hash: KVCacheBlocks})</span></span>
+<span class="code-line"><span class="code-string">    A cached block is a full block with a block hash</span></span>
+<span class="code-line"><span class="code-string">    that can be used for prefix caching.</span></span>
+<span class="code-line"><span class="code-string">    The cached block may be used by running requests</span></span>
+<span class="code-line"><span class="code-string">    or in the free_block_queue that could</span></span>
+<span class="code-line"><span class="code-string">    potentially be evicted."""</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">This class is the "library card catalog" - it maps block content fingerprints to actual memory blocks.</p>
+              <p class="tl">When a block is full (all token slots used), it gets a hash computed from its token content.</p>
+              <p class="tl">If another request needs the same prefix, we look up the hash and find the existing block - no recomputation needed.</p>
+              <p class="tl">Cached blocks can be in two states: actively used by a request, or sitting in the free queue (evictable but still available for reuse).</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Memory Layout Animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Memory Access in Paged Attention</h2>
+        <p>The attention kernel must handle non-contiguous blocks. For each query token, it looks up which physical blocks hold the relevant keys and values using a <span class="term" data-definition="A page table is a mapping from logical (sequential) block indices to physical (actual) memory addresses. The attention kernel uses this table to find where each block of KV cache actually lives in GPU memory.">page table</span> (Req_to_tokens mapping).</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"flow-actor-1","label":"Query token needs attention over all previous keys"},
+          {"highlight":"flow-actor-2","label":"Kernel reads page table: logical block 0 is at physical location 47"},
+          {"highlight":"flow-actor-2","label":"Kernel reads page table: logical block 1 is at physical location 12","packet":true,"from":"actor-2","to":"actor-3"},
+          {"highlight":"flow-actor-3","label":"GPU loads K/V from physical block 47 into SRAM","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Compute attention scores for this block of keys"},
+          {"highlight":"flow-actor-3","label":"GPU loads K/V from physical block 12 into SRAM","packet":true,"from":"actor-3","to":"actor-4"},
+          {"highlight":"flow-actor-4","label":"Accumulate attention with online softmax (no full materialization)"},
+          {"highlight":"flow-actor-4","label":"Write final output: weighted sum of all value blocks"}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">Q</div>
+              <span>Query</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">PT</div>
+              <span>Page Table</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">HBM</div>
+              <span>GPU Memory</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">SM</div>
+              <span>Compute Unit</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to see paged attention memory access</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block"
+               data-correct="option-b"
+               data-explanation-right="Correct. Block-based allocation means memory grows on-demand as tokens are generated. A request only uses what it needs, not worst-case maximum."
+               data-explanation-wrong="The key advantage is eliminating pre-allocation waste. Blocks are allocated incrementally as tokens are generated.">
+            <h3 class="quiz-question">A request might generate anywhere from 10 to 2000 tokens. Why does block-based allocation help here?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because blocks are stored in CPU memory until needed</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because memory is allocated block-by-block as tokens are generated, not reserved upfront for 2000</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because blocks can be compressed to use less memory per token</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-a"
+               data-explanation-right="Correct. The block hash acts as a content fingerprint. If the hash matches, the KV values are identical, so the block can be shared without recomputation."
+               data-explanation-wrong="Prefix caching works by hashing block contents. When hashes match, the computed KV cache is reused directly.">
+            <h3 class="quiz-question">Two users send requests with the same 500-token system prompt. How does prefix caching help?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The hash of the shared prefix matches, so both requests point to the same physical KV blocks</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The system prompt is processed on CPU instead of GPU to save memory</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The second request is queued until the first completes and its memory is freed</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block"
+               data-correct="option-c"
+               data-explanation-right="Correct. The page table (Req_to_tokens) maps logical sequence positions to physical block locations in GPU memory, allowing non-contiguous storage."
+               data-explanation-wrong="The attention kernel uses a page table to translate logical positions into physical memory addresses, allowing blocks to be scattered anywhere in GPU memory.">
+            <h3 class="quiz-question">During decode attention, how does the kernel find where block 5 of a request is stored in GPU memory?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Blocks are always contiguous, so it calculates offset = base + 5 * block_size</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It searches through all allocated blocks until it finds the right one</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It reads the page table (Req_to_tokens) which maps logical block index to physical address</span>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Try Again</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
