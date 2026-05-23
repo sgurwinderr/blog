@@ -7,8 +7,10 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="main.js" defer></script>
 </head>
 <body>
+  <!-- Back Navigation -->
   <div class="back-to-blog">
     <a href="/" class="back-link">
       <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
@@ -19,17 +21,48 @@
     <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
   </div>
 
-  <div class="container">
+  <!-- Navigation Bar with Progress -->
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">GPU Optimization Patterns</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Kernel Fusion" role="tab" aria-label="Module 1"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Memory Coalescing" role="tab" aria-label="Module 2"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Quantization" role="tab" aria-label="Module 3"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Prefix Caching" role="tab" aria-label="Module 4"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Block Tuning" role="tab" aria-label="Module 5"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Static Shapes" role="tab" aria-label="Module 6"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Async Copy" role="tab" aria-label="Module 7"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Shared Memory" role="tab" aria-label="Module 8"></button>
+        <button class="nav-dot" data-target="module-9" data-tooltip="Warp Shuffle" role="tab" aria-label="Module 9"></button>
+        <button class="nav-dot" data-target="module-10" data-tooltip="Loop Unrolling" role="tab" aria-label="Module 10"></button>
+        <button class="nav-dot" data-target="module-11" data-tooltip="Vectorized Loads" role="tab" aria-label="Module 11"></button>
+        <button class="nav-dot" data-target="module-12" data-tooltip="Split-K" role="tab" aria-label="Module 12"></button>
+        <button class="nav-dot" data-target="module-13" data-tooltip="Online Softmax" role="tab" aria-label="Module 13"></button>
+        <button class="nav-dot" data-target="module-14" data-tooltip="Chunked Prefill" role="tab" aria-label="Module 14"></button>
+        <button class="nav-dot" data-target="module-15" data-tooltip="Continuous Batching" role="tab" aria-label="Module 15"></button>
+        <button class="nav-dot" data-target="module-16" data-tooltip="Speculative Decoding" role="tab" aria-label="Module 16"></button>
+        <button class="nav-dot" data-target="module-17" data-tooltip="Tensor Parallelism" role="tab" aria-label="Module 17"></button>
+        <button class="nav-dot" data-target="module-18" data-tooltip="Pipeline Parallelism" role="tab" aria-label="Module 18"></button>
+        <button class="nav-dot" data-target="module-19" data-tooltip="Selective Recomputation" role="tab" aria-label="Module 19"></button>
+        <button class="nav-dot" data-target="module-20" data-tooltip="Graph Optimization" role="tab" aria-label="Module 20"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- Course Header -->
     <header class="course-header">
       <h1>GPU Optimization Patterns</h1>
-      <p class="subtitle">Learn from 6 production optimizations in vLLM and PyTorch</p>
-      <p class="reading-time">⏱️ 60 minutes • 6 modules</p>
+      <p class="subtitle">Learn from 20 production optimizations in vLLM and PyTorch</p>
+      <p class="reading-time">⏱️ 3-4 hours • 20 modules</p>
     </header>
 
     <!-- Module 1: Kernel Fusion -->
-    <section id="module-1" class="module">
+    <section class="module" id="module-1">
       <div class="module-header">
-        <span class="module-number">Module 1</span>
+        <span class="module-number">01</span>
         <h2>Kernel Fusion</h2>
       </div>
 
@@ -43,7 +76,7 @@
 
       <h3>The Solution</h3>
       <p><strong>Technique:</strong> Flash Attention-style kernel fusion</p>
-      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/1456" target="_blank">vLLM PR #1456</a> (FlashAttention integration)</p>
+      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/1456" target="_blank">vLLM PR #1456</a></p>
 
       <pre><code class="language-python"># Before: 3 separate kernels
 q_k = torch.matmul(q, k.transpose(-2, -1))  # writes N×N tensor to HBM
@@ -84,11 +117,11 @@ output = flash_attn_func(q, k, v, causal=True)
       </div>
     </section>
 
-    <!-- Module 2: Memory Access Patterns -->
-    <section id="module-2" class="module">
+    <!-- Module 2: Memory Coalescing -->
+    <section class="module" id="module-2">
       <div class="module-header">
-        <span class="module-number">Module 2</span>
-        <h2>Memory Access Patterns</h2>
+        <span class="module-number">02</span>
+        <h2>Memory Access Coalescing</h2>
       </div>
 
       <h3>The Problem</h3>
@@ -101,7 +134,7 @@ output = flash_attn_func(q, k, v, causal=True)
 
       <h3>The Solution</h3>
       <p><strong>Technique:</strong> Coalesced memory access via block reordering</p>
-      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/891" target="_blank">vLLM PR #891</a> (PagedAttention optimization)</p>
+      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/891" target="_blank">vLLM PR #891</a></p>
 
       <pre><code class="language-python"># Before: Strided access (bad)
 @triton.jit
@@ -150,10 +183,10 @@ def paged_attention_kernel(...):
       </div>
     </section>
 
-    <!-- Module 3: Quantization -->
-    <section id="module-3" class="module">
+    <!-- Module 3: FP8 Quantization -->
+    <section class="module" id="module-3">
       <div class="module-header">
-        <span class="module-number">Module 3</span>
+        <span class="module-number">03</span>
         <h2>FP8 Quantization</h2>
       </div>
 
@@ -166,13 +199,13 @@ def paged_attention_kernel(...):
 
       <h3>The Solution</h3>
       <p><strong>Technique:</strong> FP8 KV cache with dynamic quantization</p>
-      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/3005" target="_blank">vLLM PR #3005</a> (FP8 KV cache)</p>
+      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/3005" target="_blank">vLLM PR #3005</a></p>
 
       <pre><code class="language-python"># Before: FP16 KV cache
 class PagedAttention:
     def forward(self, q, k_cache, v_cache):
         # k_cache, v_cache are FP16 (2 bytes per element)
-        attn = torch.matmul(q, k_cache.transpose(-2, -1))  # Load full KV from HBM
+        attn = torch.matmul(q, k_cache.transpose(-2, -1))
         out = torch.matmul(attn, v_cache)
 
 # After: FP8 KV cache with on-the-fly dequant
@@ -216,9 +249,9 @@ class PagedAttentionFP8:
     </section>
 
     <!-- Module 4: Prefix Caching -->
-    <section id="module-4" class="module">
+    <section class="module" id="module-4">
       <div class="module-header">
-        <span class="module-number">Module 4</span>
+        <span class="module-number">04</span>
         <h2>Prefix Caching</h2>
       </div>
 
@@ -231,7 +264,7 @@ class PagedAttentionFP8:
 
       <h3>The Solution</h3>
       <p><strong>Technique:</strong> Content-addressable KV cache blocks</p>
-      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/3687" target="_blank">vLLM PR #3687</a> (Automatic prefix caching)</p>
+      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/3687" target="_blank">vLLM PR #3687</a></p>
 
       <pre><code class="language-python"># Before: Recompute everything
 class KVCacheManager:
@@ -295,9 +328,9 @@ class KVCacheManager:
     </section>
 
     <!-- Module 5: Block Size Tuning -->
-    <section id="module-5" class="module">
+    <section class="module" id="module-5">
       <div class="module-header">
-        <span class="module-number">Module 5</span>
+        <span class="module-number">05</span>
         <h2>Block Size Tuning</h2>
       </div>
 
@@ -378,9 +411,9 @@ def select_kernel(seq_len):
     </section>
 
     <!-- Module 6: Static Shapes -->
-    <section id="module-6" class="module">
+    <section class="module" id="module-6">
       <div class="module-header">
-        <span class="module-number">Module 6</span>
+        <span class="module-number">06</span>
         <h2>Static Shape Specialization</h2>
       </div>
 
@@ -454,26 +487,1217 @@ with torch.no_grad():
       </div>
     </section>
 
+    <!-- Module 7: Async Memory Copy -->
+    <section class="module" id="module-7">
+      <div class="module-header">
+        <span class="module-number">07</span>
+        <h2>Asynchronous Memory Copy</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        In multi-GPU tensor parallelism, AllReduce operations copy gradients across GPUs synchronously—blocking compute until
+        the transfer completes. For Llama-70B across 8 GPUs, each layer's AllReduce took 12ms while compute was idle, adding
+        960ms overhead for 80 layers.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Overlap communication with computation using CUDA streams</p>
+      <p><strong>Reference:</strong> PyTorch distributed communication optimizations</p>
+
+      <pre><code class="language-python"># Before: Synchronous (blocking)
+def forward_layer(x, layer):
+    y = layer(x)  # Compute
+    torch.distributed.all_reduce(y)  # Wait for communication to complete
+    return y
+
+# After: Async with overlap
+def forward_layer(x, layer):
+    # Split into chunks
+    y = layer(x)
+    chunks = y.chunk(4, dim=0)
+
+    # Start communication for chunk 0 in separate stream
+    comm_stream = torch.cuda.Stream()
+    with torch.cuda.stream(comm_stream):
+        torch.distributed.all_reduce(chunks[0], async_op=True)
+
+    # Compute next chunks while chunk 0 is transferring
+    for i in range(1, 4):
+        compute_chunk(chunks[i])
+
+    # Sync streams
+    torch.cuda.current_stream().wait_stream(comm_stream)
+    return torch.cat(chunks, dim=0)
+# Result: 30-40% reduction in communication overhead</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Communication-heavy workloads (multi-GPU, distributed training)</li>
+            <li>Independent compute and communication operations</li>
+            <li>Profiler shows GPU idle during transfers</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Use CUDA streams to run communication concurrently</li>
+            <li>Split data into chunks (communicate chunk N while computing chunk N+1)</li>
+            <li>Insert synchronization points only when needed</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>High communication time in distributed training</li>
+            <li>GPU idle during AllReduce/AllGather</li>
+            <li>Timeline shows sequential compute → transfer pattern</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 8: Shared Memory Banking -->
+    <section class="module" id="module-8">
+      <div class="module-header">
+        <span class="module-number">08</span>
+        <h2>Shared Memory Bank Conflicts</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        GPU shared memory is divided into 32 banks. When multiple threads in a warp access the same bank simultaneously
+        (but different addresses), accesses serialize—turning a 1-cycle operation into a 32-cycle operation. Matrix transpose
+        kernels commonly hit this, reducing effective bandwidth by 16-32x.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Padding to avoid bank conflicts</p>
+      <p><strong>Reference:</strong> CUDA matrix transpose optimizations</p>
+
+      <pre><code class="language-python"># Before: Bank conflicts
+@triton.jit
+def transpose_kernel(...):
+    # Allocate shared memory tile: 32x32 elements
+    tile = tl.zeros((32, 32), dtype=tl.float16)
+
+    # Load from global memory (no conflicts)
+    tile = tl.load(input_ptr + offsets)
+
+    # Transpose: thread i writes to tile[i, j], reads from tile[j, i]
+    # Problem: threads 0-31 all access bank (j % 32) → 32-way conflict!
+    transposed = tl.trans(tile)
+    tl.store(output_ptr + offsets, transposed)
+
+# After: Padded shared memory
+@triton.jit
+def transpose_kernel(...):
+    # Add 1 element padding: 32x33 instead of 32x32
+    # This shifts subsequent rows to different banks
+    tile = tl.zeros((32, 33), dtype=tl.float16)
+
+    tile[:, :32] = tl.load(input_ptr + offsets)
+
+    # Now threads access different banks (offset by padding)
+    transposed = tl.trans(tile[:, :32])
+    tl.store(output_ptr + offsets, transposed)
+# Result: 8-16x speedup for transpose operations</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Kernels using shared memory for staging/reuse</li>
+            <li>Transpose, reduction, or shuffle operations</li>
+            <li>Profiler shows "Shared Memory Replay" warnings</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Add padding to shared memory arrays (e.g., [32][32] → [32][33])</li>
+            <li>Use Nsight Compute to measure bank conflicts</li>
+            <li>Alternative: Reorder accesses to avoid conflicts</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Nsight: "Shared Memory Bank Conflicts" &gt; 0</li>
+            <li>Low shared memory bandwidth utilization</li>
+            <li>Transpose/reduction kernels underperforming</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 9: Warp-Level Primitives -->
+    <section class="module" id="module-9">
+      <div class="module-header">
+        <span class="module-number">09</span>
+        <h2>Warp Shuffle Operations</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Reduction operations (sum, max) traditionally use shared memory: each thread writes its value, synchronizes, then
+        reads neighbors' values. For warp-level reductions (32 threads), this shared memory round-trip adds 20-30 cycles
+        and wastes precious SRAM capacity.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Warp shuffle instructions for register-only communication</p>
+      <p><strong>Reference:</strong> CUDA warp-level primitives (intrinsics)</p>
+
+      <pre><code class="language-python"># Before: Shared memory reduction
+@triton.jit
+def warp_reduce_sum(val):
+    tid = tl.program_id(0)
+    shared = tl.alloc(32, dtype=tl.float32)  # Allocate shared memory
+    shared[tid] = val
+    tl.barrier()  # Synchronize
+
+    # Tree reduction
+    if tid < 16: shared[tid] += shared[tid + 16]
+    tl.barrier()
+    if tid < 8: shared[tid] += shared[tid + 8]
+    tl.barrier()
+    # ... more barriers
+    return shared[0]
+
+# After: Warp shuffle (register-only)
+@triton.jit
+def warp_reduce_sum(val):
+    # No shared memory, no barriers!
+    # Each thread shuffles data directly from other threads' registers
+    for offset in [16, 8, 4, 2, 1]:
+        val += tl.shfl_down(val, offset)  # Get value from thread (tid + offset)
+    return val  # Thread 0 has final sum
+# Result: 4-6x faster, zero shared memory usage</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Warp-level reductions (sum, max, any/all)</li>
+            <li>Broadcasting within a warp</li>
+            <li>Shared memory pressure or latency issues</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Use warp shuffle intrinsics (shfl_down, shfl_xor, shfl_sync)</li>
+            <li>No synchronization needed (implicit within warp)</li>
+            <li>Works for any warp-local communication pattern</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>High shared memory usage from reductions</li>
+            <li>Many __syncthreads() calls</li>
+            <li>Small reduction kernels (&lt;32 threads per block)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 10: Loop Unrolling -->
+    <section class="module" id="module-10">
+      <div class="module-header">
+        <span class="module-number">10</span>
+        <h2>Loop Unrolling</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Tight inner loops with small iteration counts spend significant time on loop overhead: incrementing counters,
+        checking conditions, branching. For a 16-iteration loop doing simple arithmetic, branch mispredictions and
+        pipeline stalls added 30% overhead.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Manual or compiler-directed loop unrolling</p>
+      <p><strong>Reference:</strong> Compiler optimization techniques</p>
+
+      <pre><code class="language-python"># Before: Tight loop
+@triton.jit
+def dot_product(a, b):
+    result = 0.0
+    for i in range(16):  # 16 iterations, 16 branches
+        result += a[i] * b[i]
+    return result
+
+# After: Unrolled (4x)
+@triton.jit
+def dot_product(a, b):
+    result = 0.0
+    # Unroll by factor of 4: 4 iterations, 4 branches
+    for i in range(0, 16, 4):
+        result += a[i] * b[i]
+        result += a[i+1] * b[i+1]
+        result += a[i+2] * b[i+2]
+        result += a[i+3] * b[i+3]
+    return result
+
+# Or: Fully unrolled (no loop at all)
+@triton.jit
+def dot_product(a, b):
+    # Triton often does this automatically for small constexpr loops
+    result = (a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3] +
+              a[4]*b[4] + a[5]*b[5] + a[6]*b[6] + a[7]*b[7] +
+              a[8]*b[8] + a[9]*b[9] + a[10]*b[10] + a[11]*b[11] +
+              a[12]*b[12] + a[13]*b[13] + a[14]*b[14] + a[15]*b[15])
+    return result
+# Result: 20-40% speedup for small loops, better instruction pipelining</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Inner loops with small, known iteration counts (&lt;32)</li>
+            <li>Simple loop bodies (few instructions per iteration)</li>
+            <li>Profile shows time spent in loop overhead</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Use #pragma unroll in CUDA or tl.constexpr loops in Triton</li>
+            <li>Unroll factor: 2-8x depending on register pressure</li>
+            <li>Fully unroll very small loops (&lt;16 iterations)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>High branch instruction count</li>
+            <li>Pipeline stalls from control flow</li>
+            <li>Small loop bodies dominating execution time</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 11: Vectorized Memory Ops -->
+    <section class="module" id="module-11">
+      <div class="module-header">
+        <span class="module-number">11</span>
+        <h2>Vectorized Load/Store</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Loading data one element at a time (float16, 2 bytes) wastes memory transaction capacity. GPUs can fetch 128 bytes
+        per transaction, but scalar loads only use 2 bytes—a 98% efficiency loss. Copying a 1GB buffer took 18ms when
+        theoretical minimum was 0.5ms.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Vectorized loads (load multiple elements per instruction)</p>
+      <p><strong>Reference:</strong> CUDA vector types (float4, uint4)</p>
+
+      <pre><code class="language-python"># Before: Scalar loads
+@triton.jit
+def copy_kernel(src, dst):
+    tid = tl.program_id(0)
+    # Load 1 element at a time (2 bytes for float16)
+    for i in range(1024):
+        dst[tid * 1024 + i] = tl.load(src + tid * 1024 + i)
+# Bandwidth: 50 GB/s (2% efficiency)
+
+# After: Vectorized loads
+@triton.jit
+def copy_kernel(src, dst):
+    tid = tl.program_id(0)
+    # Load 8 elements at a time (16 bytes = 8 x float16)
+    # Triton automatically vectorizes with tl.load on ranges
+    for i in range(0, 1024, 8):
+        vec = tl.load(src + tid * 1024 + i + tl.arange(0, 8))
+        tl.store(dst + tid * 1024 + i + tl.arange(0, 8), vec)
+# Bandwidth: 1800 GB/s (90% efficiency)
+
+# Or use explicit vectorization in CUDA:
+# float4* src_vec = (float4*)src;  // Cast to vector type
+# float4 data = src_vec[tid];      // Load 16 bytes in one instruction
+# Result: 8-16x bandwidth improvement</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Memory-bound kernels with low bandwidth utilization</li>
+            <li>Contiguous memory accesses (no gaps/strides)</li>
+            <li>Element size &lt; 16 bytes (room for vectorization)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Load/store 2-8 elements at once (float2, float4, float8)</li>
+            <li>Ensure alignment (addresses must be multiples of vector size)</li>
+            <li>Triton auto-vectorizes tl.load/store on ranges</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Low "Global Load Throughput" (&lt;20% theoretical)</li>
+            <li>Many small transactions (8-32 bytes each)</li>
+            <li>Memory-bound with underutilized bus</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 12: Split-K Optimization -->
+    <section class="module" id="module-12">
+      <div class="module-header">
+        <span class="module-number">12</span>
+        <h2>Split-K GEMM</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Matrix multiplication C = A @ B with small M and N dimensions (e.g., 64x64) but large K (reduction dimension, e.g., 8192)
+        underutilizes the GPU. Traditional tiling creates few thread blocks (M/64 × N/64 = 1), leaving 99% of SMs idle.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Split the K dimension across multiple blocks and reduce results</p>
+      <p><strong>Reference:</strong> Cutlass split-K GEMM kernels</p>
+
+      <pre><code class="language-python"># Before: Single K dimension (low parallelism)
+@triton.jit
+def matmul_kernel(A, B, C, M, N, K):
+    # Each block computes one output tile: C[bm:bm+64, bn:bn+64]
+    # Grid size: (M/64, N/64) = (1, 1) for 64x64 output
+    # Only 1 block active → 1/108 SMs utilized on A100
+    bm = tl.program_id(0) * 64
+    bn = tl.program_id(1) * 64
+
+    acc = tl.zeros((64, 64), dtype=tl.float32)
+    for k in range(0, K, 64):
+        a = tl.load(A + bm*K + k + offsets_a)
+        b = tl.load(B + k*N + bn + offsets_b)
+        acc += tl.dot(a, b)
+    tl.store(C + bm*N + bn + offsets_c, acc)
+
+# After: Split K across multiple blocks
+@triton.jit
+def matmul_split_k_kernel(A, B, C_partial, M, N, K, K_SPLIT):
+    # Grid size: (M/64, N/64, K_SPLIT) = (1, 1, 32)
+    # Now 32 blocks working in parallel!
+    bm = tl.program_id(0) * 64
+    bn = tl.program_id(1) * 64
+    k_split_id = tl.program_id(2)
+
+    # Each block handles a slice of K
+    k_start = (K // K_SPLIT) * k_split_id
+    k_end = k_start + (K // K_SPLIT)
+
+    acc = tl.zeros((64, 64), dtype=tl.float32)
+    for k in range(k_start, k_end, 64):
+        a = tl.load(A + bm*K + k + offsets_a)
+        b = tl.load(B + k*N + bn + offsets_b)
+        acc += tl.dot(a, b)
+
+    # Store partial result
+    tl.store(C_partial + k_split_id * M * N + bm*N + bn + offsets_c, acc)
+
+# Separate reduction kernel sums C_partial along K_SPLIT dimension
+# Result: 20-30x speedup for large-K, small-MN matrices</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>GEMM with small M, N but large K (tall-skinny or short-wide matrices)</li>
+            <li>Low GPU utilization (few thread blocks)</li>
+            <li>K dimension is much larger than M or N</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Add K as a grid dimension (split into K_SPLIT slices)</li>
+            <li>Each block computes partial sum over its K slice</li>
+            <li>Run reduction kernel to sum partial results</li>
+            <li>Tune K_SPLIT for occupancy (typically 8-32)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Low "Achieved Occupancy" (&lt;10%)</li>
+            <li>Few active SMs despite available compute</li>
+            <li>Matrix dimensions highly unbalanced</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 13: Online Softmax -->
+    <section class="module" id="module-13">
+      <div class="module-header">
+        <span class="module-number">13</span>
+        <h2>Online Softmax Algorithm</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Naive softmax requires two passes: (1) find max for numerical stability, (2) compute exp and normalize. For long
+        sequences (16K tokens), this means reading the entire logits tensor twice from HBM—doubling memory bandwidth
+        requirements. At 2000 GB/s, a 16K × 16K softmax takes 4ms just for memory access.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Online (streaming) softmax with incremental max update</p>
+      <p><strong>Reference:</strong> Flash Attention paper (Dao et al.), online softmax section</p>
+
+      <pre><code class="language-python"># Before: Two-pass softmax
+@triton.jit
+def softmax_twopass(logits, output):
+    # Pass 1: Find max (full read of logits)
+    max_val = float('-inf')
+    for i in range(seq_len):
+        max_val = max(max_val, logits[i])
+
+    # Pass 2: Compute exp and sum (full read again)
+    sum_exp = 0.0
+    for i in range(seq_len):
+        sum_exp += tl.exp(logits[i] - max_val)
+
+    # Pass 3: Normalize and write
+    for i in range(seq_len):
+        output[i] = tl.exp(logits[i] - max_val) / sum_exp
+# 3 full passes over data
+
+# After: Online softmax (single pass)
+@triton.jit
+def softmax_online(logits, output):
+    # Track running max and sum in registers
+    max_val = float('-inf')
+    sum_exp = 0.0
+
+    # Single pass: update max and sum incrementally
+    for i in range(seq_len):
+        old_max = max_val
+        max_val = max(max_val, logits[i])
+
+        # Rescale previous sum when max changes
+        sum_exp = sum_exp * tl.exp(old_max - max_val) + tl.exp(logits[i] - max_val)
+
+    # Second (smaller) pass for normalization
+    for i in range(seq_len):
+        output[i] = tl.exp(logits[i] - max_val) / sum_exp
+# 2 passes instead of 3, but first pass is fused with other ops in practice
+# Result: 1.4x speedup for softmax, enables further fusion</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Multi-pass reductions over large arrays</li>
+            <li>Statistical operations (mean, variance, softmax)</li>
+            <li>Memory bandwidth is bottleneck</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Maintain running statistics in registers (max, sum, count)</li>
+            <li>Update statistics incrementally as data streams through</li>
+            <li>Use Welford's algorithm for variance, online softmax for attention</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Multiple kernel launches for same reduction</li>
+            <li>High HBM traffic for statistical operations</li>
+            <li>Long sequences making two-pass impractical</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 14: Chunked Prefill -->
+    <section class="module" id="module-14">
+      <div class="module-header">
+        <span class="module-number">14</span>
+        <h2>Chunked Prefill</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Long prompt prefill (e.g., 32K tokens) blocks the GPU for 2-3 seconds, preventing other requests from generating
+        tokens. With 50 concurrent users, this creates 100+ second queuing delays for short requests—terrible user experience.
+        Prefill needs all-to-all attention (O(N²)), dominating GPU time.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Split long prefills into chunks, interleave with decode</p>
+      <p><strong>Reference:</strong> <a href="https://github.com/vllm-project/vllm/pull/5316" target="_blank">vLLM PR #5316</a> (Chunked prefill)</p>
+
+      <pre><code class="language-python"># Before: Monolithic prefill
+def process_request(prompt_tokens):
+    # Compute full prefill in one shot (2+ seconds for 32K tokens)
+    kv_cache = model.prefill(prompt_tokens)  # BLOCKS GPU entirely
+    # No other requests can make progress
+
+    # Then generate tokens
+    for _ in range(max_new_tokens):
+        next_token = model.decode(kv_cache)
+        kv_cache.append(next_token)
+
+# After: Chunked prefill
+def process_request(prompt_tokens, chunk_size=512):
+    kv_cache = []
+
+    # Process prompt in chunks
+    for i in range(0, len(prompt_tokens), chunk_size):
+        chunk = prompt_tokens[i:i+chunk_size]
+        kv_chunk = model.prefill(chunk, kv_cache)  # Only 40ms per chunk
+        kv_cache.extend(kv_chunk)
+
+        # After each chunk, scheduler can run decode for other requests
+        # This interleaving reduces latency for all requests
+
+    # Generate tokens as before
+    for _ in range(max_new_tokens):
+        next_token = model.decode(kv_cache)
+        kv_cache.append(next_token)
+# Result: 5-10x reduction in P99 latency for concurrent workloads</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Long-running operations blocking shared resources</li>
+            <li>Mix of long and short tasks in queue</li>
+            <li>High P99 latency with concurrent load</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Split work into smaller chunks (512-2048 tokens for prefill)</li>
+            <li>Yield to scheduler between chunks</li>
+            <li>Balance chunk size: too small (overhead), too large (latency)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>High P99/P95 latency relative to P50</li>
+            <li>GPU fully utilized but poor responsiveness</li>
+            <li>Short tasks queued behind long tasks</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 15: Continuous Batching -->
+    <section class="module" id="module-15">
+      <div class="module-header">
+        <span class="module-number">15</span>
+        <h2>Continuous Batching</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Traditional batching waits for all requests in a batch to finish before starting new ones. If one request generates
+        500 tokens while others finish at 50 tokens, the GPU sits idle for 90% of the time waiting for the long request.
+        Throughput: 20 tokens/sec despite GPU capable of 2000 tokens/sec.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Add new requests to batch as soon as slots free up</p>
+      <p><strong>Reference:</strong> vLLM's core scheduling innovation (Orca-style continuous batching)</p>
+
+      <pre><code class="language-python"># Before: Static batching
+def serve_requests(request_queue):
+    batch = request_queue[:batch_size]  # Take first N requests
+    while any(r.not_finished for r in batch):
+        # Run decode step for all requests
+        for req in batch:
+            if not req.finished:
+                token = model.decode(req.kv_cache)
+                req.append(token)
+        # GPU underutilized if most requests finished early
+    # Wait until all done before starting new batch
+
+# After: Continuous batching
+def serve_requests(request_queue):
+    active_batch = []
+
+    while request_queue or active_batch:
+        # Fill empty slots immediately
+        while len(active_batch) < batch_size and request_queue:
+            active_batch.append(request_queue.pop(0))
+
+        # Run decode for active requests
+        for req in active_batch:
+            token = model.decode(req.kv_cache)
+            req.append(token)
+
+        # Remove finished requests, free slots for new ones
+        active_batch = [r for r in active_batch if not r.finished]
+
+        # Loop continues: slots always filled, GPU never idle
+# Result: 5-20x throughput improvement, 95%+ GPU utilization</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Batched workloads with variable completion times</li>
+            <li>GPU idle time due to batch synchronization</li>
+            <li>Queue of pending work always available</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Track active batch dynamically (not static)</li>
+            <li>Remove finished items immediately</li>
+            <li>Add new items as soon as slots available</li>
+            <li>Requires variable-length batch support (attention masks, KV cache)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>GPU utilization drops as batch progresses</li>
+            <li>Long tail latency (waiting for slowest request)</li>
+            <li>Throughput far below theoretical peak</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 16: Speculative Decoding -->
+    <section class="module" id="module-16">
+      <div class="module-header">
+        <span class="module-number">16</span>
+        <h2>Speculative Decoding</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        LLM decoding is sequential: generate token 1, then token 2, then token 3. Each token requires a full model forward pass
+        (800ms for Llama-70B). Generating 50 tokens takes 40 seconds. This is inherently serial—no way to parallelize across tokens
+        because token N+1 depends on token N.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Use small draft model to propose multiple tokens, verify in parallel with large model</p>
+      <p><strong>Reference:</strong> Speculative decoding (Leviathan et al. 2023), vLLM speculative decoding implementation</p>
+
+      <pre><code class="language-python"># Before: Serial decoding (slow)
+def generate(model, prompt, max_tokens=50):
+    kv_cache = model.prefill(prompt)
+    output = []
+    for _ in range(max_tokens):
+        # Each token requires full model forward pass (800ms)
+        token = model.decode(kv_cache)  # SEQUENTIAL
+        output.append(token)
+        kv_cache.append(token)
+    return output
+# Total time: 50 tokens × 800ms = 40 seconds
+
+# After: Speculative decoding
+def generate_speculative(large_model, small_model, prompt, max_tokens=50, k=5):
+    kv_cache = large_model.prefill(prompt)
+    output = []
+
+    while len(output) < max_tokens:
+        # Step 1: Draft model proposes k tokens (fast, 50ms each)
+        draft_tokens = []
+        draft_kv = kv_cache.clone()
+        for _ in range(k):
+            token = small_model.decode(draft_kv)  # Small model: 50ms
+            draft_tokens.append(token)
+            draft_kv.append(token)
+
+        # Step 2: Large model verifies all k tokens IN PARALLEL (800ms total)
+        # We can batch-verify because we have the draft sequence
+        verified = large_model.verify(kv_cache, draft_tokens)  # Parallel!
+
+        # Step 3: Accept verified prefix
+        for i, (draft, correct) in enumerate(zip(draft_tokens, verified)):
+            if draft == correct:
+                output.append(draft)
+                kv_cache.append(draft)
+            else:
+                output.append(correct)  # Use large model's token
+                kv_cache.append(correct)
+                break  # Reject remaining draft tokens
+
+# Speedup: If draft accepts 60% of tokens, amortized cost per token:
+# (5 × 50ms + 800ms) / 3 accepted = 350ms per token (2.3x speedup!)
+# Result: 2-3x decoding speedup with zero quality loss</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Sequential workloads where dependencies block parallelism</li>
+            <li>Fast approximation available (small model, cached result)</li>
+            <li>Verification can process multiple candidates in parallel</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Use cheap oracle to propose k candidates</li>
+            <li>Verify all candidates in parallel (batched forward pass)</li>
+            <li>Accept longest correct prefix</li>
+            <li>Tune k and draft quality for acceptance rate</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Serial execution with no parallelism</li>
+            <li>Each step waits for previous step</li>
+            <li>GPU underutilized (low batch size)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 17: Tensor Parallelism -->
+    <section class="module" id="module-17">
+      <div class="module-header">
+        <span class="module-number">17</span>
+        <h2>Tensor Parallelism</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Llama-70B has 70 billion parameters (140 GB in FP16), but a single A100 GPU has only 80 GB memory. Model doesn't fit
+        on one GPU. Data parallelism (replicate model across GPUs) doesn't help—you need to split the model itself across
+        multiple GPUs.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Split weight matrices across GPUs, fuse communication with compute</p>
+      <p><strong>Reference:</strong> Megatron-LM tensor parallelism (Shoeybi et al. 2019)</p>
+
+      <pre><code class="language-python"># Problem: Linear layer too large for one GPU
+class LinearLayer:
+    def __init__(self, in_dim=8192, out_dim=28672):
+        self.weight = torch.randn(out_dim, in_dim, dtype=torch.float16)
+        # 28672 × 8192 × 2 bytes = 470 MB per layer
+        # Llama-70B has 200+ such layers → 94 GB total
+
+    def forward(self, x):  # x: [batch, seq_len, in_dim]
+        return x @ self.weight.T  # [batch, seq_len, out_dim]
+
+# Solution: Split weight across 4 GPUs (column-parallel)
+class ColumnParallelLinear:
+    def __init__(self, in_dim=8192, out_dim=28672, tp_size=4):
+        self.tp_rank = torch.distributed.get_rank()
+        self.out_dim_per_gpu = out_dim // tp_size  # 28672 / 4 = 7168
+
+        # Each GPU stores 1/4 of weight matrix
+        self.weight = torch.randn(self.out_dim_per_gpu, in_dim, dtype=torch.float16)
+        # Now only 117 MB per GPU per layer!
+
+    def forward(self, x):
+        # All GPUs compute their slice independently (no communication!)
+        local_output = x @ self.weight.T  # [batch, seq_len, 7168]
+        # Output stays partitioned for next layer
+        return local_output
+
+# Next layer must be row-parallel to reduce results
+class RowParallelLinear:
+    def __init__(self, in_dim=28672, out_dim=8192, tp_size=4):
+        self.in_dim_per_gpu = in_dim // tp_size  # 7168
+        self.weight = torch.randn(out_dim, self.in_dim_per_gpu, dtype=torch.float16)
+
+    def forward(self, x):  # x is partitioned: [batch, seq_len, 7168]
+        # Compute local matmul
+        local_output = x @ self.weight.T  # [batch, seq_len, 8192]
+
+        # AllReduce to sum across GPUs (communication happens here)
+        torch.distributed.all_reduce(local_output)
+        return local_output  # [batch, seq_len, 8192] (reduced)
+
+# Pattern: column-parallel → row-parallel alternate
+# Communication only at row-parallel layers (1 AllReduce per 2 layers)
+# Result: 70B model fits on 4×80GB GPUs, 3.8x speedup vs sequential</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Model too large to fit on single GPU memory</li>
+            <li>Want to keep batch size small (inference, not training)</li>
+            <li>Multi-GPU available with fast interconnect (NVLink)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Split weight matrices along row or column dimension</li>
+            <li>Alternate: column-parallel (no comm) → row-parallel (AllReduce)</li>
+            <li>Fuse AllReduce with next layer to hide latency</li>
+            <li>Requires custom kernels or framework support (Megatron, vLLM)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>OOM errors (model doesn't fit)</li>
+            <li>Single GPU underutilized (can't use larger batch)</li>
+            <li>Multi-GPU available but unused</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 18: Pipeline Parallelism -->
+    <section class="module" id="module-18">
+      <div class="module-header">
+        <span class="module-number">18</span>
+        <h2>Pipeline Parallelism</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Large models have many sequential layers (Llama-70B: 80 layers). Running all layers on one GPU is slow (3 seconds per token).
+        Tensor parallelism helps but requires expensive all-reduce after every layer. Alternative: split layers across GPUs,
+        but naive approach leaves GPUs idle waiting for upstream layers (pipeline bubbles).
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Pipeline parallelism with microbatching to fill pipeline bubbles</p>
+      <p><strong>Reference:</strong> GPipe (Huang et al. 2019), PipeDream (Narayanan et al. 2019)</p>
+
+      <pre><code class="language-python"># Naive approach: Sequential layer execution across GPUs
+def forward_naive(input, layers_per_gpu):
+    x = input
+    for gpu_id in range(4):
+        x = x.to(f'cuda:{gpu_id}')
+        for layer in layers_per_gpu[gpu_id]:
+            x = layer(x)
+    return x
+# Problem: GPU 0 busy, GPUs 1-3 idle. Then GPU 1 busy, others idle. Utilization: 25%
+
+# Solution: Pipeline with microbatching
+class PipelineParallel:
+    def __init__(self, model, num_gpus=4, num_microbatches=8):
+        # Split 80 layers across 4 GPUs: 20 layers each
+        self.stages = [model.layers[i::num_gpus] for i in range(num_gpus)]
+        self.num_microbatches = num_microbatches
+
+    def forward(self, input):
+        # Split batch into microbatches
+        microbatches = input.chunk(self.num_microbatches)
+
+        # Pipeline schedule (simplified)
+        pipeline = []
+        for mb in microbatches:
+            # Microbatch flows through pipeline stages
+            for stage_id, stage_layers in enumerate(self.stages):
+                # Wait for input from previous stage (or original input)
+                mb_input = pipeline[stage_id - 1] if stage_id > 0 else mb
+
+                # Process on this GPU
+                with torch.cuda.device(stage_id):
+                    for layer in stage_layers:
+                        mb_input = layer(mb_input)
+
+                # Pass to next stage
+                pipeline.append(mb_input)
+
+                # KEY: Don't wait for full batch! Next microbatch starts immediately
+                # While GPU 0 processes microbatch 2, GPU 1 processes microbatch 1
+
+        # Collect outputs from final stage
+        return torch.cat(pipeline[-self.num_microbatches:])
+
+# Timeline visualization:
+# Time →   t0      t1      t2      t3      t4
+# GPU 0:   mb0     mb1     mb2     mb3     mb4
+# GPU 1:   idle    mb0     mb1     mb2     mb3
+# GPU 2:   idle    idle    mb0     mb1     mb2
+# GPU 3:   idle    idle    idle    mb0     mb1
+
+# After initial "bubble" (t0-t2), all GPUs busy!
+# Result: 3.2x speedup with 4 GPUs (80% efficiency after bubble drains)</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Deep models with many sequential layers</li>
+            <li>Batch size large enough to split (training, offline inference)</li>
+            <li>Multiple GPUs with slower interconnect than NVLink (PCIe)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Split model layers across GPUs (stages)</li>
+            <li>Split batch into many microbatches (8-16)</li>
+            <li>Start next microbatch as soon as previous leaves stage</li>
+            <li>Balance stage compute time (profiling-driven layer assignment)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>GPUs idle waiting for upstream computation</li>
+            <li>Low multi-GPU utilization (&lt;50% aggregate)</li>
+            <li>Model depth &gt; 40 layers</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 19: Selective Recomputation -->
+    <section class="module" id="module-19">
+      <div class="module-header">
+        <span class="module-number">19</span>
+        <h2>Selective Activation Recomputation</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        Training transformers requires storing all activations for backward pass. For Llama-70B with batch size 32, activations
+        consume 180 GB—more than GPU memory (80 GB). Naive gradient checkpointing saves memory but doubles training time by
+        recomputing everything. Need selective strategy: recompute cheap ops, save expensive ones.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Recompute only activations that are cheap to regenerate</p>
+      <p><strong>Reference:</strong> PyTorch activation checkpointing, Megatron-LM selective recomputation</p>
+
+      <pre><code class="language-python"># Naive: Save all activations (high memory)
+class TransformerLayer(nn.Module):
+    def forward(self, x):
+        # Save ALL intermediate activations for backward
+        attn_out = self.attention(x)      # Save: 8 GB
+        ln1_out = self.layernorm1(attn_out)  # Save: 8 GB
+        mlp_out = self.mlp(ln1_out)       # Save: 32 GB (huge!)
+        ln2_out = self.layernorm2(mlp_out)   # Save: 32 GB
+        return ln2_out
+# Total: 80 GB activations per layer × 80 layers = DISASTER
+
+# Full checkpointing: Save nothing, recompute everything (low memory, slow)
+class TransformerLayer(nn.Module):
+    def forward(self, x):
+        # Don't save any activations
+        with torch.no_grad():
+            attn_out = self.attention(x)
+            ln1_out = self.layernorm1(attn_out)
+            mlp_out = self.mlp(ln1_out)
+            ln2_out = self.layernorm2(mlp_out)
+        return ln2_out
+    # Backward: Recompute ALL ops (2x training time)
+
+# Selective recomputation: Save expensive, recompute cheap
+class TransformerLayerSelective(nn.Module):
+    def forward(self, x):
+        # Save input and attention output (expensive ops)
+        x_saved = x  # Save: 8 GB
+        attn_out = self.attention(x)  # Save: 8 GB (expensive to recompute)
+
+        # Don't save layernorm (cheap to recompute, 0.1ms)
+        with torch.no_grad():
+            ln1_out = self.layernorm1(attn_out)
+
+        mlp_out = self.mlp(ln1_out)  # Save: 32 GB (expensive)
+
+        with torch.no_grad():
+            ln2_out = self.layernorm2(mlp_out)  # Recompute (cheap)
+
+        return ln2_out
+
+    def backward(self, grad):
+        # Recompute only cheap ops (layernorms)
+        # Use saved expensive ops (attention, MLP)
+        pass
+# Result: 70% memory reduction, only 15% slowdown (vs 100% for full checkpoint)</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Training large models with memory constraints</li>
+            <li>Mix of expensive (matmul) and cheap (layernorm, activation) ops</li>
+            <li>Full checkpointing too slow, no checkpointing OOM</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Profile compute time for each operation type</li>
+            <li>Save activations for expensive ops (attention, MLP, conv)</li>
+            <li>Recompute cheap ops (norm, dropout, GELU, ReLU)</li>
+            <li>Use PyTorch checkpoint or custom autograd.Function</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>OOM during backward pass (activation memory)</li>
+            <li>Training iteration time dominated by memory ops</li>
+            <li>Ratio of cheap:expensive ops &gt; 2:1</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Module 20: Graph Mode Optimization -->
+    <section class="module" id="module-20">
+      <div class="module-header">
+        <span class="module-number">20</span>
+        <h2>Graph-Level Fusion (torch.compile)</h2>
+      </div>
+
+      <h3>The Problem</h3>
+      <p>
+        PyTorch eager mode launches one kernel per operation. A simple GELU activation (`x * 0.5 * (1 + tanh(...))`) launches
+        8 separate kernels: mul, mul, add, tanh, add, mul, mul—each reading/writing HBM. For transformer with 1000+ operations
+        per layer, this adds 200ms of pure launch and memory overhead.
+      </p>
+
+      <h3>The Solution</h3>
+      <p><strong>Technique:</strong> Trace computation graph, fuse multiple ops into single kernels</p>
+      <p><strong>Reference:</strong> PyTorch 2.0 torch.compile with TorchInductor backend</p>
+
+      <pre><code class="language-python"># Before: Eager mode (many kernels)
+def gelu_approx(x):
+    # 8 kernel launches, 8 HBM round-trips
+    return x * 0.5 * (1.0 + torch.tanh(
+        math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+    ))
+
+# Eager execution:
+# Kernel 1: pow(x, 3)         → temp1 (write to HBM)
+# Kernel 2: mul(temp1, 0.044) → temp2 (write to HBM)
+# Kernel 3: add(x, temp2)     → temp3 (write to HBM)
+# ... 5 more kernels, each reading/writing HBM
+# Total: 200ms (mostly memory, not compute)
+
+# After: torch.compile (fused kernel)
+@torch.compile(mode="max-autotune")
+def gelu_approx(x):
+    # Same Python code, but PyTorch generates ONE fused kernel
+    return x * 0.5 * (1.0 + torch.tanh(
+        math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+    ))
+
+# Compiled execution:
+# Single Triton kernel that:
+# - Loads x from HBM once
+# - Computes all ops in registers (no intermediate HBM writes!)
+# - Writes final result to HBM
+# Total: 8ms (12x faster)
+
+# torch.compile also does:
+# 1. Operator fusion (combine multiple ops)
+# 2. Dead code elimination (remove unused computations)
+# 3. Constant folding (precompute constant expressions)
+# 4. Layout optimization (NCHW → NHWC if faster)
+# 5. Instruction scheduling (hide memory latency)
+
+# Example: Full transformer layer
+@torch.compile(mode="max-autotune", fullgraph=True)
+class TransformerLayer(nn.Module):
+    def forward(self, x):
+        # 200+ operations: attention, MLP, layernorm, residual
+        # Eager: 200+ kernel launches, 180ms
+        # Compiled: 15 fused kernels, 95ms (1.9x speedup)
+        ...
+</code></pre>
+
+      <h3>The Pattern</h3>
+      <div class="pattern-grid">
+        <div class="pattern-card">
+          <h4>✅ When to Apply</h4>
+          <ul>
+            <li>Many small element-wise operations</li>
+            <li>High kernel launch overhead (>20% of runtime)</li>
+            <li>Static computation graph (same ops each iteration)</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>📋 How to Apply</h4>
+          <ul>
+            <li>Use `@torch.compile` decorator (PyTorch 2.0+)</li>
+            <li>Choose mode: "default" (fast compile), "reduce-overhead", "max-autotune" (best perf)</li>
+            <li>Set `fullgraph=True` to force single graph (errors if dynamic control flow)</li>
+            <li>Warm up: first run compiles, subsequent runs use cached kernels</li>
+          </ul>
+        </div>
+        <div class="pattern-card">
+          <h4>🔍 Profiler Signals</h4>
+          <ul>
+            <li>Many small kernel launches (&lt;20μs each)</li>
+            <li>High CPU overhead (>15% in PyTorch dispatcher)</li>
+            <li>Timeline shows gaps between kernels</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Course Footer -->
     <footer class="course-footer">
       <h2>Summary</h2>
-      <p>These 6 patterns cover the most common GPU optimization opportunities in ML inference:</p>
-      <ol>
-        <li><strong>Kernel Fusion</strong> - Eliminate memory round-trips</li>
-        <li><strong>Memory Coalescing</strong> - Maximize bandwidth efficiency</li>
-        <li><strong>Quantization</strong> - Reduce data movement</li>
-        <li><strong>Prefix Caching</strong> - Avoid redundant computation</li>
-        <li><strong>Block Size Tuning</strong> - Balance occupancy vs. efficiency</li>
-        <li><strong>Static Shapes</strong> - Remove dispatch overhead</li>
-      </ol>
+      <p>These 20 patterns cover the full spectrum of GPU optimization for ML workloads:</p>
+
+      <div class="summary-grid">
+        <div class="summary-section">
+          <h3>Kernel-Level (1-13)</h3>
+          <ul>
+            <li>Kernel Fusion, Memory Coalescing, Quantization</li>
+            <li>Shared Memory, Warp Primitives, Vectorization</li>
+            <li>Loop Unrolling, Split-K, Online Algorithms</li>
+          </ul>
+        </div>
+        <div class="summary-section">
+          <h3>System-Level (14-20)</h3>
+          <ul>
+            <li>Chunked Prefill, Continuous Batching, Speculative Decoding</li>
+            <li>Tensor/Pipeline Parallelism, Selective Recomputation</li>
+            <li>Graph Optimization</li>
+          </ul>
+        </div>
+      </div>
+
       <p class="next-steps">
-        <strong>Next steps:</strong> Profile your own models with <code>torch.profiler</code> or <code>nsys</code>,
-        look for the signals above, and apply these patterns. Start with the biggest bottleneck first.
+        <strong>Next steps:</strong> Profile your models with <code>nsys</code>, <code>ncu</code>, or <code>torch.profiler</code>.
+        Identify the bottleneck (memory, compute, communication). Apply the relevant pattern from this course.
+        Start with the biggest bottleneck first—10x improvements are common when targeting the right issue.
       </p>
+
       <p class="back-link-footer">
         <a href="/learn-ai/">← Back to All Courses</a>
       </p>
     </footer>
-  </div>
+  </main>
 
   <script>
     // Syntax highlighting
