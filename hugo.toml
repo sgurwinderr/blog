@@ -1,6 +1,6 @@
 baseURL = "https://sgurwinderr.com/"
 languageCode = "en-us"
-title = "Gurwinder's Blog: AI & Graphics"
+title = "AI & Graphics"
 theme = "medium"
 summaryLength = 25
 copyright = "Gurwinder - All rights reserved"
@@ -100,21 +100,3 @@ enableEmoji = true
     weight = 100
     identifier = "blog"
     url = "/"
-
-[[menu.main]]
-    name = "PyTorch"
-    weight = 500
-    identifier = "cat-pytorch"
-    url = "/categories/pytorch"
-
-[[menu.main]]
-    name = "AI"
-    weight = 200
-    identifier = "cat-ai"
-    url = "/categories/ai"
-
-[[menu.main]]
-    name = "Game Dev"
-    weight = 300
-    identifier = "cat-gamedev"
-    url = "/categories/game-development"
