@@ -9,8 +9,50 @@
         {{ $featured := where $allPosts ".Params.featured" true }}
         {{ $regular := where $allPosts ".Params.featured" "!=" true }}
 
-        <!-- Featured Posts (first page only) -->
+        <!-- Learn AI Section (first page only) -->
         {{ $post_paginator := $.Paginate $regular 6 }}
+        {{ if eq $post_paginator.PageNumber 1 }}
+        <section class="learn-ai-home mb-5">
+            <div class="section-title">
+                <h2><span>Learn AI</span></h2>
+            </div>
+            <div class="row">
+                {{ range site.Data.courses }}
+                <div class="col-12 col-md-4 mb-4">
+                    <div class="featured-card">
+                        <a href="{{ .url }}" class="featured-card-img-wrap">
+                            <div style="background: {{ .gradient | safeCSS }}; height: 280px; display: flex; align-items: center; justify-content: center; color: white; font-size: 72px; {{ if eq .iconType "text" }}font-weight: bold;{{ end }}">
+                                {{ .icon }}
+                            </div>
+                        </a>
+                        <div class="featured-card-body">
+                            <div class="featured-card-cat">
+                                <a href="/learn-ai/">{{ .category }}</a>
+                            </div>
+                            <h2 class="featured-card-title">
+                                <a href="{{ .url }}">{{ .title }}</a>
+                            </h2>
+                            <p class="featured-card-summary">{{ .summary }}</p>
+                            <div class="post-card-meta">
+                                {{ if isset $.Site.Params.author "thumbnail" }}
+                                <img class="author-thumb" src="{{ $.Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ $.Site.Params.author.name }}">
+                                {{ end }}
+                                <div class="post-card-meta-text">
+                                    {{ if isset $.Site.Params.author "name" }}
+                                    <span class="post-name">{{ $.Site.Params.author.name }}</span>
+                                    {{ end }}
+                                    <span class="post-date">May 2026 &middot; {{ .modules }} &middot; {{ .duration }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {{ end }}
+            </div>
+        </section>
+        {{ end }}
+
+        <!-- Featured Posts (first page only) -->
         {{ if and $featured (eq $post_paginator.PageNumber 1) }}
         <section class="featured-posts mb-5">
             <div class="section-title">

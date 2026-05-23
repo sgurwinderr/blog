@@ -1,0 +1,35 @@
+[
+  {
+    "title": "vLLM Optimization Deep Dive",
+    "url": "/learn-ai/vllm-triton-optimization/",
+    "category": "Triton Kernels",
+    "summary": "Master vLLM's optimization internals through Triton kernel implementations.",
+    "gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    "icon": "vLLM",
+    "iconType": "text",
+    "modules": "6 Modules",
+    "duration": "2-3 Hours"
+  },
+  {
+    "title": "GPU Optimization: 10 Real vLLM PRs",
+    "url": "/learn-ai/gpu-optimization-prs/",
+    "category": "GPU Optimization",
+    "summary": "Learn optimization techniques from actual merged vLLM PRs with verified performance numbers.",
+    "gradient": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    "icon": "⚡",
+    "iconType": "emoji",
+    "modules": "10 Modules",
+    "duration": "2-3 Hours"
+  },
+  {
+    "title": "PyTorch Optimization: 10 Real PRs",
+    "url": "/learn-ai/pytorch-optimization-prs/",
+    "category": "PyTorch Optimization",
+    "summary": "Learn optimization techniques from actual merged PyTorch PRs with verified performance numbers.",
+    "gradient": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+    "icon": "🔥",
+    "iconType": "emoji",
+    "modules": "10 Modules",
+    "duration": "2-3 Hours"
+  }
+]
