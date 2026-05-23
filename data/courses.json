@@ -11,7 +11,7 @@
     "duration": "2-3 Hours"
   },
   {
-    "title": "GPU Optimization: 10 Real vLLM PRs",
+    "title": "GPU Optimization: 10 vLLM PRs",
     "url": "/learn-ai/gpu-optimization-prs/",
     "category": "GPU Optimization",
     "summary": "Learn optimization techniques from actual merged vLLM PRs with verified performance numbers.",
@@ -22,7 +22,7 @@
     "duration": "2-3 Hours"
   },
   {
-    "title": "PyTorch Optimization: 10 Real PRs",
+    "title": "PyTorch Optimization: 10 PRs",
     "url": "/learn-ai/pytorch-optimization-prs/",
     "category": "PyTorch Optimization",
     "summary": "Learn optimization techniques from actual merged PyTorch PRs with verified performance numbers.",
