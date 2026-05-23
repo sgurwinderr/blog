@@ -139,6 +139,64 @@
                 </div>
                 <!-- End GPU Optimization Course -->
 
+                <!-- PyTorch Optimization Patterns Course -->
+                <div class="col-xl-4 col-lg-4 col-md-6 mb-30px card-group">
+                    <div class="card h-100">
+                        <div class="maxthumb">
+                            <a href="/learn-ai/pytorch-optimization-prs/">
+                                <div class="course-thumb" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); height: 200px; display: flex; align-items: center; justify-content: center; color: white; font-size: 48px; font-weight: bold;">
+                                    🔥
+                                </div>
+                            </a>
+                        </div>
+                        <div class="card-body">
+                            <div class="featured-card-cat">
+                                <a href="#">Optimization</a>
+                            </div>
+                            <h2 class="card-title">
+                                <a class="text-dark" href="/learn-ai/pytorch-optimization-prs/">
+                                    PyTorch Optimization: 10 Real PRs
+                                </a>
+                            </h2>
+                            <h4 class="card-text card-summary">
+                                Learn optimization techniques from actual merged PyTorch PRs with verified performance numbers.
+                                Real code, real speedups.
+                            </h4>
+                            <div class="course-meta mt-3">
+                                <span class="badge badge-secondary">10 Modules</span>
+                                <span class="badge badge-secondary">2-3 Hours</span>
+                                <span class="badge badge-secondary">Intermediate</span>
+                            </div>
+                            <div class="course-topics mt-3">
+                                <small class="text-muted">
+                                    <strong>Topics:</strong> Batched Linear Algebra (23x), Triton Cache (61%), Combo Kernels, cuSolver (2-10x), Memory Reduction (50%)
+                                </small>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-white">
+                            <div class="post-card-meta">
+                                {{ if isset .Site.Params.author "thumbnail" }}
+                                <img class="author-thumb" src="{{ .Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ .Site.Params.author.name }}">
+                                {{ end }}
+                                <div class="post-card-meta-text">
+                                    {{ if isset .Site.Params.author "name" }}
+                                    <span class="post-name">{{ .Site.Params.author.name }}</span>
+                                    {{ end }}
+                                    <span class="post-date">May 2026 &middot; Quick Read</span>
+                                </div>
+                                <span class="post-read-more">
+                                    <a href="/learn-ai/pytorch-optimization-prs/" title="Launch Course">
+                                        <svg class="svgIcon-use" width="25" height="25" viewbox="0 0 25 25">
+                                            <path d="M19 6c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v14.66h.012c.01.103.045.204.12.285a.5.5 0 0 0 .706.03L12.5 16.85l5.662 4.126a.508.508 0 0 0 .708-.03.5.5 0 0 0 .118-.285H19V6zm-6.838 9.97L7 19.636V6c0-.55.45-1 1-1h9c.55 0 1 .45 1 1v13.637l-5.162-3.668a.49.49 0 0 0-.676 0z" fill-rule="evenodd"></path>
+                                        </svg>
+                                    </a>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- End PyTorch Optimization Course -->
+
             </div>
         </section>
 
