@@ -57,7 +57,8 @@
 
     <!-- Module 1: Vision Batching -->
     <section class="module" id="module-1">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">01</span>
         <h2>Vision Encoder Batching</h2>
       </div>
@@ -129,11 +130,13 @@ class Gemma4VisionModel:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 2: Kernel Fusion (NVFP4) -->
     <section class="module" id="module-2">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">02</span>
         <h2>Kernel Fusion: Eliminate Memory Copies</h2>
       </div>
@@ -210,11 +213,13 @@ def fused_nvfp4_kernel(input_ptr, output_ptr, M, N, padded_M):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 3: Avoid Recompilation -->
     <section class="module" id="module-3">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">03</span>
         <h2>Prevent Kernel Recompilation</h2>
       </div>
@@ -291,11 +296,13 @@ def rope_kernel(
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 4: Sync Elimination -->
     <section class="module" id="module-4">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">04</span>
         <h2>Eliminate GPU↔CPU Synchronizations</h2>
       </div>
@@ -374,11 +381,13 @@ class FlashInferAttention:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 5: MoE Kernel Fusion -->
     <section class="module" id="module-5">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">05</span>
         <h2>MoE Kernel Fusion (SILU + Mul + Quant)</h2>
       </div>
@@ -460,11 +469,13 @@ def silu_mul_quant_kernel(
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 6: Norm+Router Fusion -->
     <section class="module" id="module-6">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">06</span>
         <h2>Fused Norm + Router (RMSNorm + GEMV)</h2>
       </div>
@@ -563,11 +574,13 @@ __global__ void dsv4_norm_router_gemm(
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 7: AllGather+GEMM Fusion -->
     <section class="module" id="module-7">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">07</span>
         <h2>Collective Communication Fusion</h2>
       </div>
@@ -655,11 +668,13 @@ def fused_allgather_gemm(x, weight_shards, scales_shards):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 8: Buffer Aliasing -->
     <section class="module" id="module-8">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">08</span>
         <h2>Eliminate Redundant Buffer Copies</h2>
       </div>
@@ -743,11 +758,13 @@ class MoELayer:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 9: Multi-Op Fusion (RoPE+KV+Concat) -->
     <section class="module" id="module-9">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">09</span>
         <h2>Multi-Operation Fusion (RoPE + KV + Concat)</h2>
       </div>
@@ -829,11 +846,13 @@ def fused_mla_forward(q, k, v, cos, sin, kv_cache, q_nope, q_pe):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 10: KV Cache Quantization -->
     <section class="module" id="module-10">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">10</span>
         <h2>KV Cache Compression (TurboQuant)</h2>
       </div>
@@ -936,7 +955,8 @@ def attention_with_turboquant(q, k_q2, v_q3, scale):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Course Footer -->
     <footer class="course-footer">

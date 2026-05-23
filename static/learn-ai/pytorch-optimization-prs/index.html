@@ -57,7 +57,8 @@
 
     <!-- Module 1: Batched Eigh -->
     <section class="module" id="module-1">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">01</span>
         <h2>Batched Eigenvalue Decomposition</h2>
       </div>
@@ -130,11 +131,13 @@ else:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 2: Compile Cache Reuse -->
     <section class="module" id="module-2">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">02</span>
         <h2>Triton Kernel Cache Reuse</h2>
       </div>
@@ -220,11 +223,13 @@ class CUDAGraphPartitioner:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 3: Combo Kernels (Horizontal Fusion) -->
     <section class="module" id="module-3">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">03</span>
         <h2>Horizontal Kernel Fusion (Combo Kernels)</h2>
       </div>
@@ -325,11 +330,13 @@ def combo_kernel_transformer_ops(
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 4: cuSolver Integration -->
     <section class="module" id="module-4">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">04</span>
         <h2>cuSolver Backend for Eigenvalues</h2>
       </div>
@@ -403,11 +410,13 @@ eigenvalues, eigenvectors = torch.linalg.eig(A)
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 5: FlexAttention CPU -->
     <section class="module" id="module-5">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">05</span>
         <h2>FlexAttention for CPU Inference</h2>
       </div>
@@ -490,11 +499,13 @@ output = flex_attention(q, k, v, score_mod=sliding_window_mask)
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 6: Conv+BN Memory Optimization -->
     <section class="module" id="module-6">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">06</span>
         <h2>Conv+BatchNorm Memory Optimization</h2>
       </div>
@@ -583,11 +594,13 @@ def conv_bn_backward(grad_output):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 7: ARM64 MKLDNN -->
     <section class="module" id="module-7">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">07</span>
         <h2>ARM64 CPU Optimizations (MKLDNN)</h2>
       </div>
@@ -669,11 +682,13 @@ def bert_inference_mkldnn(input_ids):
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 8: 128-bit Vectorization -->
     <section class="module" id="module-8">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">08</span>
         <h2>128-bit Vector Optimization (sm90+)</h2>
       </div>
@@ -757,11 +772,13 @@ __global__ void copy_kernel(T* dst, const T* src, int N) {
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 9: Multigraph Backend -->
     <section class="module" id="module-9">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">09</span>
         <h2>Multigraph Backend Specialization</h2>
       </div>
@@ -852,11 +869,13 @@ for batch in batches:
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Module 10: Dynamic Combo Kernels -->
     <section class="module" id="module-10">
-      <div class="module-header">
+      <div class="module-content">
+<div class="module-header">
         <span class="module-number">10</span>
         <h2>Dynamic Shapes for Combo Kernels</h2>
       </div>
@@ -949,7 +968,8 @@ def transformer_ops(x):  # x: [batch, seq_len, hidden] - dynamic dims
           </ul>
         </div>
       </div>
-    </section>
+    </div>
+</section>
 
     <!-- Course Footer -->
     <footer class="course-footer">
