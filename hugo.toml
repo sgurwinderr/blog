@@ -53,7 +53,7 @@ enableEmoji = true
 
 [markup.goldmark.extensions.passthrough.delimiters]
   block = [["$$", "$$"]]
-  inline = [["\\(", "\\)"]]
+  inline = [["\\(", "\\)"], ["$", "$"]]
 
 [markup.highlight]
   style = "github-dark"
@@ -83,6 +83,12 @@ enableEmoji = true
   github = "sgurwinderr"
 
 ## Main Menu — edit name/url here; remove an entry to hide it from the navbar
+[[menu.main]]
+    name = "Learn AI"
+    weight = 150
+    identifier = "learn-ai"
+    url = "/learn-ai"
+
 [[menu.main]]
     name = "About"
     weight = 600
