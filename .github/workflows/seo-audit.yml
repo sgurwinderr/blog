@@ -31,6 +31,7 @@ jobs:
         with:
           urls: |
             http://localhost:1313/
-            http://localhost:1313/pytorch-profiler-internals/
-            http://localhost:1313/online-softmax-algorithm/
+            http://localhost:1313/triton-custom-kernels-pytorch/
+            http://localhost:1313/triton-kernel-first-principles/
+            http://localhost:1313/learn-ai/
           uploadArtifacts: true
