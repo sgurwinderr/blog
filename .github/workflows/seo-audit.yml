@@ -1,0 +1,36 @@
+name: SEO & Performance Audit
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'content/**'
+      - 'layouts/**'
+      - 'static/**'
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hugo
+        run: |
+          wget -O hugo.deb https://github.com/gohugoio/hugo/releases/download/v0.159.1/hugo_extended_0.159.1_linux-amd64.deb
+          sudo dpkg -i hugo.deb
+
+      - name: Build site
+        run: hugo --minify
+
+      - name: Serve site
+        run: hugo server --disableFastRender --port 1313 &
+
+      - name: Wait for server
+        run: sleep 5
+
+      - uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: |
+            http://localhost:1313/
+            http://localhost:1313/pytorch-profiler-internals/
+            http://localhost:1313/online-softmax-algorithm/
+          uploadArtifacts: true

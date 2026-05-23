@@ -1,0 +1,42 @@
+name: Validate Sitemap
+on:
+  push:
+    branches: [master]
+
+jobs:
+  validate-sitemap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hugo
+        run: |
+          wget -O hugo.deb https://github.com/gohugoio/hugo/releases/download/v0.159.1/hugo_extended_0.159.1_linux-amd64.deb
+          sudo dpkg -i hugo.deb
+
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
+      - name: Build and check sitemap
+        run: |
+          hugo --minify
+
+          # Check sitemap exists
+          if [ ! -f public/sitemap.xml ]; then
+            echo "❌ No sitemap.xml generated"
+            exit 1
+          fi
+
+          # Validate XML
+          if ! xmllint --noout public/sitemap.xml; then
+            echo "❌ Invalid sitemap XML"
+            exit 1
+          fi
+
+          # Check for important pages
+          if ! grep -q "pytorch-profiler" public/sitemap.xml; then
+            echo "⚠️  Missing key posts in sitemap"
+          fi
+
+          url_count=$(grep -c '<url>' public/sitemap.xml)
+          echo "✅ Sitemap valid with $url_count URLs"

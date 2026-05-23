@@ -1,0 +1,29 @@
+name: Check Links
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Every Monday
+  workflow_dispatch:
+  push:
+    paths:
+      - 'content/**'
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hugo
+        run: |
+          wget -O hugo.deb https://github.com/gohugoio/hugo/releases/download/v0.159.1/hugo_extended_0.159.1_linux-amd64.deb
+          sudo dpkg -i hugo.deb
+
+      - name: Build site
+        run: hugo --minify
+
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --verbose --no-progress --exclude-mail 'public/**/*.html'
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
