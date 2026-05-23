@@ -1,9 +1,9 @@
 ---
-name: deploying-hugo-courses
-description: Use when deploying interactive courses to Hugo blog with Learn AI section and back navigation
+name: deploy-ai-course
+description: Use when deploying interactive AI courses to Hugo blog Learn AI section with navigation and catalog
 ---
 
-# Deploying Interactive Courses to Hugo Blog
+# Deploy AI Course to Hugo Blog
 
 ## Quick Workflow
 
