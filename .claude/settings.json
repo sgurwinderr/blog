@@ -1,0 +1,112 @@
+{
+  "description": "Gurwinder's technical blog - Hugo static site for deep technical content on AI, GPU programming, and graphics",
+  "permissions": {
+    "allowed": [
+      {
+        "tool": "Bash",
+        "commands": [
+          "hugo server*",
+          "hugo list*",
+          "hugo version",
+          "hugo config",
+          "hugo --*",
+          "ls*",
+          "cat*",
+          "grep*",
+          "find*",
+          "wc*",
+          "head*",
+          "tail*"
+        ],
+        "description": "Hugo commands and safe read-only operations"
+      },
+      {
+        "tool": "Read",
+        "description": "Read any file in the blog repository"
+      },
+      {
+        "tool": "Write",
+        "paths": [
+          "content/post/*.md",
+          "content/courses.md",
+          "static/courses/**/*",
+          "static/assets/images/*",
+          "static/css/custom.css"
+        ],
+        "description": "Create blog posts, courses, and assets"
+      },
+      {
+        "tool": "Edit",
+        "paths": [
+          "content/post/*.md",
+          "content/courses.md",
+          "hugo.toml",
+          "layouts/**/*.html"
+        ],
+        "description": "Edit blog posts, configuration, and templates"
+      }
+    ]
+  },
+  "preferences": {
+    "writing_style": {
+      "depth": "publication-quality",
+      "target_audience": "GPU developers, ML engineers, systems programmers",
+      "post_length": "8000-12000 words",
+      "code_style": "production-ready (not pseudocode)",
+      "math": "complete proofs and derivations",
+      "avoid": [
+        "surface-level tutorials",
+        "listicles",
+        "videos in posts (prefer text + code)"
+      ]
+    },
+    "content_types": {
+      "blog_posts": {
+        "location": "content/post/",
+        "format": "YYYY-MM-DD-slug.md",
+        "requires": [
+          "complete mathematical derivations",
+          "production code examples",
+          "historical context",
+          "real-world impact"
+        ]
+      },
+      "courses": {
+        "location": "static/courses/",
+        "skill": ".skills/codebase-to-course/",
+        "target": "vibe coders (AI tool users who want to understand internals)"
+      }
+    },
+    "latex": {
+      "inline": ["$...$", "\\(...\\)"],
+      "display": ["$$...$$"],
+      "config_file": "layouts/_default/single.html"
+    },
+    "development": {
+      "server_command": "hugo server -D --bind 0.0.0.0 --port 1313",
+      "preview_url": "http://localhost:1313",
+      "build_command": "hugo"
+    }
+  },
+  "tasks": {
+    "common": {
+      "new_post": [
+        "1. Create content/post/YYYY-MM-DD-slug.md",
+        "2. Add frontmatter (see CLAUDE.md for template)",
+        "3. Write content with LaTeX math",
+        "4. Preview with: hugo server -D",
+        "5. Set draft: false when ready"
+      ],
+      "new_course": [
+        "1. Tell Claude: 'Turn [codebase] into a course'",
+        "2. Copy output to static/courses/",
+        "3. Update content/courses.md to list it"
+      ],
+      "verify_latex": [
+        "1. Check MathJax config in layouts/_default/single.html",
+        "2. Test with minimal post",
+        "3. Verify both inline ($) and display ($$) work"
+      ]
+    }
+  }
+}
