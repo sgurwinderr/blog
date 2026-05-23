@@ -64,8 +64,8 @@
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/175403" target="_blank">#175403 - Update eigh CUDA Heuristics</a></p>
-      <p><strong>Performance:</strong> 23x speedup for batch_size=16 (22,692 μs → 969 μs), up to 100x overall improvement</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/172672" target="_blank">#172672 - Fast memory snapshot (Merged Jan 30, 2026)</a></p>
+      <p><strong>Performance:</strong> Up to 3331x faster (726.8ms → 0.2ms for 100k trace entries)</p>
 
       <pre><code class="language-python"># Before: Sequential eigenvalue decomposition
 def compute_eigenvalues_batch(matrices):  # [batch, N, N]
@@ -141,8 +141,8 @@ else:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/167132" target="_blank">#167132 - Optimize CUDAGraph Compile Time</a></p>
-      <p><strong>Performance:</strong> 61% compile time reduction for Llama (69.18s → 26.81s), 52% for Gemma 3-27B</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/181137" target="_blank">#181137 - Add TLS stack_bounds on aarch64 (Merged Apr 23, 2026)</a></p>
+      <p><strong>Performance:</strong> Up to 479x faster in direct mode (187.02μs → 0.39μs per call)</p>
 
       <pre><code class="language-python"># Before: Each partition compiles kernels independently
 class CUDAGraphPartitioner:
@@ -231,8 +231,8 @@ class CUDAGraphPartitioner:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/131675" target="_blank">#131675 - Inductor ComboKernels</a></p>
-      <p><strong>Performance:</strong> Reduces kernel launch overhead, combines up to 8 independent kernels into one</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/172106" target="_blank">#172106 - Fix MPS mul performance regression (Merged Jan 9, 2026)</a></p>
+      <p><strong>Performance:</strong> 3.9-4.2x faster than regressed version, 20-25% faster than baseline (2.95s → 0.71s)</p>
 
       <pre><code class="language-python"># Before: Sequential independent kernels
 def transformer_layer(x, weight, bias):
@@ -336,8 +336,8 @@ def combo_kernel_transformer_ops(
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/166715" target="_blank">#166715 - Integrate cuSolver DnXgeev</a></p>
-      <p><strong>Performance:</strong> 2x speedup on RTX 4070, up to 10x on H100</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/164789" target="_blank">#164789 - Update operator benchmark baseline (Merged Oct 7, 2025)</a></p>
+      <p><strong>Performance:</strong> 1.34-1.61x faster across multiple ops (best: add_M1_N1_K1_cpu at 1.61x)</p>
 
       <pre><code class="language-python"># Before: PyTorch custom CUDA implementation
 def linalg_eig_pytorch(A):  # A: [N, N]
@@ -414,8 +414,8 @@ eigenvalues, eigenvectors = torch.linalg.eig(A)
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/141453" target="_blank">#141453 - FlexAttention CPU Support</a></p>
-      <p><strong>Performance:</strong> Enables efficient CPU attention with torch.compile, avoids OOM, leverages AVX2/MKLDNN</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/152361" target="_blank">#152361 - Build libgomp (gcc-13) on AArch64 (Merged Oct 10, 2025)</a></p>
+      <p><strong>Performance:</strong> Up to 2x faster on AArch64 (100% speedup at small inputs/high threads)</p>
 
       <pre><code class="language-python"># Before: No CPU support, falls back to naive attention
 def flex_attention_cpu(q, k, v, score_mod_fn):
@@ -501,8 +501,8 @@ output = flex_attention(q, k, v, score_mod=sliding_window_mask)
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/108757" target="_blank">#108757 - Efficient Conv+BN Eval</a></p>
-      <p><strong>Performance:</strong> ~50% memory reduction for ResNet50 training (5.46 GB → 2.88 GB, batch 64)</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/158239" target="_blank">#158239 - Fix MPS index_kernel for large tensors (Merged Jul 16, 2025)</a></p>
+      <p><strong>Performance:</strong> 2.25-2.47x faster for 11x2000x2000 tensors (4870.4μs → 1972.6μs)</p>
 
       <pre><code class="language-python"># Before: Store feature maps for backward
 def conv_bn_forward(x, conv_weight, bn_weight, bn_bias):
@@ -594,8 +594,8 @@ def conv_bn_backward(grad_output):
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/115037" target="_blank">#115037 - MKLDNN on aarch64</a></p>
-      <p><strong>Performance:</strong> Up to 5.8x BERT inference speedup on AWS c7g instances</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/128717" target="_blank">#128717 - Fix compile time regression (Merged Jun 19, 2024)</a></p>
+      <p><strong>Performance:</strong> Over 2x faster compile time (6+ minutes → 2:48) by caching get_gpu_type()</p>
 
       <pre><code class="language-python"># Before: Generic CPU kernels for ARM
 # Build PyTorch on ARM without USE_MKLDNN_ACL:
@@ -680,8 +680,8 @@ def bert_inference_mkldnn(input_ids):
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/152967" target="_blank">#152967 - Optimize 128-bit Vectorization</a></p>
-      <p><strong>Performance:</strong> Reduced binary size and compile overhead while enabling vec8 on sm90+</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/159699" target="_blank">#159699 - Measure dispatch overhead (Merged Aug 13, 2025)</a></p>
+      <p><strong>Performance:</strong> ~12x faster with cache hit vs miss (~80μs vs ~930μs)</p>
 
       <pre><code class="language-python"># Before: vec8 compiled for all architectures
 template<typename T>
@@ -768,8 +768,8 @@ __global__ void copy_kernel(T* dst, const T* src, int N) {
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/153449" target="_blank">#153449 - Multigraph Specializations</a></p>
-      <p><strong>Performance:</strong> ~50% reduction in dispatch time to specialized regions</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/180692" target="_blank">#180692 - Resolve ROCm hipblasLT timeout (Merged Apr 20, 2026)</a></p>
+      <p><strong>Performance:</strong> ~350x improvement (270+ min timeout → 0.46 min)</p>
 
       <pre><code class="language-python"># Before: Single graph + runtime shape checks
 @torch.compile
@@ -863,8 +863,8 @@ for batch in batches:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/134477" target="_blank">#134477 - Dynamic Shapes for Combo Kernels</a></p>
-      <p><strong>Performance:</strong> Extends combo kernel benefits to dynamic shape scenarios</p>
+      <p><strong>PR:</strong> <a href="https://github.com/pytorch/pytorch/pull/150145" target="_blank">#150145 - Don't exclude constant_pad_nd in prologue fusion (Merged Apr 3, 2025, later reverted)</a></p>
+      <p><strong>Performance:</strong> 7% speedup for masked linear layers with padding (2048-100 × 4096)</p>
 
       <pre><code class="language-python"># Before: Combo kernels disabled for dynamic shapes
 @torch.compile

@@ -64,8 +64,8 @@
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/43169" target="_blank">#43169 - Batching Vision Encoder Calls</a></p>
-      <p><strong>Performance:</strong> 1.8x-3.8x speedup (4.2 → 7.5-9.8 RPS), 1.5x-2.7x faster TTFT for video</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/43169" target="_blank">#43169 - Batch vision encoder calls (Merged May 21, 2026)</a></p>
+      <p><strong>Performance:</strong> 2.0x-3.8x speedup (2.6 → 9.8 RPS for 26B+MTP), 2.0x-2.7x faster video TTFT</p>
 
       <pre><code class="language-python"># Before: Serial frame processing
 class Gemma4VisionModel:
@@ -140,8 +140,8 @@ class Gemma4VisionModel:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/42774" target="_blank">#42774 - Padded NVFP4 Quantization</a></p>
-      <p><strong>Performance:</strong> 2.4-5.7% e2e throughput gain, 15-40% kernel-level speedup</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/42774" target="_blank">#42774 - Padded NVFP4 quant kernel (Merged May 18, 2026)</a></p>
+      <p><strong>Performance:</strong> 2.4-5.7% e2e throughput gain (163→173 req/s), 16-43% kernel speedup</p>
 
       <pre><code class="language-python"># Before: Separate padding and quantization
 def quantize_nvfp4(weight):
@@ -222,8 +222,8 @@ def fused_nvfp4_kernel(input_ptr, output_ptr, M, N, padded_M):
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/42849" target="_blank">#42849 - FP8 RoPE do_not_specialize</a></p>
-      <p><strong>Performance:</strong> 8.6% TTFT improvement (370ms → 338ms) on H200</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41326" target="_blank">#41326 - Faster per-token fp8 group quant (Merged May 1, 2026)</a></p>
+      <p><strong>Performance:</strong> 2.07x-2.11x kernel speedup (12.85μs → 6.08μs at MN=1024) on Blackwell</p>
 
       <pre><code class="language-python"># Before: Kernel specialized on token count (recompiles often)
 @triton.jit
@@ -302,8 +302,8 @@ def rope_kernel(
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41434" target="_blank">#41434 - Eliminate GPU↔CPU Syncs</a></p>
-      <p><strong>Performance:</strong> 4.84% throughput gain (7441 → 7801 tok/s), 10.92% P50 TTFT reduction</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/36518" target="_blank">#36518 - Fuse FP8 output quant into merge_attn_states (Merged Apr 3, 2026)</a></p>
+      <p><strong>Performance:</strong> 1.41x-2.24x speedup (mean 1.65x), eliminated BF16 HBM round-trip</p>
 
       <pre><code class="language-python"># Before: CPU needs to know sequence length (forces sync)
 class FlashInferAttention:
@@ -385,8 +385,8 @@ class FlashInferAttention:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/42497" target="_blank">#42497 - TritonFP8MoE Fusion</a></p>
-      <p><strong>Performance:</strong> 5.6% throughput improvement (7,380 → 7,791 tok/s) for large prefill</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/38479" target="_blank">#38479 - TurboQuant: 2-bit KV cache (Merged Apr 15, 2026)</a></p>
+      <p><strong>Performance:</strong> 2.6x-4.9x memory compression, 79-95% throughput retained with 2-bit</p>
 
       <pre><code class="language-python"># Before: Three separate operations
 def moe_forward(x, gate_weights):
@@ -471,8 +471,8 @@ def silu_mul_quant_kernel(
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41263" target="_blank">#41263 - Fused Norm+Router for DeepSeek</a></p>
-      <p><strong>Performance:</strong> Up to 2% throughput gain with consistent latency reductions</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/37374" target="_blank">#37374 - Optimize hidden state extraction (Merged May 22, 2026)</a></p>
+      <p><strong>Performance:</strong> 1.45x improvement, halved single GPU offline generation time</p>
 
       <pre><code class="language-python"># Before: Sequential RMSNorm → Router GEMV
 def moe_routing(hidden_states, router_weights):
@@ -574,8 +574,8 @@ __global__ void dsv4_norm_router_gemm(
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41882" target="_blank">#41882 - NVFP4 AllGather+GEMM Fusion</a></p>
-      <p><strong>Performance:</strong> Up to 13.54% throughput gain at 32K input, 9.46% at 8K tokens</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/40172" target="_blank">#40172 - Fused Triton kernel for Mamba state (Merged May 21, 2026)</a></p>
+      <p><strong>Performance:</strong> 17-18% latency reduction (1.49s → 1.23s), 12% throughput boost</p>
 
       <pre><code class="language-python"># Before: Sequential communication and compute
 def tensor_parallel_forward(x, weight_shards, scales_shards):
@@ -666,8 +666,8 @@ def fused_allgather_gemm(x, weight_shards, scales_shards):
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41713" target="_blank">#41713 - Eliminate MoE Buffer Copies</a></p>
-      <p><strong>Performance:</strong> 4.0% output throughput gain (1512 → 1572 tok/s), 500μs per-step savings</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/41163" target="_blank">#41163 - Optimize AllPool.forward by slicing first (Merged Apr 29, 2026)</a></p>
+      <p><strong>Performance:</strong> 51% faster (1.51x speedup), 59.89μs → 39.65μs median execution</p>
 
       <pre><code class="language-python"># Before: Internal buffer + copy to output
 class MoELayer:
@@ -754,8 +754,8 @@ class MoELayer:
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/40392" target="_blank">#40392 - Fused RoPE+KVCache+Concat</a></p>
-      <p><strong>Performance:</strong> 1.4-5.1% throughput improvement, up to 26.1% P99 TPOT reduction</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/40392" target="_blank">#40392 - Fused RoPE+KVCache+q_concat for MLA (Merged May 11, 2026)</a></p>
+      <p><strong>Performance:</strong> 1.4-5.1% throughput gain, up to 26% P99 TPOT reduction for Kimi-K2</p>
 
       <pre><code class="language-python"># Before: Three separate operations
 def mla_forward(q, k, v, cos, sin, kv_cache, q_nope, q_pe):
@@ -840,8 +840,8 @@ def fused_mla_forward(q, k, v, cos, sin, kv_cache, q_nope, q_pe):
       </p>
 
       <h3>The Solution</h3>
-      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/38479" target="_blank">#38479 - TurboQuant 2-bit KV</a></p>
-      <p><strong>Performance:</strong> 4.3x-4.9x memory compression, maintains 79-100% baseline throughput</p>
+      <p><strong>PR:</strong> <a href="https://github.com/vllm-project/vllm/pull/40376" target="_blank">#40376 - Enable FlashInfer top-k/top-p sampler (Merged Apr 29, 2026)</a></p>
+      <p><strong>Performance:</strong> 6-9% e2e improvement (14,141 vs 12,974 tok/s on B200), 8.2% TPOT reduction</p>
 
       <pre><code class="language-python"># Before: FP16 KV cache (2 bytes per element)
 class PagedKVCache:
