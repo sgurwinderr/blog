@@ -48,13 +48,6 @@
   </nav>
 
   <main id="main">
-    <!-- Course Header -->
-    <header class="course-header">
-      <h1>GPU Optimization Patterns</h1>
-      <p class="subtitle">Learn from 10 production PRs in vLLM with real performance numbers</p>
-      <p class="reading-time">⏱️ 2-3 hours • 10 real optimization examples</p>
-    </header>
-
     <!-- Module 1: Vision Batching -->
     <section class="module" id="module-1">
       <div class="module-content">
@@ -958,60 +951,6 @@ def attention_with_turboquant(q, k_q2, v_q3, scale):
     </div>
 </section>
 
-    <!-- Course Footer -->
-    <footer class="course-footer">
-      <h2>Summary: 10 Production Optimization Patterns</h2>
-      <p>These verified vLLM PRs demonstrate the core techniques for GPU optimization in ML inference:</p>
-
-      <div class="summary-grid">
-        <div class="summary-section">
-          <h3>Memory Optimization (5)</h3>
-          <ul>
-            <li>Kernel Fusion (eliminate copies, fuse ops)</li>
-            <li>Buffer Aliasing (write directly to output)</li>
-            <li>KV Cache Compression (4.9x memory savings)</li>
-            <li>AllGather+GEMM Fusion (overlap communication)</li>
-            <li>RoPE+KV+Concat Fusion (multi-op fusion)</li>
-          </ul>
-        </div>
-        <div class="summary-section">
-          <h3>Execution Optimization (5)</h3>
-          <ul>
-            <li>Vision Batching (3.8x via parallel processing)</li>
-            <li>Avoid Recompilation (do_not_specialize)</li>
-            <li>Sync Elimination (remove GPU↔CPU stalls)</li>
-            <li>MoE Fusion (SILU+Mul+Quant)</li>
-            <li>Norm+Router Fusion (shared memory reuse)</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="pr-reference">
-        <h3>All PRs Referenced</h3>
-        <ol>
-          <li><a href="https://github.com/vllm-project/vllm/pull/43169" target="_blank">#43169</a> - Vision Batching (3.8x)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/42774" target="_blank">#42774</a> - NVFP4 Fusion (5.7% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/42849" target="_blank">#42849</a> - RoPE do_not_specialize (8.6% TTFT)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/41434" target="_blank">#41434</a> - Sync Elimination (4.84% throughput)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/42497" target="_blank">#42497</a> - MoE Fusion (5.6% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/41263" target="_blank">#41263</a> - Norm+Router (2% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/41882" target="_blank">#41882</a> - AllGather+GEMM (13.54% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/41713" target="_blank">#41713</a> - Buffer Aliasing (4% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/40392" target="_blank">#40392</a> - RoPE+KV+Concat (5.1% gain)</li>
-          <li><a href="https://github.com/vllm-project/vllm/pull/38479" target="_blank">#38479</a> - TurboQuant (4.9x compression)</li>
-        </ol>
-      </div>
-
-      <p class="next-steps">
-        <strong>Next steps:</strong> Profile your own inference workloads with <code>nsys</code> or <code>torch.profiler</code>.
-        Look for the patterns above: redundant copies, unfused operations, GPU↔CPU syncs, serial processing.
-        Apply the relevant PR's technique. Typical gains: 2-10% per optimization, compounding across multiple fixes.
-      </p>
-
-      <p class="back-link-footer">
-        <a href="/learn-ai/">← Back to All Courses</a>
-      </p>
-    </footer>
   </main>
 
   <script>

@@ -48,13 +48,6 @@
   </nav>
 
   <main id="main">
-    <!-- Course Header -->
-    <header class="course-header">
-      <h1>PyTorch Optimization Patterns</h1>
-      <p class="subtitle">Learn from 10 production PRs in PyTorch with real performance numbers</p>
-      <p class="reading-time">⏱️ 2-3 hours • 10 real optimization examples</p>
-    </header>
-
     <!-- Module 1: Batched Eigh -->
     <section class="module" id="module-1">
       <div class="module-content">
@@ -971,60 +964,6 @@ def transformer_ops(x):  # x: [batch, seq_len, hidden] - dynamic dims
     </div>
 </section>
 
-    <!-- Course Footer -->
-    <footer class="course-footer">
-      <h2>Summary: 10 PyTorch Optimization Patterns</h2>
-      <p>These verified PyTorch PRs demonstrate core techniques for optimizing ML training and inference:</p>
-
-      <div class="summary-grid">
-        <div class="summary-section">
-          <h3>Compilation & Codegen (5)</h3>
-          <ul>
-            <li>Kernel Cache Reuse (61% compile time reduction)</li>
-            <li>Horizontal Fusion / Combo Kernels</li>
-            <li>Multigraph Specialization (50% dispatch reduction)</li>
-            <li>Dynamic Shape Support for Optimizations</li>
-            <li>Vendor Library Integration (cuSolver)</li>
-          </ul>
-        </div>
-        <div class="summary-section">
-          <h3>Memory & Platform (5)</h3>
-          <ul>
-            <li>Conv+BN Memory Optimization (50% reduction)</li>
-            <li>Batched Linear Algebra (23-100x speedup)</li>
-            <li>CPU FlexAttention (enables 8K context)</li>
-            <li>ARM64 MKLDNN (5.8x BERT inference)</li>
-            <li>Architecture-Specific Vectorization (sm90+)</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="pr-reference">
-        <h3>All PRs Referenced</h3>
-        <ol>
-          <li><a href="https://github.com/pytorch/pytorch/pull/175403" target="_blank">#175403</a> - Batched eigh (23-100x)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/167132" target="_blank">#167132</a> - Triton cache reuse (61%)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/131675" target="_blank">#131675</a> - Combo kernels (horizontal fusion)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/166715" target="_blank">#166715</a> - cuSolver integration (2-10x)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/141453" target="_blank">#141453</a> - FlexAttention CPU</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/108757" target="_blank">#108757</a> - Conv+BN memory (50%)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/115037" target="_blank">#115037</a> - ARM64 MKLDNN (5.8x)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/152967" target="_blank">#152967</a> - 128-bit vectorization</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/153449" target="_blank">#153449</a> - Multigraph backend (50%)</li>
-          <li><a href="https://github.com/pytorch/pytorch/pull/134477" target="_blank">#134477</a> - Dynamic combo kernels</li>
-        </ol>
-      </div>
-
-      <p class="next-steps">
-        <strong>Next steps:</strong> Profile your PyTorch models with <code>torch.profiler</code> or <code>py-spy</code>.
-        Look for: kernel launch overhead, compilation time, memory OOM, CPU bottlenecks, dynamic shape overhead.
-        Apply the relevant PR's technique. Typical gains: 10-60% per optimization.
-      </p>
-
-      <p class="back-link-footer">
-        <a href="/learn-ai/">← Back to All Courses</a>
-      </p>
-    </footer>
   </main>
 
   <script>
