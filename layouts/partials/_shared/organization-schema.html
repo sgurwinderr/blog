@@ -4,16 +4,17 @@
   "@type": "Person",
   "name": "Gurwinder",
   "url": "{{ .Site.BaseURL }}",
-  "description": "{{ .Site.Params.description }}",
+  "description": {{ .Site.Params.description | jsonify }},
   "jobTitle": "GPU Software Development Engineer",
   "worksFor": {
     "@type": "Organization",
     "name": "Intel Corporation"
   },
   "sameAs": [
-    "https://linkedin.com/in/{{ .Site.Params.social.linkedin }}",
-    "https://github.com/{{ .Site.Params.social.github }}"
+    {{ (printf "https://linkedin.com/in/%s" .Site.Params.social.linkedin) | jsonify }},
+    {{ (printf "https://github.com/%s" .Site.Params.social.github) | jsonify }}
   ],
-  "image": "{{ .Site.BaseURL }}{{ .Site.Params.author.thumbnail }}"
+  "image": {{ .Site.Params.author.thumbnail | absURL | jsonify }}
 }
+
 </script>
