@@ -1,4 +1,11 @@
 <head data-baseurl="{{ .Site.BaseURL }}">
+	<!-- Preconnect to external domains for performance -->
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="preconnect" href="https://cdn.jsdelivr.net">
+	<link rel="dns-prefetch" href="https://www.googletagmanager.com">
+	<link rel="dns-prefetch" href="https://www.google-analytics.com">
+
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
@@ -17,8 +24,17 @@
 	<link rel="icon" href="{{ . | urlize | relURL }}">
 	{{ end }}
 	<title>{{ .Page.Title }} | {{ .Site.Title }}</title>
-	{{ with .Site.Params.meta.description }}<meta name="description" content="{{ . }}">{{ end }}
-	{{ with .Site.Params.meta.keywords }}<meta name="keywords" content="{{ . }}">{{ end }}
+
+	<!-- SEO meta tags -->
+	{{ if .IsPage }}
+	  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Content | plainify | truncate 160 }}{{ end }}">
+	  <meta name="author" content="{{ .Site.Params.author.name }}">
+	  {{ with .Params.categories }}
+	    <meta name="keywords" content="{{ delimit . ", " }}{{ with $.Params.tags }}, {{ delimit . ", " }}{{ end }}">
+	  {{ end }}
+	{{ else }}
+	  <meta name="description" content="{{ .Site.Params.description }}">
+	{{ end }}
 
 	<!-- Safe OG/Twitter meta (avoids internal template summary byte-slice bug) -->
 	{{ $desc := "" }}
@@ -34,6 +50,24 @@
 	<meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}" />
 	<meta property="og:url" content="{{ .Permalink }}" />
 	{{ with .Params.image }}<meta property="og:image" content="{{ . | absURL }}" />{{ end }}
+
+	{{ if .IsPage }}
+	  <meta property="article:published_time" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}" />
+	  {{ with .Lastmod }}
+	    <meta property="article:modified_time" content="{{ .Format "2006-01-02T15:04:05Z07:00" }}" />
+	  {{ end }}
+	  <meta property="article:author" content="{{ .Site.Params.author.name }}" />
+	  {{ range .Params.categories }}
+	    <meta property="article:section" content="{{ . }}" />
+	  {{ end }}
+	  {{ range .Params.tags }}
+	    <meta property="article:tag" content="{{ . }}" />
+	  {{ end }}
+	{{ end }}
+
+	<!-- Site-level OG tags -->
+	<meta property="og:site_name" content="{{ .Site.Title }}" />
+
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="{{ .Title }}" />
 	<meta name="twitter:description" content="{{ $desc }}" />
@@ -60,4 +94,9 @@
 	{{ $style := resources.Get $stylePath | resources.Minify | resources.Fingerprint }}
 	<link rel="stylesheet" href="{{ $style.RelPermalink }}" integrity="{{ $style.Data.Integrity }}" crossorigin="anonymous" media="screen">
 	{{- end }}
+
+	<!-- Organization/Person structured data -->
+	{{- if templates.Exists "partials/_shared/organization-schema.html" -}}
+	{{- partial "_shared/organization-schema.html" . -}}
+	{{- end -}}
 </head>
