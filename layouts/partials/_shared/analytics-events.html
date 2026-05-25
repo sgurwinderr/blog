@@ -1,0 +1,126 @@
+{{- if not .Site.IsServer -}}
+<script>
+(function() {
+    'use strict';
+
+    // Respect Do Not Track
+    if (navigator.doNotTrack === '1' || window.doNotTrack === '1') {
+        return;
+    }
+
+    // Ensure gtag is available
+    if (typeof gtag !== 'function') {
+        return;
+    }
+
+    // Track outbound link clicks
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest('a');
+        if (!link || !link.href) return;
+
+        var url = link.href;
+        var hostname = link.hostname;
+        var currentHostname = window.location.hostname;
+
+        // Only track external links
+        if (hostname === currentHostname) return;
+
+        var linkType = 'other';
+        if (url.includes('linkedin.com')) {
+            linkType = 'linkedin';
+        } else if (url.includes('github.com')) {
+            linkType = 'github';
+        } else if (url.includes('arxiv.org')) {
+            linkType = 'arxiv';
+        }
+
+        gtag('event', 'outbound_link_click', {
+            link_url: url,
+            link_domain: hostname,
+            link_type: linkType,
+            link_text: link.textContent.trim().substring(0, 100)
+        });
+    }, true);
+
+    // Track course page visits
+    var pathname = window.location.pathname;
+    if (pathname.includes('/learn-ai') || pathname.includes('/courses')) {
+        gtag('event', 'course_page_visit', {
+            page_path: pathname,
+            page_title: document.title
+        });
+    }
+
+    // Track scroll depth
+    var scrollDepths = [25, 50, 75, 100];
+    var scrolled = {};
+
+    function getScrollPercent() {
+        var h = document.documentElement;
+        var b = document.body;
+        var st = 'scrollTop';
+        var sh = 'scrollHeight';
+        return (h[st] || b[st]) / ((h[sh] || b[sh]) - h.clientHeight) * 100;
+    }
+
+    var scrollTimeout;
+    window.addEventListener('scroll', function() {
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+        }
+
+        scrollTimeout = setTimeout(function() {
+            var percent = getScrollPercent();
+
+            scrollDepths.forEach(function(depth) {
+                if (percent >= depth && !scrolled[depth]) {
+                    scrolled[depth] = true;
+                    gtag('event', 'scroll_depth', {
+                        scroll_depth: depth,
+                        page_path: pathname,
+                        page_title: document.title
+                    });
+                }
+            });
+        }, 250);
+    }, { passive: true });
+
+    // Track deep reading (5+ minutes on page)
+    var deepReadingTracked = false;
+    var pageLoadTime = Date.now();
+
+    function trackDeepReading() {
+        if (deepReadingTracked) return;
+
+        var timeOnPage = (Date.now() - pageLoadTime) / 1000; // seconds
+
+        if (timeOnPage >= 300) { // 5 minutes
+            deepReadingTracked = true;
+            gtag('event', 'deep_reading', {
+                time_on_page: Math.round(timeOnPage),
+                page_path: pathname,
+                page_title: document.title
+            });
+        }
+    }
+
+    // Check deep reading every 30 seconds after 4.5 minutes
+    setTimeout(function() {
+        setInterval(trackDeepReading, 30000);
+    }, 270000); // 4.5 minutes
+
+    // Track on page unload if user stayed long enough
+    window.addEventListener('beforeunload', function() {
+        var timeOnPage = (Date.now() - pageLoadTime) / 1000;
+        if (timeOnPage >= 300 && !deepReadingTracked) {
+            gtag('event', 'deep_reading', {
+                time_on_page: Math.round(timeOnPage),
+                page_path: pathname,
+                page_title: document.title
+            });
+        }
+    });
+
+})();
+</script>
+{{- end -}}

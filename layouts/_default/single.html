@@ -114,6 +114,7 @@
         };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+    {{- partial "_shared/analytics-events.html" . -}}
     {{ $postJS := resources.Get "js/post.js" | resources.Minify | resources.Fingerprint }}
     <script src="{{ $postJS.RelPermalink }}" integrity="{{ $postJS.Data.Integrity }}" crossorigin="anonymous" defer></script>
     <script>
