@@ -3,6 +3,7 @@
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link rel="preconnect" href="https://cdn.jsdelivr.net">
+	<link rel="preconnect" href="https://stackpath.bootstrapcdn.com">
 	<link rel="dns-prefetch" href="https://www.googletagmanager.com">
 	<link rel="dns-prefetch" href="https://www.google-analytics.com">
 
@@ -25,25 +26,23 @@
 	{{ end }}
 	<title>{{ .Page.Title }} | {{ .Site.Title }}</title>
 
-	<!-- SEO meta tags -->
-	{{ if .IsPage }}
-	  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Content | plainify | truncate 160 }}{{ end }}">
-	  <meta name="author" content="{{ .Site.Params.author.name }}">
-	  {{ with .Params.categories }}
-	    <meta name="keywords" content="{{ delimit . ", " }}{{ with $.Params.tags }}, {{ delimit . ", " }}{{ end }}">
-	  {{ end }}
-	{{ else }}
-	  <meta name="description" content="{{ .Site.Params.description }}">
-	{{ end }}
-
-	<!-- Safe OG/Twitter meta (avoids internal template summary byte-slice bug) -->
+	<!-- Unified description computation (used in meta description, OG, Twitter) -->
 	{{ $desc := "" }}
 	{{ if .Description }}
 		{{ $desc = .Description }}
 	{{ else if .IsPage }}
-		{{ $desc = .Content | plainify | truncate 200 }}
+		{{ $desc = .Content | plainify | truncate 160 }}
 	{{ else }}
 		{{ $desc = .Site.Params.description }}
+	{{ end }}
+
+	<!-- SEO meta tags -->
+	<meta name="description" content="{{ $desc }}">
+	{{ if .IsPage }}
+	  <meta name="author" content="{{ .Site.Params.author.name }}">
+	  {{ with .Params.categories }}
+	    <meta name="keywords" content="{{ delimit . ", " }}{{ with $.Params.tags }}, {{ delimit . ", " }}{{ end }}">
+	  {{ end }}
 	{{ end }}
 	<meta property="og:title" content="{{ .Title }}" />
 	<meta property="og:description" content="{{ $desc }}" />
@@ -57,7 +56,7 @@
 	    <meta property="article:modified_time" content="{{ .Format "2006-01-02T15:04:05Z07:00" }}" />
 	  {{ end }}
 	  <meta property="article:author" content="{{ .Site.Params.author.name }}" />
-	  {{ range .Params.categories }}
+	  {{ with index .Params.categories 0 }}
 	    <meta property="article:section" content="{{ . }}" />
 	  {{ end }}
 	  {{ range .Params.tags }}
