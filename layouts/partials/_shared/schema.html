@@ -1,27 +1,44 @@
 {{- if .IsPage -}}
-<!-- Schema.org Article Structured Data -->
+<!-- Schema.org TechArticle Structured Data -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "Article",
+  "@type": "TechArticle",
   "headline": {{ .Title | jsonify }},
-  "description": {{ (.Description | default (.Summary | plainify)) | jsonify }},
-  "image": {{- if .Params.image }}{{ .Params.image | absURL | jsonify }}{{- else }}"https://sgurwinderr.com/favicon.png"{{- end }},
+  "description": {{ with .Description }}{{ . | jsonify }}{{ else }}{{ .Summary | plainify | jsonify }}{{ end }},
+  "image": {{- if .Params.image }}{{ .Params.image | absURL | jsonify }}{{- else }}"{{ .Site.BaseURL }}assets/images/logo.png"{{- end }},
   "datePublished": "{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}",
+  {{ with .Lastmod }}
+  "dateModified": "{{ .Format "2006-01-02T15:04:05Z07:00" }}",
+  {{ end }}
   "author": {
     "@type": "Person",
     "name": {{ .Site.Params.author.name | jsonify }},
-    "url": "{{ .Site.BaseURL }}"
+    "url": "{{ .Site.BaseURL }}",
+    "jobTitle": "GPU Software Development Engineer",
+    "affiliation": {
+      "@type": "Organization",
+      "name": "Intel Corporation"
+    }
   },
   "publisher": {
-    "@type": "Organization",
-    "name": {{ .Site.Title | jsonify }},
+    "@type": "Person",
+    "name": {{ .Site.Params.author.name | jsonify }},
     "url": "{{ .Site.BaseURL }}"
   },
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": {{ .Permalink | jsonify }}
-  }
+  },
+  "proficiencyLevel": "Expert",
+  {{ with .Params.categories }}
+  "articleSection": {{ index . 0 | jsonify }},
+  {{ end }}
+  {{ with .Params.tags }}
+  "keywords": {{ delimit . ", " | jsonify }},
+  {{ end }}
+  "wordCount": {{ .WordCount }},
+  "timeRequired": "PT{{ .ReadingTime }}M"
 }
 </script>
 {{- end -}}
