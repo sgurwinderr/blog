@@ -1,0 +1,10 @@
+<nav aria-label="breadcrumb" class="breadcrumb-nav">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ .Site.BaseURL }}">Home</a></li>
+    {{ if .Params.categories }}
+      {{ $category := index .Params.categories 0 }}
+      <li class="breadcrumb-item"><a href="{{ .Site.BaseURL }}categories/{{ $category | urlize }}/">{{ $category }}</a></li>
+    {{ end }}
+    <li class="breadcrumb-item active" aria-current="page">{{ .Title }}</li>
+  </ol>
+</nav>
