@@ -82,6 +82,11 @@ enableEmoji = true
   linkedin = "sgurwinderr"
   github = "sgurwinderr"
 
+[params.seo]
+  # Add your Google Search Console verification code here after setup
+  # Get code from: https://search.google.com/search-console
+  # googleSiteVerification = "YOUR_VERIFICATION_CODE"
+
 ## Main Menu — edit name/url here; remove an entry to hide it from the navbar
 [[menu.main]]
     name = "Learn AI"

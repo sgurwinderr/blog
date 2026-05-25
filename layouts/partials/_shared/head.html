@@ -10,6 +10,9 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	{{ with .Site.Params.seo.googleSiteVerification }}
+	<meta name="google-site-verification" content="{{ . }}" />
+	{{ end }}
 	<meta name="theme-color" content="#038252">
 	<!-- Apply dark mode before first paint to avoid flash -->
 	<script>
