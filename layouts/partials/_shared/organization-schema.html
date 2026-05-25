@@ -1,0 +1,19 @@
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "name": "Gurwinder",
+  "url": "{{ .Site.BaseURL }}",
+  "description": "{{ .Site.Params.description }}",
+  "jobTitle": "GPU Software Development Engineer",
+  "worksFor": {
+    "@type": "Organization",
+    "name": "Intel Corporation"
+  },
+  "sameAs": [
+    "https://linkedin.com/in/{{ .Site.Params.social.linkedin }}",
+    "https://github.com/{{ .Site.Params.social.github }}"
+  ],
+  "image": "{{ .Site.BaseURL }}{{ .Site.Params.author.thumbnail }}"
+}
+</script>
