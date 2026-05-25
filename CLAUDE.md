@@ -52,6 +52,31 @@ This is a **Hugo static site** for publishing deep technical content on AI, GPU 
 - "Online Softmax Algorithm" - complete mathematical derivation with proofs
 - Posts typically 8,000-12,000 words
 
+### SEO and Image Guidelines
+
+**Image alt text:**
+- Always add `imageAlt` field to post frontmatter for featured images
+- Be descriptive and specific, not generic
+- For diagrams: Describe what the diagram shows
+  - ✅ "Architecture diagram showing PyTorch Triton kernel integration flow"
+  - ❌ "Diagram"
+- For code screenshots: Describe the code's purpose
+  - ✅ "Code snippet demonstrating PyTorch autograd hook registration"
+- For illustrations: Describe the concept
+  - ✅ "Conceptual illustration of GPU memory hierarchy with L1/L2 caches"
+
+**Meta descriptions:**
+- Add `description` field to post frontmatter (max 160 characters)
+- Focus on what the reader will learn or the problem being solved
+- Should entice clicks from search results
+- If omitted, first 160 chars of content used automatically
+
+**Internal linking:**
+- Link to related posts for context and background
+- Example: "For background on PyTorch's autograd system, see [Understanding PyTorch Autograd](/pytorch-autograd-internals)"
+- Build knowledge graph by connecting related topics
+- Link from new posts to older foundational posts
+
 ---
 
 ## Repository Structure
@@ -167,9 +192,15 @@ slug: 'post-slug-here'
 featured: false
 draft: false
 image: assets/images/post-cover.jpg
+imageAlt: 'Descriptive alt text for the featured image (for accessibility and SEO)'
+description: 'Brief summary of what readers will learn (max 160 chars, shown in search results)'
 title: 'Post Title: Subtitle'
 ---
 ```
+
+**Note on new fields:**
+- `imageAlt`: Required for accessibility and SEO. Be specific about what the image shows.
+- `description`: Recommended for SEO. If omitted, Hugo uses the first 160 characters of content.
 
 ### Writing Guidelines
 
@@ -407,6 +438,51 @@ Check version: `hugo version`
 **Future:** Could set up GitHub Actions to auto-build and deploy on push to main.
 
 **Build output:** `public/` directory (contains full static site)
+
+---
+
+## SEO Health Checks
+
+### Monthly Checklist
+
+Run these checks at the start of each month to maintain SEO health:
+
+```bash
+# 1. Check for missing alt text
+cd ~/blog
+grep -r "^image:" content/post/*.md | while read -r line; do
+    file=$(echo "$line" | cut -d: -f1)
+    if ! grep -q "^imageAlt:" "$file"; then
+        echo "Missing imageAlt: $file"
+    fi
+done
+
+# 2. Check for missing meta descriptions
+grep -l "^draft: false" content/post/*.md | while read -r file; do
+    if ! grep -q "^description:" "$file"; then
+        echo "Missing description: $file"
+    fi
+done
+
+# 3. Validate sitemap.xml is up to date
+hugo && ls -lh public/sitemap.xml
+
+# 4. Check for broken internal links (requires htmltest or similar)
+# Manual: Scan recent posts for [[...]] style links
+
+# 5. Review Google Search Console
+# - Check for crawl errors
+# - Review new indexed pages
+# - Check mobile usability issues
+```
+
+**Action items:**
+- Fix any missing imageAlt fields (add descriptive alt text)
+- Add meta descriptions to posts without them
+- Update old posts with internal links to new related content
+- Fix any broken links found
+
+**Frequency:** First Monday of each month (15-30 minutes)
 
 ---
 
