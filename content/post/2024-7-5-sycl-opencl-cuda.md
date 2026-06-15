@@ -7,6 +7,8 @@ slug: 'sycl-opencl-cuda'
 featured: false
 draft: false
 image: assets/images/syclcuda.jpg
+imageAlt: 'Side-by-side code comparison of matrix multiplication in SYCL, OpenCL, and CUDA'
+description: 'Compare SYCL, OpenCL, and CUDA through matrix multiplication — portability, syntax, and hardware support differences explained.'
 title: 'Comparing SYCL, OpenCL, and CUDA: Matrix Multiplication Example'
 ---
 

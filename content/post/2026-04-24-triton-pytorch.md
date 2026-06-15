@@ -9,6 +9,8 @@ slug: 'triton-custom-kernels-pytorch'
 featured: true
 draft: false
 image: assets/images/Triton_Relu_Pytorch.jpg
+imageAlt: 'Diagram showing Triton ReLU kernel integration into PyTorch via torch.compile, Dynamo, and AOT Autograd'
+description: 'Wire a custom Triton kernel into PyTorch with full autograd support — trace the compilation pipeline from source to AOT graph.'
 title: 'How PyTorch Sees Your Triton Kernel: Using ReLU Kernel in Model with Dynamo and AOT Autograd Backend'
 ---
 

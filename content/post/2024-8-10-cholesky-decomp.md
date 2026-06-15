@@ -7,6 +7,8 @@ slug: 'cholesky-decomp'
 featured: false
 draft: false
 image: assets/images/cholesky.png
+imageAlt: 'Mathematical visualization of Cholesky decomposition factoring matrix A into L times L transpose'
+description: 'Understand Cholesky decomposition from theory to PyTorch implementation — factor symmetric positive-definite matrices efficiently.'
 title: Understanding Cholesky Decomposition with PyTorch
 ---
 

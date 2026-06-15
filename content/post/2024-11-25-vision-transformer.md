@@ -8,6 +8,8 @@ slug: 'vision-transformer'
 featured: false
 draft: false
 image: assets/images/vision-transformer-1.webp
+imageAlt: 'Vision Transformer architecture diagram showing patch embedding, positional encoding, and transformer encoder layers'
+description: 'Break down Vision Transformers layer by layer with code — patch embedding, positional encoding, self-attention, and classification head.'
 title: 'Breaking Down Vision Transformers: A Code-Driven Explanation'
 ---
 

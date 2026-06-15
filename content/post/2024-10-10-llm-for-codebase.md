@@ -7,6 +7,8 @@ slug: 'llm-for-codebase'
 featured: false
 draft: false
 image: assets/images/llama_logo.png
+imageAlt: 'Llama model logo representing local LLM-powered code analysis'
+description: 'Use LangChain with a local Llama model via Ollama to embed, query, and get AI-powered code suggestions across entire projects.'
 title: 'Harnessing Local Llama to Process Complete Projects: How I use AI for code suggestions and refactoring my Projects'
 ---
 

@@ -10,6 +10,8 @@ aliases:
 featured: true
 draft: false
 image: assets/images/triton.png
+imageAlt: 'Triton kernel execution model showing program instances mapping to tensor blocks on GPU'
+description: 'Learn Triton GPU kernels from scratch — how programs map to tensor blocks, memory access patterns, and parallel execution.'
 title: 'Understanding Triton Kernels from First Principles'
 ---
 

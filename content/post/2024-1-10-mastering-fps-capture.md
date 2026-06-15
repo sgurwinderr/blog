@@ -7,6 +7,8 @@ slug: 'mastering-fps-capture'
 featured: false
 draft: false
 image: assets/images/present-mon-fps.webp
+imageAlt: 'PresentMon frame time graph showing per-frame performance metrics for FPS calculation'
+description: 'Use PresentMon to capture frame times and calculate true FPS — from data collection to statistical analysis of game performance.'
 title: 'Mastering Frame Rates: Discover the True FPS with PresentMon'
 ---
 

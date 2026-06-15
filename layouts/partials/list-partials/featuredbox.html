@@ -3,7 +3,7 @@
     <div class="featured-card">
         <a href="{{ .Permalink }}" class="featured-card-img-wrap">
             {{ with .Params.image }}
-            <img src="{{ . | relURL }}" alt="{{ $.Title }}" class="featured-card-img" loading="lazy" decoding="async">
+            <img src="{{ . | relURL }}" alt="{{ with $.Params.imageAlt }}{{ . }}{{ else }}{{ $.Title }}{{ end }}" class="featured-card-img" loading="lazy" decoding="async">
             {{ end }}
         </a>
         <div class="featured-card-body">

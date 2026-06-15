@@ -8,6 +8,8 @@ slug: 'unity-floating-spaceship'
 featured: false
 draft: false
 image: assets/images/unity-spaceship-1.gif
+imageAlt: 'Animated spaceship floating smoothly in Unity using sine wave movement'
+description: 'Create floating spaceship animations in Unity using sine functions for smooth oscillating movement with Rigidbody physics.'
 title: 'Unity’s Floating Spaceships: Quick and Effortless Creation for Stunning Visuals'
 ---
 

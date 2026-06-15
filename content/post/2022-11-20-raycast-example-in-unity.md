@@ -8,6 +8,8 @@ slug: 'raycast-example-in-unity'
 featured: false
 draft: false
 image: assets/images/raycast-example-1.gif
+imageAlt: 'Unity scene showing a cube raycasting to detect and follow a sphere'
+description: 'Step-by-step Unity raycast tutorial: cast rays from a cube to detect a sphere and move toward it using C# scripting.'
 title: RAYCAST EXAMPLE IN UNITY
 ---
 These are the step-by-step example of using basic ray-cast in unity. In the given scene we will ray-cast cube to detect sphere and follow it up.

@@ -8,6 +8,8 @@ slug: 'pytorch-warmup'
 featured: false
 draft: false
 image: assets/images/pytorch.png
+imageAlt: 'PyTorch benchmark graph showing warmup iteration overhead vs stabilized inference time'
+description: 'Why PyTorch benchmarks need warmup iterations and how to discard JIT compilation overhead for accurate performance measurement.'
 title: 'Warmup Wisdom: Accurate PyTorch Benchmarking Made Simple!'
 ---
 In the realm of PyTorch model benchmarking, achieving accurate results is paramount for gauging performance effectively. However, traditional benchmarking often overlooks the initial warmup phase, leading to skewed results. In this article, we explore the importance of accounting for warmup iterations and techniques to calculate correct benchmark results for PyTorch models.

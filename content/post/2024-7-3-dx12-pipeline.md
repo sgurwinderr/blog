@@ -7,6 +7,8 @@ slug: 'dx12-pipeline'
 featured: false
 draft: false
 image: assets/images/dx12-pipeline.png
+imageAlt: 'DirectX 12 graphics pipeline diagram showing command lists, PSOs, root signatures, and descriptor heaps'
+description: 'Understand the DirectX 12 rendering pipeline — command lists, pipeline state objects, root signatures, and resource management.'
 title: Intro to DirectX 12 Pipeline
 ---
 

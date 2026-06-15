@@ -8,6 +8,8 @@ slug: 'turboquant'
 featured: false
 draft: true
 image: assets/images/turboquant.svg
+imageAlt: 'TurboQuant compression pipeline showing 16-bit to 4-bit vector quantization preserving attention scores'
+description: 'Walk through TurboQuant quantization end-to-end with one 4D example — from FP16 vectors to 4-bit compressed attention scores.'
 title: 'TurboQuant from First Principles: One Example to the End'
 ---
 

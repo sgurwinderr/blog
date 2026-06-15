@@ -8,6 +8,8 @@ slug: 'pytorch-quant-dequant'
 featured: true
 draft: false
 image: assets/images/quant2.png
+imageAlt: 'Quantization pipeline diagram showing float32 to int8 conversion with scale and zero-point parameters'
+description: 'Learn PyTorch quantization from theory to practice — static, dynamic, and QAT methods with scale/zero-point math explained.'
 title: 'From Theory to Practice: Quantization and Dequantization Made Simple'
 ---
 

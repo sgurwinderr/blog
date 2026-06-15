@@ -7,6 +7,8 @@ slug: 'dynamic-rpg-unreal'
 featured: false
 draft: false
 image: assets/images/unreal-rpg-6.webp
+imageAlt: 'Unreal Engine UI widget showing health and mana progress bars bound to Blueprint variables'
+description: 'Build dynamic health and mana bars in Unreal Engine using Widget Blueprints and variable binding for real-time UI updates.'
 title: 'Designing Dynamic RPG Systems: Quick Solutions for Health and Mana in Unreal Engine'
 ---
 

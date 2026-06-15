@@ -7,6 +7,8 @@ slug: 'pyautogen'
 featured: false
 draft: false
 image: assets/images/llama.jpg
+imageAlt: 'AutoGen multi-agent conversation framework with local Llama model via Ollama'
+description: 'Set up AutoGen with a local Llama model via Ollama for autonomous code generation, execution, and debugging without cloud APIs.'
 title: 'Code, Run, Debug on AutoPilot: Let Your Local Llama Do All Your Heavy Lifting!'
 ---
 

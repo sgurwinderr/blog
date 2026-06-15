@@ -8,6 +8,8 @@ slug: 'hlsl-ray-tracing'
 featured: false
 draft: false
 image: assets/images/unity-raytracing.jpg
+imageAlt: 'Ray traced scene in Unity showing realistic reflections and lighting computed via HLSL shader'
+description: 'Build a ray tracing shader in Unity with HLSL — from the ray equation to sphere intersections and realistic lighting.'
 title: 'HLSL Ray Tracing: Crafting Realistic Scenes in Unity, One Ray at a Time'
 ---
 

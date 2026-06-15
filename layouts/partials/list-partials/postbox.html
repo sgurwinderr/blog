@@ -4,7 +4,7 @@
         <div class="maxthumb">
             <a href="{{ .Permalink }}">
                 {{ with .Params.image }}
-                    <img class="img-fluid" src="{{ . | relURL }}" alt="A thumbnail image" loading="lazy" decoding="async">
+                    <img class="img-fluid" src="{{ . | relURL }}" alt="{{ with $.Params.imageAlt }}{{ . }}{{ else }}{{ $.Title }}{{ end }}" loading="lazy" decoding="async">
                 {{ end }}
             </a>
         </div>

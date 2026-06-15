@@ -23,7 +23,7 @@ jobs:
 
       - uses: lycheeverse/lychee-action@v2
         with:
-          args: --verbose --no-progress --exclude-mail 'public/**/*.html'
+          args: --verbose --no-progress 'public/**/*.html'
           fail: true
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}

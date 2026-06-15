@@ -8,6 +8,8 @@ slug: 'pytorch-graph-acquistation'
 featured: true
 draft: false
 image: assets/images/pytorch-2.0-compiler.jpg
+imageAlt: 'PyTorch 2.0 compiler architecture showing Dynamo graph capture and AOT Autograd flow'
+description: 'How PyTorch captures computational graphs using TorchDynamo and AOT Autograd — from Python code to optimized execution graphs.'
 title: 'The Simple Path to PyTorch Graphs: Dynamo and AOT Autograd Explained'
 ---
 Graph acquisition in PyTorch refers to the process of creating and managing the computational graph that represents a neural network’s operations. This graph is central to PyTorch’s dynamic nature, allowing for flexible model architectures and efficient gradient computation. With the advent of tools like TorchScript, PyTorch Dynamo, and AOT Autograd, PyTorch continues to improve the performance and deployability of models without sacrificing its user-friendly interface. Understanding how PyTorch handles computational graphs is key to leveraging the full power of the framework.

@@ -8,6 +8,8 @@ slug: 'pytorch-sdpa-kernel'
 featured: false
 draft: false
 image: assets/images/sdpa.png
+imageAlt: 'PyTorch attention kernel selection flow between Flash Attention, Math, and Memory Efficient implementations'
+description: 'How PyTorch selects between Flash Attention, Math, and Memory Efficient kernels for scaled_dot_product_attention — and when it matters.'
 title: 'Under the Hood: How PyTorch Chooses Attention Kernels and Why It Matters for Performance'
 ---
 

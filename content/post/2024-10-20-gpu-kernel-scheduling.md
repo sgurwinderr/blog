@@ -8,6 +8,8 @@ slug: 'gpu-kernel-scheduling'
 featured: false
 draft: false
 image: assets/images/intel-arc.webp
+imageAlt: 'Intel Arc GPU architecture diagram showing workgroups, work-items, and SIMD32 execution units'
+description: 'Explore Intel GPU kernel scheduling — workgroups, work-items, and SIMD32 — through a 256x256 matrix addition in SYCL and PyTorch.'
 title: 'Intel GPU Scheduling: Exploring Matrix Addition with SYCL and PyTorch'
 ---
 

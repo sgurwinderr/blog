@@ -8,6 +8,8 @@ slug: 'ar-with-unity'
 featured: false
 draft: false
 image: assets/images/AR-With-Unity.png
+imageAlt: 'AR Foundation setup in Unity showing tracked planes and virtual objects in a real environment'
+description: 'Set up AR experiences in Unity with AR Foundation, ARCore, and ARKit — from project config to plane detection and object placement.'
 title: 'Augmented Reality with Unity: A Developer''s Guide'
 ---
 

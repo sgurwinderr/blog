@@ -8,6 +8,8 @@ slug: 'unity-gaussian-splatting'
 featured: false
 draft: false
 image: assets/images/GS3.png
+imageAlt: '3D Gaussian splat rendered in Unity 6 showing photorealistic point cloud visualization'
+description: 'Load and render 3D Gaussian splat files in Unity 6 using the Gaussian Splatting Playground plugin for photorealistic scenes.'
 title: Turn 3D Gaussian Splat Files into Stunning Assets in Unity 6
 ---
 

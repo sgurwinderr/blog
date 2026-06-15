@@ -8,6 +8,8 @@ slug: 'pytorch-profiler'
 featured: false
 draft: false
 image: assets/images/pytorch.png
+imageAlt: 'PyTorch Profiler chrome trace view showing operator execution timeline for ResNet model'
+description: 'Profile ResNet with PyTorch Profiler to identify performance bottlenecks — trace GPU operations, memory usage, and execution time.'
 title: Profiling ResNet Models with PyTorch Profiler for Performance Optimization
 ---
 

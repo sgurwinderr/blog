@@ -52,6 +52,7 @@
 	<meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}" />
 	<meta property="og:url" content="{{ .Permalink }}" />
 	{{ with .Params.image }}<meta property="og:image" content="{{ . | absURL }}" />{{ end }}
+	{{ with .Params.imageAlt }}<meta property="og:image:alt" content="{{ . }}" />{{ end }}
 
 	{{ if .IsPage }}
 	  <meta property="article:published_time" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}" />

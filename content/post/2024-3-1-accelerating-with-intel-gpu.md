@@ -7,6 +7,8 @@ slug: 'accelerating-with-intel-gpu'
 featured: false
 draft: false
 image: assets/images/pytorch-onnx.webp
+imageAlt: 'Benchmark comparison chart of PyTorch, TorchScript, and ONNX inference throughput on Intel Arc 770'
+description: 'Benchmark PyTorch vs TorchScript vs ONNX inference on Intel Arc 770 GPU — comparing throughput for ResNet on CPU and GPU.'
 title: 'Accelerating Deep Learning Inference on Intel Arc 770: ONNX and PyTorch Go Head-to-Head'
 ---
 When deploying deep learning models, the choice of framework can significantly impact performance. PyTorch is a popular choice for its user-friendly interface and dynamic computation graph, but when it comes to production, the need for speed and compatibility often leads developers to consider alternatives like Torch Script and ONNX (Open Neural Network Exchange). In a recent benchmark, we put these frameworks to the test to see which one offers the best inference throughput for Resnet on both CPU and GPU. These tests gain additional significance as they were conducted on the 10th Gen Intel® Core™ i7(TM) 10610U processors and the Intel® Arc™ A770 GPU, showcasing how modern hardware can influence the efficiency of deep learning frameworks.

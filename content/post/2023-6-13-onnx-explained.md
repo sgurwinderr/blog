@@ -7,6 +7,8 @@ slug: 'onnx-explained'
 featured: false
 draft: false
 image: assets/images/ONNX.png
+imageAlt: 'ONNX computation graph diagram showing nodes, tensors, and data flow between operations'
+description: 'Understand ONNX internals: how computation graphs, nodes, tensors, and model structure enable cross-framework ML model portability.'
 title: 'Delving into ONNX: Comprehending Computation Graphs and Structure'
 ---
 

@@ -7,6 +7,8 @@ slug: 'intro-to-directml'
 featured: false
 draft: false
 image: assets/images/DirectML-Platform.png
+imageAlt: 'DirectML platform architecture showing Direct3D 12 integration for GPU-accelerated machine learning'
+description: 'Perform GPU-accelerated tensor operations with DirectML and Direct3D 12 — hardware-agnostic ML inference on Windows across GPU vendors.'
 title: 'Deep Learning for Graphics Programmers: Performing Tensor Operations with DirectML and Direct3D 12'
 ---
 
