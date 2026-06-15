@@ -1,0 +1,271 @@
+<section class="module" id="module-6" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">06</span>
+      <h2 class="module-title">Attention &mdash; The Optimization Journey</h2>
+      <p class="module-subtitle">From a naive 10-line attention to flash-attention-style online softmax, in five progressive versions.</p>
+    </header>
+
+    <!-- ─── SCREEN 1: What is Attention? ────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Formula That Powers Every LLM</h3>
+
+      <p><span class="term" data-definition="The attention mechanism computes a weighted combination of Value vectors, where the weights are determined by how well each Query matches each Key. Formula: softmax(Q @ K^T) @ V. It is the core operation in Transformer models.">Attention</span> computes <code>softmax(Q @ K<sup>T</sup>) @ V</code>. That single formula is responsible for the magic of ChatGPT, image generators, and protein folders. It is also the most expensive operation in any transformer.</p>
+
+      <p>The challenge: <span class="term" data-definition="Softmax converts a vector of raw scores into a probability distribution. It exponentiates each element, then divides by the sum of all exponentials. Numerically stable versions subtract the max before exponentiating.">softmax</span> requires knowing the maximum value across an entire row before you can compute any single element. This creates a data dependency that makes tiling and fusion difficult.</p>
+
+      <p>The NKI samples show how to evolve from a straightforward implementation to one that never materializes the full attention matrix &mdash; cutting memory from O(n&sup2;) to O(n).</p>
+    </div>
+
+    <!-- ─── SCREEN 2: Code-English Translation (v1) ─────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Version 1: The Naive Attention</h3>
+
+      <p>Version 1 uses high-level NKI operations. It is slow but crystal-clear about what attention actually computes.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-keyword">@nki.jit</span>
+<span class="code-keyword">def</span> <span class="code-function">attn_fwd_v1</span>(q, k, v):
+  q_sbuf = <span class="code-function">nl.load</span>(q)
+  k_sbuf = <span class="code-function">nl.load</span>(k)
+  v_sbuf = <span class="code-function">nl.load</span>(v)
+
+  qk_psum = <span class="code-function">nl.matmul</span>(
+    x=q_sbuf, y=k_sbuf,
+    transpose_x=<span class="code-keyword">True</span>)
+  qk = <span class="code-function">nl.ndarray</span>(qk_psum.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_copy</span>(dst=qk, src=qk_psum)
+
+  row_max = <span class="code-function">nl.max</span>(qk, axis=<span class="code-number">1</span>,
+    keepdims=<span class="code-keyword">True</span>)
+  norm_row = <span class="code-function">nl.ndarray</span>(qk.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_scalar</span>(dst=norm_row,
+    data=qk, op0=nl.subtract,
+    operand0=row_max)
+
+  exp_row = <span class="code-function">nl.exp</span>(norm_row)
+  sum_row = <span class="code-function">nl.sum</span>(exp_row,
+    axis=<span class="code-number">1</span>, keepdims=<span class="code-keyword">True</span>)
+  inv_sum = <span class="code-function">nl.reciprocal</span>(sum_row)
+
+  scores = <span class="code-function">nl.ndarray</span>(exp_row.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_scalar</span>(dst=scores,
+    data=exp_row, op0=nl.multiply,
+    operand0=inv_sum)
+  <span class="code-comment"># ... then scores @ V</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Load Q, K, V</strong> from HBM into on-chip SBUF.</div>
+            <div class="tl"><strong>Compute Q @ K<sup>T</sup></strong> using the Tensor Engine. Result lands in PSUM.</div>
+            <div class="tl"><strong>Copy QK scores</strong> from PSUM to SBUF (now accessible for element-wise ops).</div>
+            <div class="tl"><strong>Find the max</strong> of each row. This is the stability trick &mdash; prevents overflow.</div>
+            <div class="tl"><strong>Subtract the max</strong> from every element in the row. Now the largest value is 0.</div>
+            <div class="tl"><strong>Exponentiate</strong> every element. Since max was subtracted, no value exceeds e^0 = 1.</div>
+            <div class="tl"><strong>Sum each row</strong> and compute 1/sum. This is the softmax denominator.</div>
+            <div class="tl"><strong>Multiply each row by 1/sum</strong> to get the final attention weights (probabilities summing to 1).</div>
+            <div class="tl"><strong>Finally</strong>, multiply scores by V to get the weighted output.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#x26A0;&#xFE0F;</span>
+        <div>
+          <span class="callout-title">Numerical Stability is Non-Negotiable</span>
+          <p class="callout-content">Without subtracting the max before exp(), large values would overflow to infinity. This single line prevents your entire attention computation from producing garbage. Every version of the kernel keeps this step &mdash; it is never "optimized away."</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 3: The Five Optimization Stages ──────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Optimization Journey: v1 to v8</h3>
+
+      <p>Each version addresses a specific bottleneck. The jump from v1 to v8 delivers orders-of-magnitude improvement.</p>
+
+      <div class="step-cards stagger-children">
+        <div class="step-card animate-in" style="--stagger-index: 0">
+          <div class="step-num">v1</div>
+          <div class="step-body">
+            <strong>Naive &mdash; High-Level API</strong>
+            <p>Uses <code>nl.matmul</code>, <code>nl.max</code>, <code>nl.exp</code>, <code>nl.sum</code>. Clear and correct, but the compiler cannot optimize across operation boundaries. Each op is a separate kernel launch internally.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 1">
+          <div class="step-num">v2</div>
+          <div class="step-body">
+            <strong>ISA-Level &mdash; Explicit Buffer Management</strong>
+            <p>Drops to <code>nisa.nc_matmul</code>, <code>nisa.tensor_copy</code>, and explicit SBUF/PSUM allocation. The programmer controls exactly where every byte lives. This unlocks manual scheduling of operations.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 2">
+          <div class="step-num">v3</div>
+          <div class="step-body">
+            <strong>Tiled &mdash; Handle Long Sequences</strong>
+            <p>Sequences longer than 128 tokens cannot fit in a single tile. This version tiles Q along the sequence length dimension, computing attention for 128 queries at a time against the full K and V.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 3">
+          <div class="step-num">v5</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="A fused operation combines multiple element-wise steps into a single hardware instruction. For example, subtract-then-exp can be one instruction instead of two, halving memory traffic between SBUF and the compute units.">Fused Operations</span> &mdash; Fewer Instructions</strong>
+            <p>Combines softmax steps using <code>nisa.tensor_scalar</code> with chained <code>op0</code> / <code>op1</code> fields. Subtract-and-exp becomes one instruction. Multiply-by-reciprocal becomes one instruction. Halves the memory traffic.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 4">
+          <div class="step-num">v8</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="Flash Attention processes the attention matrix in tiles without ever materializing the full N x N matrix. It uses online softmax to maintain a running max and sum, updating previous results as new tiles reveal larger values.">Flash Attention</span> Style &mdash; <span class="term" data-definition="Online softmax computes softmax incrementally by maintaining a running maximum and running sum. When a new tile reveals a larger max, all previous exponentials are rescaled. This avoids needing a global pass over all data before computing any output.">Online Softmax</span></strong>
+            <p>Never materializes the full attention matrix. Maintains a running max and running sum across K-tiles. When a new tile reveals a larger max, previous partial results are rescaled. Memory drops from O(n&sup2;) to O(n).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 4: Why Online Softmax Works ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Trick Behind Flash Attention</h3>
+
+      <p>Standard softmax needs two passes: one to find the max, another to compute exp and sum. Online softmax does it in one pass by maintaining corrections.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-2); color: white; border-radius: var(--radius-sm);">M</div>
+          <div class="pattern-title">Running Max</div>
+          <p class="pattern-desc">Track the maximum value seen so far. When a new tile has a larger max, update it and rescale all previous exponentials by e^(old_max - new_max).</p>
+        </div>
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-3); color: white; border-radius: var(--radius-sm);">S</div>
+          <div class="pattern-title">Running Sum</div>
+          <p class="pattern-desc">Maintain the sum of exponentials. When the max changes, the old sum gets multiplied by the rescaling factor before adding new exponentials.</p>
+        </div>
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-4); color: white; border-radius: var(--radius-sm);">O</div>
+          <div class="pattern-title">Delayed Division</div>
+          <p class="pattern-desc">Do not divide by the sum until all tiles are processed. Accumulate unnormalized scores @ V, then divide once at the end. One division instead of many.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1F9E0;</span>
+        <div>
+          <span class="callout-title"><span class="term" data-definition="Numerical stability refers to an algorithm's resistance to amplifying floating-point rounding errors. Unstable algorithms can produce wildly incorrect results even when the mathematical formula is correct, because intermediate values overflow or lose precision.">Numerical Stability</span> Throughout</span>
+          <p class="callout-content">Every version of online softmax preserves the subtract-max trick. The running max ensures that at every point in the computation, the largest exponent being computed is e^0 = 1. No overflow is ever possible, regardless of how many tiles are processed.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 5: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+
+      <div class="quiz-container animate-in" id="quiz-attention">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Without subtracting the max, exp() would receive large positive values (e.g., 100+) and produce infinity. Subtracting the max ensures the largest input to exp() is 0, so outputs stay in [0, 1]. The mathematical result is identical because softmax is shift-invariant."
+             data-explanation-wrong="The max subtraction is purely about preventing floating-point overflow. Softmax is mathematically shift-invariant: softmax(x) = softmax(x - c) for any constant c. We choose c = max(x) to keep all exponents safely bounded.">
+          <div class="quiz-question">Why do we compute the row maximum and subtract it before calling exp()?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It makes the attention weights sharper and more focused
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It prevents exp() from overflowing to infinity on large values
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It normalizes the inputs to have zero mean for better gradient flow
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="Online softmax processes tiles incrementally, maintaining a running max and sum. When a new tile has a larger max, all previously accumulated results are rescaled by e^(old_max - new_max). This makes one-pass softmax possible without knowing the global max in advance."
+             data-explanation-wrong="Online softmax is specifically about computing softmax without a separate pass to find the global maximum. It maintains a running max and corrects previous partial results when a larger value appears.">
+          <div class="quiz-question">What is "online softmax" and why does it matter for flash attention?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that runs on a server (online) instead of locally
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that skips the max subtraction for speed
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that processes tiles incrementally with a running max and sum, rescaling as it goes
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Delaying the division means you accumulate (unnormalized_scores @ V) across all K-tiles first, then divide by the final sum once at the end. This avoids dividing partial results that would later need to be rescaled anyway, saving instructions and improving numerical behavior."
+             data-explanation-wrong="Delaying division until the end avoids redundant work. If you divided early, each tile's result would need to be un-divided and re-divided when the sum changes. One final division is both simpler and more numerically stable.">
+          <div class="quiz-question">In flash attention, why is the division by the softmax sum delayed until the very end?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              So you only divide once after the total sum is known, avoiding redundant rescaling
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Division is slow so batching it together is faster
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The hardware cannot divide values stored in PSUM
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-attention')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-attention')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 6: Summary ───────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Big Picture</h3>
+
+      <p>The attention optimization journey is really about one thing: <strong>avoiding materialization</strong>. Version 1 creates the full N&times;N attention matrix in memory. Version 8 never creates it at all.</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code">v1&rarr;v2</span>
+          <span class="badge-desc">Move from auto-managed to explicit buffers &mdash; gain control</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v2&rarr;v3</span>
+          <span class="badge-desc">Add tiling &mdash; handle arbitrary sequence lengths</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v3&rarr;v5</span>
+          <span class="badge-desc">Fuse element-wise ops &mdash; cut memory traffic in half</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v5&rarr;v8</span>
+          <span class="badge-desc">Online softmax &mdash; eliminate O(n&sup2;) memory entirely</span>
+        </div>
+      </div>
+
+      <p>Each step is independently understandable. Together, they turn a textbook formula into production-grade hardware-optimized code running on NeuronCore.</p>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,2417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NKI Kernel Programming: From First Tile to Flash Attention</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #2A7B9B;
+      --color-accent-hover: #1F6280;
+      --color-accent-light: #E4F2F7;
+      --color-accent-muted: #5A9DB8;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">NKI Kernel Programming</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="The Chip" role="tab" aria-label="Module 1: The Chip"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="First Kernel" role="tab" aria-label="Module 2: First Kernel"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Tiles & Loops" role="tab" aria-label="Module 3: Tiles & Loops"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Element-wise Ops" role="tab" aria-label="Module 4: Element-wise Ops"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Matrix Multiply" role="tab" aria-label="Module 5: Matrix Multiply"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Attention" role="tab" aria-label="Module 6: Attention"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Mamba SSM" role="tab" aria-label="Module 7: Mamba SSM"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Advanced" role="tab" aria-label="Module 8: Advanced"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Chip — Meet AWS Trainium</h1>
+      <p class="module-subtitle">Why AWS built custom silicon for AI, and how NKI lets you program it at the metal level.</p>
+    </header>
+
+    <!-- ── SCREEN 1: What is NKI? ──────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Why Custom Silicon?</h2>
+
+      <p>NVIDIA GPUs are general-purpose parallel processors. They're great, but they pay a "generality tax" — transistors spent on features AI workloads never use. AWS asked: <em>what if we built a chip that does nothing but tensor math, and does it insanely well?</em></p>
+
+      <p>The answer is <span class="term" data-definition="AWS Trainium is a custom AI training accelerator chip designed by AWS. It powers EC2 Trn1 instances and is optimized exclusively for deep learning workloads.">Trainium</span> (for training) and <span class="term" data-definition="AWS Inferentia is a custom AI inference chip designed by AWS. Inferentia2 shares the same architecture as Trainium and supports NKI programming.">Inferentia</span> (for inference). These are purpose-built AI accelerators with a radically different memory hierarchy than GPUs.</p>
+
+      <p><span class="term" data-definition="Neuron Kernel Interface — the low-level programming API for AWS Trainium and Inferentia chips. Think of it as 'CUDA for Neuron hardware.' It gives you direct control over data movement and compute.">NKI</span> is the programming interface that lets you write custom kernels for these chips. If CUDA is how you talk to NVIDIA hardware, NKI is how you talk to Neuron hardware.</p>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9889;</span>
+        <div class="callout-content">
+          <span class="callout-title">Key Insight</span>
+          <p>NKI is not a framework or a library — it is a kernel language. You control exactly which bytes move where, and when compute fires. This is the lowest level of programming on Trainium, analogous to writing PTX or SASS on NVIDIA.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: The Shipping Port Metaphor ────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Memory Hierarchy (A Shipping Port)</h2>
+
+      <p>Trainium's memory system has three levels. To understand them, imagine a shipping port:</p>
+
+      <div class="pattern-cards stagger-children animate-in">
+        <div class="pattern-card" style="border-top-color: var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128674;</div>
+          <div class="pattern-title"><span class="term" data-definition="High Bandwidth Memory — the large external memory attached to the Trainium chip. Capacity: tens of GBs. Bandwidth: high but latency is significant compared to on-chip memory. All input/output tensors live here.">HBM</span> — The Cargo Ship</div>
+          <p class="pattern-desc">Massive capacity (tens of GBs), but slow to access. All your model weights and tensors start here. Think: ocean freighter carrying containers across the sea.</p>
+        </div>
+
+        <div class="pattern-card" style="border-top-color: var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127970;</div>
+          <div class="pattern-title"><span class="term" data-definition="State Buffer — the fast on-chip SRAM scratchpad on Trainium. Organized as 128 rows (partition dimension) x up to 512 columns (free dimension). Data must be in SBUF before any computation can happen.">SBUF</span> — The Dock Warehouse</div>
+          <p class="pattern-desc">Limited space, but lightning-fast access. Data must be here before compute can touch it. Organized as 128 rows x up to 512 columns. Think: warehouse right on the dock.</p>
+        </div>
+
+        <div class="pattern-card" style="border-top-color: var(--color-actor-3);">
+          <div class="pattern-icon" style="background: rgba(123,109,170,0.1); color: var(--color-actor-3);">&#128290;</div>
+          <div class="pattern-title"><span class="term" data-definition="Partial Sum Accumulator — an ultra-fast on-chip accumulator used to store intermediate results of matrix multiplications. Only supports float32. Results flow here from the systolic array, then get moved back to SBUF.">PSUM</span> — The Calculator on the Desk</div>
+          <p class="pattern-desc">Tiny capacity, instant access. Holds matrix multiply results (float32 only). Think: the calculator on the dock worker's desk — it can only hold one answer at a time, but it's instant.</p>
+        </div>
+      </div>
+
+      <p>The golden rule: <strong>data must travel HBM &rarr; SBUF before any computation, and results must travel SBUF &rarr; HBM to be visible outside the kernel.</strong> PSUM is an intermediate stop only for matmul results.</p>
+    </div>
+
+    <!-- ── SCREEN 3: Data Flow Animation ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Data Flow: Watch It Move</h2>
+
+      <p>Every NKI kernel follows this data flow. Click "Next Step" to see how a tile of data moves through the chip:</p>
+
+      <div class="flow-animation animate-in" id="flow-module1" data-steps='[
+        {"highlight":"flow-hbm","label":"Step 1: Data starts in HBM (the cargo ship). Your full tensors live here.","packet":true,"from":"hbm","to":"sbuf"},
+        {"highlight":"flow-sbuf","label":"Step 2: DMA engine copies a 128-row tile from HBM into SBUF (the dock warehouse). Now compute can access it.","packet":true,"from":"hbm","to":"sbuf"},
+        {"highlight":"flow-compute","label":"Step 3: The compute engines operate on data in SBUF. Element-wise ops stay in SBUF; matmuls send results to PSUM.","packet":true,"from":"sbuf","to":"psum"},
+        {"highlight":"flow-psum","label":"Step 4: Matrix multiply results accumulate in PSUM (the calculator). Float32 only.","packet":false},
+        {"highlight":"flow-sbuf","label":"Step 5: Results move from PSUM back to SBUF for further processing or type conversion.","packet":true,"from":"psum","to":"sbuf"},
+        {"highlight":"flow-hbm","label":"Step 6: Final results are DMA-copied from SBUF back to HBM. The outside world can now see them.","packet":true,"from":"sbuf","to":"hbm"}
+      ]'>
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-hbm">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">&#128674;</div>
+            <span>HBM</span>
+          </div>
+          <div class="flow-actor" id="flow-sbuf">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">&#127970;</div>
+            <span>SBUF</span>
+          </div>
+          <div class="flow-actor" id="flow-compute">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">&#9881;</div>
+            <span>Compute</span>
+          </div>
+          <div class="flow-actor" id="flow-psum">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">&#128290;</div>
+            <span>PSUM</span>
+          </div>
+        </div>
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to begin</div>
+        <div class="flow-controls">
+          <button class="btn btn-primary flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Tile Semantics ────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Tile Semantics: Why 128?</h2>
+
+      <p>Everything on Trainium operates on <span class="term" data-definition="A tile is a fixed-size chunk of a tensor that fits in on-chip memory. On Trainium, tiles always have 128 rows (the partition dimension). The number of columns (the free dimension) can vary up to 512.">tiles</span>. A tile is a 2D block of data with a fixed shape: <strong>128 rows</strong> (the <span class="term" data-definition="The partition dimension is the first axis of every tile on Trainium. It is always exactly 128 elements. The hardware physically partitions SBUF into 128 lanes, one per row.">partition dimension</span>) by up to 512 columns (the "free dimension").</p>
+
+      <p>Why 128? Because SBUF is physically organized into 128 parallel memory banks. Each bank holds one row of your tile. This is not a software choice — it is baked into the silicon.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The 128-Row Rule</span>
+          <p>If your tensor's first dimension is not a multiple of 128, you must pad it. There is no way around this — the hardware demands it. Every load, every store, every compute op works on 128-row chunks.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Two API Levels ────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Two API Levels</h2>
+
+      <p>NKI gives you two ways to talk to the hardware. Think of them as "Python" vs "Assembly":</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code">nki.language (nl)</span>
+          <span class="badge-desc">High-level API. Use <code>nl.load</code>, <code>nl.matmul</code>, <code>nl.store</code>. The compiler decides DMA scheduling and buffer allocation.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">nki.isa (nisa)</span>
+          <span class="badge-desc">Bare-metal API. Use <code>nisa.dma_copy</code>, <code>nisa.nc_matmul</code>, <code>nisa.tensor_tensor</code>. You control every data movement explicitly.</span>
+        </div>
+      </div>
+
+      <p>In this course, we start with <code>nki.isa</code> so you understand exactly what's happening. Once you've built intuition, the high-level <code>nki.language</code> API will feel like a natural shortcut.</p>
+    </div>
+
+    <!-- ── SCREEN 6: DMA Concept ──────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">DMA: The Forklift</h2>
+
+      <p><span class="term" data-definition="Direct Memory Access — a hardware engine that copies data between HBM and SBUF without involving the compute cores. On Trainium, DMA is initiated via nisa.dma_copy or nl.load/nl.store. It operates asynchronously.">DMA</span> stands for Direct Memory Access. It is a dedicated hardware engine whose only job is moving tiles between HBM and SBUF. Think of it as an autonomous forklift that carries containers between the cargo ship and the dock warehouse.</p>
+
+      <p>Key properties of DMA on Trainium:</p>
+      <ul style="margin: var(--space-4) 0; padding-left: var(--space-6); color: var(--color-text-secondary); font-size: var(--text-sm); line-height: var(--leading-loose);">
+        <li>It runs <strong>asynchronously</strong> — compute can happen while DMA is moving the next tile</li>
+        <li>It always moves full 128-row tiles (partition dimension)</li>
+        <li>It can handle strided access patterns (non-contiguous memory)</li>
+      </ul>
+    </div>
+
+    <!-- ── SCREEN 7: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module1">
+
+        <div class="quiz-question-block" data-correct="sbuf" data-explanation-right="Correct! Data must be in SBUF (the on-chip scratchpad) before any compute engine can touch it. PSUM only receives results from matrix multiply." data-explanation-wrong="The compute engines can only access data that's already in SBUF. HBM is off-chip external memory — too slow for direct compute. PSUM only holds matmul results.">
+          <p class="quiz-question">1. Where must data be before the compute engines can operate on it?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hbm" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>HBM (High Bandwidth Memory)</span>
+            </button>
+            <button class="quiz-option" data-value="sbuf" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>SBUF (State Buffer)</span>
+            </button>
+            <button class="quiz-option" data-value="psum" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>PSUM (Partial Sum Accumulator)</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="128" data-explanation-right="Correct! The partition dimension is always 128 because SBUF has 128 physical memory banks — one per row." data-explanation-wrong="The partition dimension is always 128. This is a hardware constraint: SBUF has exactly 128 parallel memory banks.">
+          <p class="quiz-question">2. How many rows does the partition dimension always have?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="64" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>64</span>
+            </button>
+            <button class="quiz-option" data-value="128" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>128</span>
+            </button>
+            <button class="quiz-option" data-value="256" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>256</span>
+            </button>
+            <button class="quiz-option" data-value="512" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>512</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="psum" data-explanation-right="Correct! PSUM is the Partial Sum Accumulator — it holds intermediate float32 results from matrix multiplications performed by the systolic array." data-explanation-wrong="Matrix multiply results accumulate in PSUM (Partial Sum Accumulator). SBUF holds input tiles; HBM holds full tensors.">
+          <p class="quiz-question">3. Where do matrix multiply results initially land?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hbm" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Directly in HBM</span>
+            </button>
+            <button class="quiz-option" data-value="sbuf" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="psum" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>PSUM</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Your First Kernel — Tensor Addition</h1>
+      <p class="module-subtitle">The simplest possible NKI kernel, explained line-by-line. Every kernel you'll ever write follows this same pattern.</p>
+    </header>
+
+    <!-- ── SCREEN 1: The Pattern ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Universal Kernel Pattern</h2>
+
+      <p>Every NKI kernel — from simple addition to Flash Attention — follows the same three-step pattern:</p>
+
+      <div class="flow-steps animate-in">
+        <div class="flow-step">
+          <div class="flow-step-num">1</div>
+          <p>Load tile from HBM to SBUF</p>
+        </div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step">
+          <div class="flow-step-num">2</div>
+          <p>Compute on tile in SBUF</p>
+        </div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step">
+          <div class="flow-step-num">3</div>
+          <p>Store tile from SBUF to HBM</p>
+        </div>
+      </div>
+
+      <p>That's it. Load, compute, store. The complexity of advanced kernels comes from <em>what</em> you compute and <em>how</em> you overlap these steps — not from a different pattern.</p>
+    </div>
+
+    <!-- ── SCREEN 2: Code-English Translation ──────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Complete Kernel</h2>
+
+      <p>Here is a tensor addition kernel that adds two matrices element-wise. Left side is code, right side is plain English:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / NKI</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@nki.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">nki_tensor_add</span>(a_input, b_input):</span>
+<span class="code-line">  c_output = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">    a_input.shape, dtype=a_input.dtype,</span>
+<span class="code-line">    buffer=<span class="code-property">nl.shared_hbm</span>)</span>
+<span class="code-line">  M, N = a_input.shape</span>
+<span class="code-line">  TILE_M = <span class="code-number">128</span></span>
+<span class="code-line">  TILE_N = <span class="code-number">512</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):</span>
+<span class="code-line">    <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):</span>
+<span class="code-line">      a_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=a_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line">      b_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=b_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=a_tile,</span>
+<span class="code-line">        src=a_input[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                    n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>])</span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=b_tile,</span>
+<span class="code-line">        src=b_input[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                    n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>])</span>
+<span class="code-line"></span>
+<span class="code-line">      c_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=a_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line">      <span class="code-function">nisa.tensor_tensor</span>(</span>
+<span class="code-line">        dst=c_tile, data1=a_tile,</span>
+<span class="code-line">        data2=b_tile, op=<span class="code-property">nl.add</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=c_output[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                     n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>],</span>
+<span class="code-line">        src=c_tile)</span>
+<span class="code-line">  <span class="code-keyword">return</span> c_output</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"I'm a kernel"</strong> — mark this function for Neuron compilation</div>
+            <div class="tl"><strong>"Takes two tensors as input"</strong></div>
+            <div class="tl"><strong>"Allocate output in HBM"</strong> — same shape/type as input, lives in external memory so the caller can read it</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Get dimensions"</strong> — M rows, N columns</div>
+            <div class="tl"><strong>"128 rows per tile"</strong> — the partition dimension (hardware-mandated)</div>
+            <div class="tl"><strong>"512 cols per tile"</strong> — the free dimension (our choice, max 512)</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Loop over row-tiles"</strong> — compiler can parallelize this</div>
+            <div class="tl"><strong>"Loop over col-tiles"</strong> — nested tile iteration</div>
+            <div class="tl"><strong>"Reserve SBUF space for tile A"</strong> — 128x512 scratchpad slot</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Reserve SBUF space for tile B"</strong> — second scratchpad slot</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: HBM &rarr; SBUF"</strong> — copy a_input[tile] into a_tile on-chip</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: HBM &rarr; SBUF"</strong> — copy b_input[tile] into b_tile on-chip</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Reserve SBUF space for result"</strong></div>
+            <div class="tl"><strong>"ADD them!"</strong> — element-wise addition, result stays in SBUF</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: SBUF &rarr; HBM"</strong> — copy result back to output in external memory</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Hand back the result"</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 3: Key Concepts Breakdown ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Line-by-Line Breakdown</h2>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="@nki.jit is a decorator that marks a Python function as an NKI kernel. The Neuron compiler traces and compiles this function into hardware instructions for Trainium/Inferentia. Similar to CUDA's __global__ keyword.">@nki.jit</span></strong>
+            <p>Marks this function as a Neuron kernel. The Neuron compiler will trace it, lower it to hardware instructions, and JIT-compile it for Trainium. Like CUDA's <code>__global__</code>.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nl.affine_range(n) generates a loop of n iterations that the Neuron compiler knows is 'affine' (linearly strided). This lets the compiler unroll, pipeline, and parallelize the loop across hardware resources.">nl.affine_range</span></strong>
+            <p>Generates a loop the compiler can optimize. "Affine" means the iteration pattern is linear and predictable, so the compiler can unroll it, overlap DMA with compute, or even run iterations in parallel.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.dma_copy moves data between HBM and SBUF using the DMA engine. It takes a destination (dst) and source (src). The DMA engine operates asynchronously — compute can proceed while the next tile is being loaded.">nisa.dma_copy</span></strong>
+            <p>The forklift instruction. Moves a tile between HBM and SBUF. The DMA engine handles this asynchronously — it's the only way to get data on-chip or off-chip.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_tensor performs an element-wise operation between two tiles that are already in SBUF. Supported ops include add, subtract, multiply, and more. Both input tiles and the output tile must be in SBUF.">nisa.tensor_tensor</span></strong>
+            <p>Element-wise operation between two tiles already in SBUF. Supports add, subtract, multiply, etc. Both inputs and the output must be in SBUF — it cannot reach into HBM.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128270;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why 128 x 512?</span>
+          <p>128 rows = the partition dimension (hardware-mandated). 512 columns = the maximum free dimension that fits in one SBUF allocation. You can use fewer columns (e.g., 256), but 512 maximizes throughput per tile.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Group Chat Animation ──────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Watch the Components Talk</h2>
+
+      <p>Here's how HBM, SBUF, and Compute coordinate during one iteration of our addition kernel. Click "Next" to advance the conversation:</p>
+
+      <div class="chat-window animate-in" id="chat-module2">
+        <div class="chat-messages">
+
+          <div class="chat-message" data-sender="HBM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">HBM</span>
+              <p>Hey SBUF, I've got two 128x512 tiles ready for you. Tile A and Tile B from the input tensors. Sending them over via DMA now.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="SBUF" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">SBUF</span>
+              <p>Got both tiles! A is in slot a_tile, B is in slot b_tile. I've also reserved a slot called c_tile for the result. Compute, you're up!</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="Compute" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Compute Engine</span>
+              <p>Running tensor_tensor with op=add. Adding a_tile + b_tile element-wise... done! Result is in c_tile (still in SBUF).</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="SBUF" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">SBUF</span>
+              <p>Result ready in c_tile. Initiating DMA copy back to HBM... sending to c_output at the right offset.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="HBM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">HBM</span>
+              <p>Received! That tile is committed to c_output. Ready for the next tile whenever you are. Just (M//128) * (N//512) - 1 more to go!</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="Compute" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Compute Engine</span>
+              <p>And that's the whole loop. Load two tiles, add them, store the result. Repeat for every 128x512 chunk of the input. Simple as that.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 6 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Buffer Allocation ─────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Buffer Allocation: Where Things Live</h2>
+
+      <p>Notice the <code>buffer=</code> parameter in every <code>nl.ndarray</code> call. This tells the compiler <em>where</em> to place the tensor:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="nl.shared_hbm tells the compiler to allocate this tensor in HBM (external memory). Use this for tensors that need to be visible outside the kernel — inputs, outputs, and anything the host CPU will read.">nl.shared_hbm</span></span>
+          <span class="badge-desc">Place in HBM. Used for output tensors that the caller needs to read after the kernel finishes.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="nl.sbuf tells the compiler to allocate this tensor in SBUF (on-chip scratchpad). Data in SBUF is only visible inside the kernel and only during the current tile iteration. It is the working memory for all compute operations.">nl.sbuf</span></span>
+          <span class="badge-desc">Place in SBUF. Used for temporary tiles that only exist during one loop iteration. Fast, private, ephemeral.</span>
+        </div>
+      </div>
+
+      <p>If you forget to specify <code>buffer=nl.sbuf</code> for your working tiles, the compiler won't know where to put them and will error. Always be explicit about where data lives.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module2">
+
+        <div class="quiz-question-block" data-correct="parallelize" data-explanation-right="Correct! nl.affine_range tells the compiler the loop has a linear (affine) iteration pattern, allowing it to unroll, pipeline, or parallelize the iterations across hardware resources." data-explanation-wrong="nl.affine_range is not about memory allocation or random access. It signals to the compiler that the loop iterations are linearly-strided and can be optimized — unrolled, pipelined, or parallelized.">
+          <p class="quiz-question">1. What does <code>nl.affine_range</code> do?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="allocate" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Allocates a range of memory addresses in SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="parallelize" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Generates a loop the compiler can unroll/parallelize</span>
+            </button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Creates a random access pattern for DMA</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="hardware" data-explanation-right="Correct! 128 rows is the partition dimension — a hardware constraint. SBUF has 128 physical memory banks. 512 columns is the maximum free dimension, chosen to maximize throughput per tile." data-explanation-wrong="The tile size is not arbitrary or software-determined. 128 rows matches the hardware's partition dimension (128 SBUF banks), and 512 columns is the maximum free dimension for peak throughput.">
+          <p class="quiz-question">2. Why are tiles 128x512?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="software" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It's a software convention that can be changed freely</span>
+            </button>
+            <button class="quiz-option" data-value="hardware" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>128 rows = hardware partition dim; 512 cols = max free dim for throughput</span>
+            </button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It matches the L2 cache line size</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="dma" data-explanation-right="Correct! nisa.dma_copy uses the DMA engine to physically move tile data between HBM (off-chip) and SBUF (on-chip). It's the only way to get data into or out of the on-chip scratchpad." data-explanation-wrong="nisa.dma_copy doesn't do math or allocate memory. It's purely a data movement instruction — it activates the DMA hardware engine to copy bytes between HBM and SBUF.">
+          <p class="quiz-question">3. What does <code>nisa.dma_copy</code> do?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Performs a compute operation and copies the result</span>
+            </button>
+            <button class="quiz-option" data-value="dma" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Moves data between HBM and SBUF via the DMA engine</span>
+            </button>
+            <button class="quiz-option" data-value="alloc" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Allocates and initializes a new tensor in SBUF</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 7: What's Next ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Kernel Pattern Mastered</span>
+          <p>You now know the universal NKI pattern: allocate tiles in SBUF, DMA data in from HBM, compute on-chip, DMA results back. Every kernel in this course — including matrix multiply and attention — is just a more sophisticated version of these same three steps.</p>
+        </div>
+      </div>
+
+      <p>In the next module, we'll tackle <strong>matrix multiplication</strong> — where PSUM finally comes into play and we see the systolic array in action.</p>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Tiles &amp; Loops &mdash; Thinking in Chunks</h1>
+      <p class="module-subtitle">Tensors are too big for on-chip memory. Tiling is how we break the problem into pieces the hardware can digest &mdash; 128 rows at a time.</p>
+    </header>
+
+    <!-- ── SCREEN 1: Why We Tile ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Why Tiling Is Not Optional</h2>
+
+      <p><span class="term" data-definition="Tiling is the process of dividing a large tensor into smaller fixed-size blocks (tiles) that fit in on-chip memory. Each tile is processed independently, and results are written back before the next tile is loaded.">Tiling</span> is the single most important concept in NKI programming. Without it, nothing works.</p>
+
+      <p>Consider a typical tensor in a transformer: 4096 rows by 4096 columns of float16 values. That is 4096 * 4096 * 2 bytes = <strong>32 MB</strong>. SBUF holds a few kilobytes. The mismatch is roughly 1000x.</p>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Tiling Is a Necessity, Not an Optimization</span>
+          <p>SBUF can only hold a few KB at a time. A typical 4096x4096 float16 tensor is 32MB &mdash; roughly 1000x larger than SBUF capacity. Tiling is not an optimization, it is a necessity.</p>
+        </div>
+      </div>
+
+      <p>The metaphor: tiling is like reading a newspaper. The full broadsheet page won't fit on your desk, so you fold it into sections and read one section at a time, moving your "window" across the page. The news is the same &mdash; you just process it in pieces.</p>
+    </div>
+
+    <!-- ── SCREEN 2: The Two Dimensions ────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Partition Dimension vs. Free Dimension</h2>
+
+      <p>Every NKI tile has exactly two axes, and they are <em>not</em> interchangeable:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-1);">P</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="The partition dimension is axis 0 of every NKI tile. It is always exactly 128 elements because SBUF has 128 physical memory banks &mdash; one element per bank. This is a hardware constraint that cannot be changed.">Partition Dimension</span> (Axis 0) &mdash; Always 128</strong>
+            <p>This maps directly to SBUF's 128 physical memory banks. Each of the 128 rows lives in its own bank, enabling all rows to be accessed simultaneously. You cannot change this number &mdash; it is baked into the silicon.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-2);">F</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="The free dimension is axis 1 of an NKI tile. It can range from 1 to 512 elements. This dimension stores contiguous data within each memory bank. A larger free dimension means more data processed per tile, up to the SBUF capacity limit.">Free Dimension</span> (Axis 1) &mdash; Up to 512</strong>
+            <p>This is how many columns you process per tile. Each memory bank can hold up to 512 elements contiguously. You choose this value &mdash; 512 maximizes throughput, but smaller values work when you need to conserve SBUF space.</p>
+          </div>
+        </div>
+      </div>
+
+      <p>So a tile is always shaped <code>(128, N)</code> where N is at most 512. The partition dimension is hardware-mandated. The free dimension is your choice (within limits).</p>
+    </div>
+
+    <!-- ── SCREEN 3: The Tiling Pattern ────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Basic Tiling Pattern</h2>
+
+      <p>Here is the fundamental loop structure that appears in every NKI kernel. It breaks a large tensor into 128x512 tiles and processes them one at a time:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line">M, N = tensor.shape</span>
+<span class="code-line">TILE_M = <span class="code-number">128</span>   <span class="code-comment"># partition dim</span></span>
+<span class="code-line">TILE_N = <span class="code-number">512</span>   <span class="code-comment"># free dim</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):</span>
+<span class="code-line">  <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):</span>
+<span class="code-line">    <span class="code-comment"># Slice: rows [m*128..(m+1)*128]</span></span>
+<span class="code-line">    <span class="code-comment">#        cols [n*512..(n+1)*512]</span></span>
+<span class="code-line">    tile = tensor[m * TILE_M:(m+<span class="code-number">1</span>) * TILE_M,</span>
+<span class="code-line">                  n * TILE_N:(n+<span class="code-number">1</span>) * TILE_N]</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Get dimensions"</strong> &mdash; M rows, N columns of the full tensor</div>
+            <div class="tl"><strong>"128 rows per tile"</strong> &mdash; hardware-mandated partition size</div>
+            <div class="tl"><strong>"512 cols per tile"</strong> &mdash; max throughput per chunk</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Loop over row-groups"</strong> &mdash; M/128 iterations, compiler can reorder</div>
+            <div class="tl"><strong>"Loop over col-groups"</strong> &mdash; N/512 iterations, nested inside</div>
+            <div class="tl"><strong>"Compute which slice"</strong> &mdash; row start = m*128, row end = (m+1)*128</div>
+            <div class="tl"><strong>"of the tensor we need"</strong> &mdash; col start = n*512, col end = (n+1)*512</div>
+            <div class="tl"><strong>"Extract the 128x512 chunk"</strong> &mdash; this sub-array fits in SBUF</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Visual Tile Grid ──────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Visualizing the Tile Grid</h2>
+
+      <p>A 1024x2048 tensor split into 128x512 tiles produces a grid of 8 rows by 4 columns &mdash; 32 tiles total. Each tile is one loop iteration:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">&#9638;</div>
+          <div class="step-body">
+            <strong>Grid Layout: 1024 rows / 128 = 8 tile-rows, 2048 cols / 512 = 4 tile-cols</strong>
+            <p style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre; overflow-x: auto;">
+              col:    0-511     512-1023   1024-1535  1536-2047
+           ┌──────────┬──────────┬──────────┬──────────┐
+  row 0-127│  (0,0)   │  (0,1)   │  (0,2)   │  (0,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 128-255│  (1,0)   │  (1,1)   │  (1,2)   │  (1,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 256-383│  (2,0)   │  (2,1)   │  (2,2)   │  (2,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 384-511│  (3,0)   │  (3,1)   │  (3,2)   │  (3,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 512-639│  (4,0)   │  (4,1)   │  (4,2)   │  (4,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 640-767│  (5,0)   │  (5,1)   │  (5,2)   │  (5,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 768-895│  (6,0)   │  (6,1)   │  (6,2)   │  (6,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+row 896-1023│  (7,0)   │  (7,1)   │  (7,2)   │  (7,3)   │
+           └──────────┴──────────┴──────────┴──────────┘</p>
+            <p>Each <code>(m, n)</code> label is one tile. The loops iterate: <code>m=0..7</code>, <code>n=0..3</code>. With <code>affine_range</code>, the compiler may process these in any order or even in parallel.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: affine_range vs sequential_range ──────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">affine_range vs. sequential_range</h2>
+
+      <p>NKI provides two loop constructs. They look similar but give the compiler very different freedoms:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="nl.affine_range(n) creates a loop of n iterations with an affine (linear) access pattern. The compiler is free to reorder, unroll, or parallelize these iterations because you promise that iteration order does not matter.">nl.affine_range(n)</span></span>
+          <span class="badge-desc"><strong>Order doesn't matter.</strong> The compiler can reorder iterations, overlap DMA with compute, even run multiple iterations simultaneously. Use this when each iteration is independent (most common case).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="nl.sequential_range(n) creates a loop of n iterations that MUST execute in order (0, 1, 2, ..., n-1). Use this when iteration i depends on the result of iteration i-1, such as when accumulating a running sum or maintaining state across tiles.">nl.sequential_range(n)</span></span>
+          <span class="badge-desc"><strong>Order matters.</strong> Iterations execute strictly in order: 0, 1, 2, ... n-1. Use this when iteration i depends on the result of iteration i-1 (e.g., running accumulations, online algorithms).</span>
+        </div>
+      </div>
+
+      <p><strong>Rule of thumb:</strong> default to <code>affine_range</code>. Only switch to <code>sequential_range</code> when you have a true data dependency between iterations &mdash; like accumulating a running maximum for online softmax.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Dynamic Slice Notation ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Dynamic Slice: nl.ds(start, size)</h2>
+
+      <p>Standard Python slicing (<code>a:b</code>) works in NKI, but for computed offsets, <span class="term" data-definition="nl.ds(start, size) is NKI's dynamic slice notation. It represents the range [start, start+size). Unlike Python slice a:b where both endpoints are explicit, nl.ds takes a start and a length, which is more natural when both are computed from loop variables.">dynamic slice</span> notation is cleaner:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># These two are equivalent:</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Python slice notation</span></span>
+<span class="code-line">data = tensor[:, i*<span class="code-number">512</span> : i*<span class="code-number">512</span>+<span class="code-number">512</span>]</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Dynamic slice notation</span></span>
+<span class="code-line">data = tensor[:, <span class="code-function">nl.ds</span>(i * <span class="code-number">512</span>, <span class="code-number">512</span>)]</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Standard Python slicing"</strong></div>
+            <div class="tl"><strong>"All rows, columns i*512 to i*512+512"</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Dynamic slice: start=i*512, length=512"</strong></div>
+            <div class="tl"><strong>"Same thing, but clearer when offsets are computed"</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <p><code>nl.ds(start, size)</code> means "starting at <code>start</code>, take <code>size</code> elements." It is especially useful in nested loops where both the start and size are expressions of loop variables.</p>
+    </div>
+
+    <!-- ── SCREEN 7: Index Arithmetic ──────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Index Arithmetic Decoded</h2>
+
+      <p>The expression <code>m * TILE_M : (m+1) * TILE_M</code> appears everywhere. Here is what it computes for each value of m:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">0</div>
+          <div class="step-body">
+            <strong>m=0:</strong> <code>0*128 : 1*128</code> &rarr; rows 0 to 127
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>m=1:</strong> <code>1*128 : 2*128</code> &rarr; rows 128 to 255
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>m=2:</strong> <code>2*128 : 3*128</code> &rarr; rows 256 to 383
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">...</div>
+          <div class="step-body">
+            <strong>General:</strong> tile m covers rows <code>[m*128, (m+1)*128)</code>. No overlap, no gaps &mdash; they tile the entire dimension.
+          </div>
+        </div>
+      </div>
+
+      <p>The same <span class="term" data-definition="Index arithmetic is the calculation of start and end positions for each tile based on the loop variable and tile size. The pattern 'i * TILE_SIZE : (i+1) * TILE_SIZE' ensures tiles cover the full dimension without overlap or gaps.">index arithmetic</span> applies to the free dimension with <code>n * TILE_N</code>. Together, the two loop variables select a unique 128x512 rectangle from the full tensor.</p>
+    </div>
+
+    <!-- ── SCREEN 8: When Tiles Don't Divide Evenly ────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">When Tiles Don't Divide Evenly</h2>
+
+      <p>What happens if your tensor has 1000 rows instead of 1024? 1000 is not divisible by 128 (1000 / 128 = 7.8125). You have two options:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);"><span class="term" data-definition="Padding means adding extra zeros to a tensor so its dimensions become divisible by the tile size. For example, padding 1000 rows to 1024 rows (adding 24 zeros). The extra elements are ignored in the final result.">Padding</span></span>
+          <span class="badge-desc">Pad the tensor to the next multiple of 128 before the kernel runs. Process 1024 rows (8 tiles), then discard the last 24 rows of the result. Simple and common.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Masking means processing a partial tile (with fewer than 128 valid rows) and using a mask to ignore the invalid elements during computation. More complex than padding but avoids wasting memory on zeros.">Masking</span></span>
+          <span class="badge-desc">Process 7 full tiles (896 rows), then handle the remaining 104 rows as a partial tile with a mask that ignores the invalid elements. More complex but avoids allocating extra memory.</span>
+        </div>
+      </div>
+
+      <p>In practice, most ML tensors have dimensions that are already multiples of 128 (batch sizes, hidden dimensions, sequence lengths are typically powers of 2). When they are not, padding is the simpler approach.</p>
+    </div>
+
+    <!-- ── SCREEN 9: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module3">
+
+        <div class="quiz-question-block" data-correct="pad-or-mask" data-explanation-right="Correct! If M is not divisible by 128, you must either pad the tensor to the next multiple of 128, or handle the remainder with a partial tile and masking. The naive loop M//128 would skip the leftover rows entirely." data-explanation-wrong="If M is not divisible by 128, M//128 rounds down, so the last partial chunk of rows would be skipped. You need to pad the tensor to a multiple of 128, or explicitly handle the remainder with masking.">
+          <p class="quiz-question">1. What happens if M (number of rows) is not divisible by 128?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>The kernel crashes with a hardware error</span>
+            </button>
+            <button class="quiz-option" data-value="auto" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>The compiler automatically pads the tensor</span>
+            </button>
+            <button class="quiz-option" data-value="pad-or-mask" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>You must pad the tensor or handle the remainder with masking</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="reorder" data-explanation-right="Correct! affine_range allows the compiler to reorder, unroll, or parallelize loop iterations because you promise there are no cross-iteration dependencies. sequential_range forces strict in-order execution (0, 1, 2, ...) for when iteration i depends on iteration i-1." data-explanation-wrong="The key difference is freedom of execution order. affine_range lets the compiler reorder and parallelize iterations. sequential_range forces strict sequential execution because there are data dependencies between iterations.">
+          <p class="quiz-question">2. What is the difference between <code>nl.affine_range</code> and <code>nl.sequential_range</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range is faster; sequential_range is slower but uses less memory</span>
+            </button>
+            <button class="quiz-option" data-value="reorder" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range allows iteration reordering; sequential_range forces strict order</span>
+            </button>
+            <button class="quiz-option" data-value="size" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range is for large loops; sequential_range is for small loops</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="slice-256-768" data-explanation-right="Correct! nl.ds(256, 512) means 'starting at index 256, take 512 elements' — which gives you indices 256 through 767 (i.e., 256:768 in Python slice notation)." data-explanation-wrong="nl.ds(start, size) means 'starting at start, take size elements.' So nl.ds(256, 512) starts at index 256 and takes 512 elements, giving you indices 256 through 767 — equivalent to the Python slice 256:768.">
+          <p class="quiz-question">3. What does <code>nl.ds(256, 512)</code> mean?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="slice-256-512" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Elements at indices 256 and 512 (two specific positions)</span>
+            </button>
+            <button class="quiz-option" data-value="slice-256-768" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Elements from index 256 to 767 (start=256, length=512)</span>
+            </button>
+            <button class="quiz-option" data-value="slice-0-256" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>First 256 elements with stride 512</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 10: Summary ──────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Tiling Mastered</span>
+          <p>You now understand the tiling machinery that every NKI kernel uses: the 128-row partition dimension, the up-to-512 free dimension, affine vs. sequential loops, index arithmetic, and dynamic slicing. In the next module, we will use these tiles to perform element-wise operations beyond simple addition.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Element-wise Operations &mdash; Beyond Addition</h1>
+      <p class="module-subtitle">The full toolkit of per-element operations: binary ops, scalar broadcasting, activations, and the secret weapon of chained instructions.</p>
+    </header>
+
+    <!-- ── SCREEN 1: The Building Blocks ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Four Element-wise Primitives</h2>
+
+      <p>In Module 2 we used <code>nisa.tensor_tensor</code> for addition. That is just one of four <span class="term" data-definition="Element-wise operations apply the same function independently to every element in a tile (or corresponding elements in two tiles). No element's result depends on any other element. Examples: add, multiply, exp, log.">element-wise</span> primitives that NKI provides. Together, they form the complete set of per-element building blocks:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-1);">T</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_tensor performs a binary operation (add, subtract, multiply, min, max) between two tiles of the same shape that are both in SBUF. Every element in tile A is combined with the corresponding element in tile B.">nisa.tensor_tensor</span></strong>
+            <p><span class="term" data-definition="A binary operation takes two inputs and produces one output. In the context of NKI, it means combining corresponding elements from two tiles: result[i,j] = op(a[i,j], b[i,j]).">Binary ops</span> between two tiles: add, subtract, multiply, min, max. Both tiles must be in SBUF and have the same shape.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-2);">S</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_scalar applies an operation between a tile and a scalar (single value) or a vector (one value per row). The scalar/vector gets broadcast across all columns of the tile. Can chain two operations in a single instruction.">nisa.tensor_scalar</span></strong>
+            <p>Op between a tile and a <span class="term" data-definition="A scalar in NKI is a single value (or a column vector with one value per row) that gets applied to every element in the free dimension. Shape (128,1) gets broadcast to (128,512) — the same value is used across all 512 columns of each row.">scalar</span>/vector. Supports <span class="term" data-definition="Broadcasting is when a smaller tensor (like shape 128x1) is automatically expanded to match a larger tensor (like 128x512) by repeating its values along the missing dimension. In NKI, a (128,1) vector broadcasts across all columns.">broadcasting</span> and can chain two ops in one instruction.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-3);">A</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.activation applies a unary nonlinear function (exp, log, tanh, reciprocal, sigmoid) to every element of a tile. Can optionally apply a scale and/or bias before the activation: activation(data * scale + bias).">nisa.activation</span></strong>
+            <p><span class="term" data-definition="A unary operation takes one input and produces one output. Examples: exp(x), log(x), tanh(x). Each element is transformed independently.">Unary ops</span>: exp, log, tanh, reciprocal, sigmoid. Optionally applies scale and bias before the nonlinearity.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-4);">C</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_copy moves data between memory spaces (PSUM to SBUF, or SBUF to SBUF) with optional type conversion. It does not cross the HBM boundary — use nisa.dma_copy for that.">nisa.tensor_copy</span></strong>
+            <p>Copies data between PSUM and SBUF (with optional <span class="term" data-definition="Type casting converts data from one numeric format to another (e.g., float32 to float16, or bfloat16 to float32). In NKI, type conversion often happens during tensor_copy when moving between PSUM (always float32) and SBUF (which can hold float16/bfloat16).">type casting</span>). The glue that connects compute results in PSUM back to SBUF for further processing.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: tensor_tensor Deep Dive ───────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Binary Operations: tensor_tensor</h2>
+
+      <p>The simplest element-wise primitive. Two tiles go in, one tile comes out. Every element at position (i, j) is combined independently:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Element-wise multiply</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_tensor</span>(</span>
+<span class="code-line">  dst=result,</span>
+<span class="code-line">  data1=a_tile,</span>
+<span class="code-line">  data2=b_tile,</span>
+<span class="code-line">  op=<span class="code-property">nl.multiply</span></span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Multiply two tiles element-by-element"</strong></div>
+            <div class="tl"><strong>"Put the result here"</strong> &mdash; must be in SBUF</div>
+            <div class="tl"><strong>"First input tile"</strong> &mdash; in SBUF</div>
+            <div class="tl"><strong>"Second input tile"</strong> &mdash; same shape, in SBUF</div>
+            <div class="tl"><strong>"The operation: multiply"</strong> &mdash; also: add, subtract, min, max</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Supported operations: <code>nl.add</code>, <code>nl.subtract</code>, <code>nl.multiply</code>, <code>nl.minimum</code>, <code>nl.maximum</code>. All inputs and output must be in SBUF with matching shapes.</p>
+    </div>
+
+    <!-- ── SCREEN 3: tensor_scalar and Broadcasting ────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Scalar Broadcast: tensor_scalar</h2>
+
+      <p>Often you need to apply the same value across an entire row &mdash; subtract the row maximum, multiply by a scale factor, add a bias. This is where <code>nisa.tensor_scalar</code> shines:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Subtract row-max for numerical stability</span></span>
+<span class="code-line"><span class="code-comment"># row_max shape: (128, 1)</span></span>
+<span class="code-line"><span class="code-comment"># scores shape:  (128, 512)</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_scalar</span>(</span>
+<span class="code-line">  dst=normalized,</span>
+<span class="code-line">  data=scores,</span>
+<span class="code-line">  op0=<span class="code-property">nl.subtract</span>,</span>
+<span class="code-line">  operand0=row_max</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Subtract the maximum from each row"</strong></div>
+            <div class="tl"><strong>"row_max has one value per row"</strong> &mdash; shape (128, 1)</div>
+            <div class="tl"><strong>"scores has 512 values per row"</strong> &mdash; shape (128, 512)</div>
+            <div class="tl"><strong>"Apply a scalar operation"</strong></div>
+            <div class="tl"><strong>"Store result here"</strong> &mdash; shape (128, 512)</div>
+            <div class="tl"><strong>"The tile to operate on"</strong> &mdash; full 128x512 tile</div>
+            <div class="tl"><strong>"Operation: subtract"</strong> &mdash; applied per-element</div>
+            <div class="tl"><strong>"The scalar/vector to subtract"</strong> &mdash; broadcast across cols</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>The key insight: <code>row_max</code> has shape (128, 1) but gets broadcast to (128, 512). Each row's single max value is subtracted from all 512 columns in that row. This is identical to NumPy broadcasting &mdash; just happening on custom hardware.</p>
+    </div>
+
+    <!-- ── SCREEN 4: Chaining Operations ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Secret Weapon: Chained Operations</h2>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9889;</span>
+        <div class="callout-content">
+          <span class="callout-title">One Instruction, Two Operations</span>
+          <p>The <span class="term" data-definition="Chaining means performing two scalar operations (op0 then op1) in a single tensor_scalar instruction. The hardware applies op0 first, then immediately applies op1 to the intermediate result — without an extra memory read/write cycle.">chained</span> tensor_scalar instruction is the secret weapon of NKI optimization. Instead of two separate instructions (multiply then add), one instruction does both &mdash; halving the memory reads and pipeline bubbles.</p>
+        </div>
+      </div>
+
+      <p><code>nisa.tensor_scalar</code> can perform <strong>two operations in sequence</strong> with a single instruction. First <code>op0</code> is applied, then <code>op1</code> is applied to the intermediate result:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Fused multiply-add: out = x * scale + bias</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_scalar</span>(</span>
+<span class="code-line">  dst=out,</span>
+<span class="code-line">  data=x,</span>
+<span class="code-line">  op0=<span class="code-property">nl.multiply</span>,</span>
+<span class="code-line">  operand0=scale,</span>
+<span class="code-line">  op1=<span class="code-property">nl.add</span>,</span>
+<span class="code-line">  operand1=bias</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Multiply then add in ONE instruction"</strong></div>
+            <div class="tl"><strong>"Apply chained scalar ops"</strong></div>
+            <div class="tl"><strong>"Result goes here"</strong></div>
+            <div class="tl"><strong>"Input tile"</strong></div>
+            <div class="tl"><strong>"First op: multiply each element by scale"</strong></div>
+            <div class="tl"><strong>"Scale value (broadcast)"</strong></div>
+            <div class="tl"><strong>"Second op: add bias to intermediate"</strong></div>
+            <div class="tl"><strong>"Bias value (broadcast)"</strong></div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Without chaining, you would need two instructions: one tensor_scalar for multiply, then another for add. Each instruction reads the tile from SBUF and writes it back. Chaining eliminates the intermediate read-write cycle.</p>
+    </div>
+
+    <!-- ── SCREEN 5: Activations ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Activations: The Nonlinear Functions</h2>
+
+      <p><span class="term" data-definition="An activation function is a nonlinear mathematical function applied element-wise to tensor values. Neural networks need nonlinearities (like exp, tanh, sigmoid) to model complex patterns. Without them, stacking layers would just be matrix multiplication.">Activation functions</span> are the nonlinear transformations that make neural networks powerful. NKI provides them as a single instruction:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Compute exp(data * scale)</span></span>
+<span class="code-line"><span class="code-function">nisa.activation</span>(</span>
+<span class="code-line">  dst=exp_result,</span>
+<span class="code-line">  op=<span class="code-property">nl.exp</span>,</span>
+<span class="code-line">  data=delta,</span>
+<span class="code-line">  scale=A_val</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Apply exponential with a scale factor"</strong></div>
+            <div class="tl"><strong>"Activation instruction"</strong></div>
+            <div class="tl"><strong>"Store result here"</strong></div>
+            <div class="tl"><strong>"Which function: exponential"</strong> &mdash; also: log, tanh, reciprocal</div>
+            <div class="tl"><strong>"Input tile"</strong> &mdash; computes exp(delta * A_val)</div>
+            <div class="tl"><strong>"Multiply input by this before applying exp"</strong></div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Available activations: <code>nl.exp</code>, <code>nl.log</code>, <code>nl.tanh</code>, <code>nl.reciprocal</code>, <code>nl.sigmoid</code>. The optional <code>scale</code> and <code>bias</code> parameters let you compute <code>op(data * scale + bias)</code> in a single instruction.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Group Chat ────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Operations Argue</h2>
+
+      <p>Each element-wise operation has its own specialty. Here they are, debating who is the most important:</p>
+
+      <div class="chat-window animate-in" id="chat-module4">
+        <div class="chat-messages">
+
+          <div class="chat-message" data-sender="tensor_tensor" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">T</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">tensor_tensor</span>
+              <p>I handle all the binary ops &mdash; add, multiply, subtract, you name it. Two tiles go in, one comes out. I'm the workhorse of every kernel. Without me, you can't even combine two loaded tiles.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_scalar" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">tensor_scalar</span>
+              <p>Cute. I can broadcast a single value across 512 columns AND chain two operations in one shot. Multiply-then-add? That's one instruction for me, two for you. I'm the fused-op king.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="activation" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">A</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">activation</span>
+              <p>You two are just arithmetic. I do the nonlinear magic &mdash; exp, log, tanh, sigmoid. Without me, your neural network is just a stack of linear transforms. I make it actually learn things.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_copy" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">tensor_copy</span>
+              <p>Everyone forgets about me, but nothing works without me. After matmul, results sit in PSUM as float32. Someone has to move them back to SBUF so you three can do your thing. That someone is me.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_scalar" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">tensor_scalar</span>
+              <p>Fair point, tensor_copy. But let's be real &mdash; in every softmax kernel, I subtract the max and then activation computes exp. We're a team. The real enemy is doing these as separate instructions when we could fuse them.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 7: Drag-and-Drop Matching ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Operation to Its Use Case</h2>
+
+      <p>Drag each NKI instruction to its correct real-world application:</p>
+
+      <div class="dnd-container animate-in" id="dnd-module4">
+        <div class="dnd-items">
+          <div class="dnd-item" draggable="true" data-match="scale-tiles">
+            <code>nisa.tensor_tensor(op=nl.multiply)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="subtract-max">
+            <code>nisa.tensor_scalar(op0=nl.subtract, operand0=max_val)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="compute-exp">
+            <code>nisa.activation(op=nl.exp)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="move-psum">
+            <code>nisa.tensor_copy</code>
+          </div>
+        </div>
+        <div class="dnd-targets">
+          <div class="dnd-target" data-accept="scale-tiles">
+            <span class="dnd-target-label">Scale one tile by another (e.g., attention scores * values)</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="subtract-max">
+            <span class="dnd-target-label">Subtract row-max for numerical stability</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="compute-exp">
+            <span class="dnd-target-label">Compute exponentials for softmax</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="move-psum">
+            <span class="dnd-target-label">Move results from PSUM to SBUF</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+        </div>
+        <div class="dnd-feedback"></div>
+        <button class="btn btn-primary dnd-check-btn">Check Matches</button>
+        <button class="btn dnd-reset-btn">Reset</button>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 8: Type Conversion ───────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Type Conversion: float32, float16, bfloat16</h2>
+
+      <p>NeuronCore uses mixed precision internally. The Tensor Engine always outputs float32 into PSUM. But SBUF often holds float16 or bfloat16 to save space. You need to convert between them:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">PSUM &rarr; SBUF</span>
+          <span class="badge-desc"><code>nisa.tensor_copy(dst=sbuf_tile, src=psum_tile)</code> &mdash; automatically converts float32 to the destination dtype (float16 or bfloat16).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">SBUF &rarr; SBUF</span>
+          <span class="badge-desc"><code>nisa.tensor_copy</code> can also convert between float16 and bfloat16 within SBUF when you need a specific format for the next operation.</span>
+        </div>
+      </div>
+
+      <p>The general rule: compute in float32 (for precision), store in float16/bfloat16 (for space). The Tensor Engine enforces this &mdash; PSUM is always float32.</p>
+    </div>
+
+    <!-- ── SCREEN 9: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module4">
+
+        <div class="quiz-question-block" data-correct="broadcast-row" data-explanation-right="Correct! A (128, 1) vector in NKI broadcasts across the free dimension. Each row's single value is applied to all 512 columns in that row — like NumPy broadcasting but on custom hardware." data-explanation-wrong="Broadcasting in NKI works along the free dimension (columns). A (128, 1) operand means 'one value per row' and that value is applied to every column in the row. It does NOT replicate to 128 separate tiles.">
+          <p class="quiz-question">1. When <code>operand0</code> has shape (128, 1) in tensor_scalar, what happens?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Shape mismatch error &mdash; operand must be (128, 512)</span>
+            </button>
+            <button class="quiz-option" data-value="broadcast-row" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Each row's value is broadcast across all 512 columns</span>
+            </button>
+            <button class="quiz-option" data-value="first-only" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Only the first column is affected; the rest stay unchanged</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="one-instruction" data-explanation-right="Correct! Chaining with op0 and op1 performs both operations in a single hardware instruction. The intermediate result never gets written to memory — it flows directly through the pipeline. This halves memory traffic compared to two separate instructions." data-explanation-wrong="Chaining (using both op0 and op1 in tensor_scalar) is a hardware feature that fuses two operations into one instruction. The intermediate result stays in the pipeline — no extra memory read/write. It genuinely reduces instruction count and memory traffic.">
+          <p class="quiz-question">2. What is the advantage of chaining op0 and op1 in <code>nisa.tensor_scalar</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="readability" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It only improves code readability; performance is the same</span>
+            </button>
+            <button class="quiz-option" data-value="one-instruction" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Two ops execute in one instruction, halving memory reads/writes</span>
+            </button>
+            <button class="quiz-option" data-value="parallel" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>op0 and op1 run in parallel on different hardware units</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="tensor-copy" data-explanation-right="Correct! After a matrix multiply, results live in PSUM as float32. To use them in element-wise operations (which operate on SBUF), you must first use nisa.tensor_copy to move the data from PSUM to SBUF, converting types if needed." data-explanation-wrong="Results from the Tensor Engine (matmul) always land in PSUM. Element-wise operations like tensor_tensor and tensor_scalar work on SBUF. The bridge between them is nisa.tensor_copy, which moves data from PSUM to SBUF.">
+          <p class="quiz-question">3. After a matrix multiply puts results in PSUM, how do you use them in element-wise ops?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="direct" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Reference PSUM directly &mdash; element-wise ops can read from any buffer</span>
+            </button>
+            <button class="quiz-option" data-value="dma" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Use nisa.dma_copy to move PSUM to HBM, then back to SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="tensor-copy" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Use nisa.tensor_copy to move data from PSUM to SBUF</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 10: Summary ──────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Element-wise Toolkit Complete</span>
+          <p>You now command the four element-wise primitives: tensor_tensor for binary ops, tensor_scalar for broadcast and chained ops, activation for nonlinear functions, and tensor_copy for shuffling data between PSUM and SBUF. In the next module, we will combine these with tiling to build a full matrix multiplication kernel.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">05</span>
+      <h2 class="module-title">Matrix Multiplication &mdash; The Heart of AI</h2>
+      <p class="module-subtitle">From a single hardware multiply to fully optimized tiled matmul in four progressive steps.</p>
+    </header>
+
+    <!-- ─── SCREEN 1: The Tensor Engine ─────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Hardware That Does the Heavy Lifting</h3>
+
+      <p>Every neural network is, at its core, a chain of matrix multiplications. NeuronCore has a dedicated <span class="term" data-definition="A fixed-function hardware unit on NeuronCore that performs 128x128 @ 128x512 matrix multiplications in a single instruction. It operates on data already resident in SBUF and writes results to PSUM.">Tensor Engine</span> that can multiply a 128&times;128 matrix by a 128&times;512 matrix in one shot &mdash; producing a 128&times;512 result.</p>
+
+      <p>But the Tensor Engine has rules. The left-hand side (LHS) is <span class="term" data-definition="The 'stationary' operand stays loaded in the Tensor Engine's internal registers while multiple 'moving' operands stream through it. This avoids reloading the same data repeatedly.">stationary</span> &mdash; it stays in place inside the engine. The right-hand side (RHS) is <span class="term" data-definition="The 'moving' operand streams through the Tensor Engine one tile at a time, getting multiplied against the stationary operand that remains fixed in place.">moving</span> &mdash; it streams through the engine. The result always lands in <span class="term" data-definition="Partial Sum buffer (PSUM) — a special on-chip memory bank that stores intermediate float32 accumulation results from the Tensor Engine. Values here can be accumulated across multiple matmul calls before being copied out.">PSUM</span> as float32, regardless of input types.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1F4D0;</span>
+        <div>
+          <span class="callout-title">Key Dimensions</span>
+          <p class="callout-content">TILE_M = 128 (stationary free dimension) &middot; TILE_K = 128 (contraction dimension) &middot; TILE_N = 512 (moving free dimension). These are hardware constants &mdash; every NKI matmul works within these tile sizes.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 2: The Four Versions ─────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Four Steps to an Optimized Matmul</h3>
+
+      <p>NKI matmul kernels evolve through four stages. Each version addresses a limitation of the previous one.</p>
+
+      <div class="step-cards stagger-children">
+        <div class="step-card animate-in" style="--stagger-index: 0">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Basic &mdash; Single Fixed-Size Multiply</strong>
+            <p>Load lhsT[128,64] and rhs[128,512] into SBUF, call <code>nisa.nc_matmul</code>, copy result back to HBM. Works only for matrices that fit in one tile.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 1">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Tiled &mdash; Loop Over M, N, K</strong>
+            <p>Use <code>nl.affine_range</code> to tile the computation. Loop over the <span class="term" data-definition="The contraction dimension (K) is the shared dimension between LHS and RHS that gets summed over during multiplication. When K is larger than TILE_K, you must accumulate partial sums across multiple tiles.">contraction dimension</span> K, <span class="term" data-definition="To accumulate means to add successive partial products into the same PSUM buffer. After looping over all K tiles, the PSUM holds the complete result for that output tile.">accumulate</span> <span class="term" data-definition="A partial sum is an intermediate result from multiplying one K-tile of data. The full result requires summing all partial sums across the entire K dimension.">partial sums</span> in PSUM. Now handles arbitrary-size matrices.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 2">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Hoisted Loads &mdash; Reuse LHS Across Columns</strong>
+            <p>Pull the lhsT load out of the inner N-loop. Each LHS tile gets loaded once and reused for every column tile of the output. Cuts memory traffic significantly.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 3">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Blocked Free Dimension &mdash; Better Access Patterns</strong>
+            <p>Load RHS in bigger contiguous chunks to improve DMA efficiency. Aligns memory accesses with the hardware's preferred access patterns for maximum bandwidth.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 3: Code-English Translation ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Reading the Tiled Matmul</h3>
+
+      <p>Here is the tiled version (Version 2) &mdash; the foundation every later optimization builds upon.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):
+  <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):
+    res_psum = <span class="code-function">nl.ndarray</span>(
+      (TILE_M, TILE_N), nl.float32,
+      buffer=nl.psum)
+    <span class="code-keyword">for</span> k <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(K // TILE_K):
+      lhsT_tile = <span class="code-function">nl.ndarray</span>(
+        (TILE_K, TILE_M), dtype=lhsT.dtype,
+        buffer=nl.sbuf)
+      rhs_tile = <span class="code-function">nl.ndarray</span>(
+        (TILE_K, TILE_N), dtype=rhs.dtype,
+        buffer=nl.sbuf)
+      <span class="code-function">nisa.dma_copy</span>(dst=lhsT_tile,
+        src=lhsT[k*TILE_K:(k+1)*TILE_K,
+                 m*TILE_M:(m+1)*TILE_M])
+      <span class="code-function">nisa.dma_copy</span>(dst=rhs_tile,
+        src=rhs[k*TILE_K:(k+1)*TILE_K,
+                n*TILE_N:(n+1)*TILE_N])
+      <span class="code-function">nisa.nc_matmul</span>(dst=res_psum,
+        stationary=lhsT_tile,
+        moving=rhs_tile)
+    res_sb = <span class="code-function">nl.ndarray</span>(
+      res_psum.shape, dtype=result.dtype,
+      buffer=nl.sbuf)
+    <span class="code-function">nisa.tensor_copy</span>(dst=res_sb,
+      src=res_psum)
+    <span class="code-function">nisa.dma_copy</span>(
+      dst=result[m*TILE_M:(m+1)*TILE_M,
+                 n*TILE_N:(n+1)*TILE_N],
+      src=res_sb)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Walk down the rows</strong> of the output, one 128-row chunk at a time.</div>
+            <div class="tl"><strong>Walk across the columns</strong> of the output, one 512-column chunk at a time.</div>
+            <div class="tl"><strong>Reserve a scratchpad</strong> in PSUM to accumulate the result for this output tile (always float32).</div>
+            <div class="tl"><strong>Walk along the shared K dimension</strong>, one 128-element slice at a time.</div>
+            <div class="tl"><strong>Allocate space in SBUF</strong> for one tile of the transposed LHS and one tile of RHS.</div>
+            <div class="tl"><strong>DMA the LHS tile</strong> from HBM into on-chip SBUF memory.</div>
+            <div class="tl"><strong>DMA the RHS tile</strong> from HBM into on-chip SBUF memory.</div>
+            <div class="tl"><strong>Fire the Tensor Engine</strong> &mdash; multiply stationary LHS by moving RHS, accumulating into PSUM.</div>
+            <div class="tl"><strong>After all K tiles are done</strong>, PSUM holds the complete result. Copy it to SBUF (converting to output dtype).</div>
+            <div class="tl"><strong>DMA the finished tile</strong> from SBUF back to HBM at the correct position in the output matrix.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 4: Flow Animation ────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Data Flow: One Tile Iteration</h3>
+
+      <p>Watch how data moves through the hardware during a single K-tile iteration of the matmul.</p>
+
+      <div class="flow-animation animate-in" id="flow-matmul"
+           data-steps='[
+             {"label":"Load LHS tile from HBM into SBUF via DMA","highlight":"flow-actor-2","packet":true,"from":"actor-1","to":"actor-2"},
+             {"label":"Load RHS tile from HBM into SBUF via DMA","highlight":"flow-actor-2","packet":true,"from":"actor-1","to":"actor-2"},
+             {"label":"Tensor Engine fires: stationary LHS x moving RHS","highlight":"flow-actor-3","packet":true,"from":"actor-2","to":"actor-3"},
+             {"label":"Result accumulates in PSUM as float32","highlight":"flow-actor-4","packet":true,"from":"actor-3","to":"actor-4"},
+             {"label":"After all K tiles: copy accumulated result from PSUM to SBUF","highlight":"flow-actor-2","packet":true,"from":"actor-4","to":"actor-2"},
+             {"label":"DMA the final result from SBUF back to HBM","highlight":"flow-actor-1","packet":true,"from":"actor-2","to":"actor-1"}
+           ]'>
+
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-actor-1">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">H</div>
+            <span>HBM</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-2">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">S</div>
+            <span>SBUF</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-3">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">T</div>
+            <span>Tensor Engine</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-4">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">P</div>
+            <span>PSUM</span>
+          </div>
+        </div>
+
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to begin</div>
+
+        <div class="flow-controls">
+          <button class="btn btn-primary flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 5: Key Optimization Insight ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Optimization That Matters Most</h3>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x1F4A1;</span>
+        <div>
+          <span class="callout-title">Data Reuse is Everything</span>
+          <p class="callout-content">The key optimization insight in NKI matmul is data reuse &mdash; by hoisting the LHS load outside the N-loop, each LHS tile gets used for every column of the result instead of being re-loaded. If your output has 8 column tiles, you save 7 redundant DMA transfers of the same LHS data per K iteration.</p>
+        </div>
+      </div>
+
+      <p>In the basic tiled version (Version 2), both LHS and RHS are loaded inside the innermost loop. Version 3 restructures the loops so the LHS load sits in the M-K loop, outside of N. The Tensor Engine keeps the <span class="term" data-definition="A fixed-function hardware unit on NeuronCore that performs 128x128 @ 128x512 matrix multiplications in a single instruction. It operates on data already resident in SBUF and writes results to PSUM.">Tensor Engine</span>'s stationary operand loaded while new RHS tiles stream through.</p>
+
+      <p>Version 4 goes further by loading RHS in larger contiguous blocks. Instead of fetching one 128&times;512 tile per iteration, it grabs multiple adjacent tiles in a single DMA burst. This keeps the memory controller busy and hides latency behind computation.</p>
+    </div>
+
+    <!-- ─── SCREEN 6: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+
+      <div class="quiz-container animate-in" id="quiz-matmul">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="The Tensor Engine requires the stationary operand's free dimension along columns (dim 1). Transposing LHS puts the M dimension in position for the hardware to hold it stationary while K streams as the contraction axis."
+             data-explanation-wrong="It is not about saving memory. The transpose is required because the Tensor Engine's hardware layout expects the stationary operand in [K, M] shape &mdash; with K as the leading (partition) dimension.">
+          <div class="quiz-question">Why is lhsT stored transposed as [K, M] instead of the natural [M, K]?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It saves memory by packing data more efficiently
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The Tensor Engine hardware requires the stationary operand in [K, M] layout
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It allows the compiler to fuse the transpose with the multiply
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Stationary stays loaded in the Tensor Engine while multiple moving operands stream through. This is why hoisting the LHS load works &mdash; one stationary load serves many moving tiles."
+             data-explanation-wrong="Stationary means the operand stays fixed inside the Tensor Engine's registers. Moving means the operand streams through the engine one tile at a time. This asymmetry is what enables data reuse.">
+          <div class="quiz-question">What does "stationary" vs "moving" mean in the context of the Tensor Engine?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary stays in-place in the engine; moving streams through it
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary is in HBM; moving is in SBUF
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary means read-only; moving means read-write
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="The Tensor Engine always outputs float32 to PSUM to preserve numerical precision during accumulation. Partial products from each K-tile are summed in float32 before the final result is cast to the output dtype."
+             data-explanation-wrong="PSUM uses float32 because accumulation requires higher precision than the input types. If you accumulated in fp16 or bf16, rounding errors would compound across K tiles and degrade the result.">
+          <div class="quiz-question">Why does PSUM always store results in float32, even when inputs are fp16 or bf16?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The hardware does not support other types in PSUM
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Float32 is faster for the accumulation hardware
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Accumulating partial sums requires higher precision to avoid compounding rounding errors
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-matmul')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-matmul')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">06</span>
+      <h2 class="module-title">Attention &mdash; The Optimization Journey</h2>
+      <p class="module-subtitle">From a naive 10-line attention to flash-attention-style online softmax, in five progressive versions.</p>
+    </header>
+
+    <!-- ─── SCREEN 1: What is Attention? ────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Formula That Powers Every LLM</h3>
+
+      <p><span class="term" data-definition="The attention mechanism computes a weighted combination of Value vectors, where the weights are determined by how well each Query matches each Key. Formula: softmax(Q @ K^T) @ V. It is the core operation in Transformer models.">Attention</span> computes <code>softmax(Q @ K<sup>T</sup>) @ V</code>. That single formula is responsible for the magic of ChatGPT, image generators, and protein folders. It is also the most expensive operation in any transformer.</p>
+
+      <p>The challenge: <span class="term" data-definition="Softmax converts a vector of raw scores into a probability distribution. It exponentiates each element, then divides by the sum of all exponentials. Numerically stable versions subtract the max before exponentiating.">softmax</span> requires knowing the maximum value across an entire row before you can compute any single element. This creates a data dependency that makes tiling and fusion difficult.</p>
+
+      <p>The NKI samples show how to evolve from a straightforward implementation to one that never materializes the full attention matrix &mdash; cutting memory from O(n&sup2;) to O(n).</p>
+    </div>
+
+    <!-- ─── SCREEN 2: Code-English Translation (v1) ─────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Version 1: The Naive Attention</h3>
+
+      <p>Version 1 uses high-level NKI operations. It is slow but crystal-clear about what attention actually computes.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-keyword">@nki.jit</span>
+<span class="code-keyword">def</span> <span class="code-function">attn_fwd_v1</span>(q, k, v):
+  q_sbuf = <span class="code-function">nl.load</span>(q)
+  k_sbuf = <span class="code-function">nl.load</span>(k)
+  v_sbuf = <span class="code-function">nl.load</span>(v)
+
+  qk_psum = <span class="code-function">nl.matmul</span>(
+    x=q_sbuf, y=k_sbuf,
+    transpose_x=<span class="code-keyword">True</span>)
+  qk = <span class="code-function">nl.ndarray</span>(qk_psum.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_copy</span>(dst=qk, src=qk_psum)
+
+  row_max = <span class="code-function">nl.max</span>(qk, axis=<span class="code-number">1</span>,
+    keepdims=<span class="code-keyword">True</span>)
+  norm_row = <span class="code-function">nl.ndarray</span>(qk.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_scalar</span>(dst=norm_row,
+    data=qk, op0=nl.subtract,
+    operand0=row_max)
+
+  exp_row = <span class="code-function">nl.exp</span>(norm_row)
+  sum_row = <span class="code-function">nl.sum</span>(exp_row,
+    axis=<span class="code-number">1</span>, keepdims=<span class="code-keyword">True</span>)
+  inv_sum = <span class="code-function">nl.reciprocal</span>(sum_row)
+
+  scores = <span class="code-function">nl.ndarray</span>(exp_row.shape,
+    dtype=nl.float32, buffer=nl.sbuf)
+  <span class="code-function">nisa.tensor_scalar</span>(dst=scores,
+    data=exp_row, op0=nl.multiply,
+    operand0=inv_sum)
+  <span class="code-comment"># ... then scores @ V</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Load Q, K, V</strong> from HBM into on-chip SBUF.</div>
+            <div class="tl"><strong>Compute Q @ K<sup>T</sup></strong> using the Tensor Engine. Result lands in PSUM.</div>
+            <div class="tl"><strong>Copy QK scores</strong> from PSUM to SBUF (now accessible for element-wise ops).</div>
+            <div class="tl"><strong>Find the max</strong> of each row. This is the stability trick &mdash; prevents overflow.</div>
+            <div class="tl"><strong>Subtract the max</strong> from every element in the row. Now the largest value is 0.</div>
+            <div class="tl"><strong>Exponentiate</strong> every element. Since max was subtracted, no value exceeds e^0 = 1.</div>
+            <div class="tl"><strong>Sum each row</strong> and compute 1/sum. This is the softmax denominator.</div>
+            <div class="tl"><strong>Multiply each row by 1/sum</strong> to get the final attention weights (probabilities summing to 1).</div>
+            <div class="tl"><strong>Finally</strong>, multiply scores by V to get the weighted output.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#x26A0;&#xFE0F;</span>
+        <div>
+          <span class="callout-title">Numerical Stability is Non-Negotiable</span>
+          <p class="callout-content">Without subtracting the max before exp(), large values would overflow to infinity. This single line prevents your entire attention computation from producing garbage. Every version of the kernel keeps this step &mdash; it is never "optimized away."</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 3: The Five Optimization Stages ──────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Optimization Journey: v1 to v8</h3>
+
+      <p>Each version addresses a specific bottleneck. The jump from v1 to v8 delivers orders-of-magnitude improvement.</p>
+
+      <div class="step-cards stagger-children">
+        <div class="step-card animate-in" style="--stagger-index: 0">
+          <div class="step-num">v1</div>
+          <div class="step-body">
+            <strong>Naive &mdash; High-Level API</strong>
+            <p>Uses <code>nl.matmul</code>, <code>nl.max</code>, <code>nl.exp</code>, <code>nl.sum</code>. Clear and correct, but the compiler cannot optimize across operation boundaries. Each op is a separate kernel launch internally.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 1">
+          <div class="step-num">v2</div>
+          <div class="step-body">
+            <strong>ISA-Level &mdash; Explicit Buffer Management</strong>
+            <p>Drops to <code>nisa.nc_matmul</code>, <code>nisa.tensor_copy</code>, and explicit SBUF/PSUM allocation. The programmer controls exactly where every byte lives. This unlocks manual scheduling of operations.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 2">
+          <div class="step-num">v3</div>
+          <div class="step-body">
+            <strong>Tiled &mdash; Handle Long Sequences</strong>
+            <p>Sequences longer than 128 tokens cannot fit in a single tile. This version tiles Q along the sequence length dimension, computing attention for 128 queries at a time against the full K and V.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 3">
+          <div class="step-num">v5</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="A fused operation combines multiple element-wise steps into a single hardware instruction. For example, subtract-then-exp can be one instruction instead of two, halving memory traffic between SBUF and the compute units.">Fused Operations</span> &mdash; Fewer Instructions</strong>
+            <p>Combines softmax steps using <code>nisa.tensor_scalar</code> with chained <code>op0</code> / <code>op1</code> fields. Subtract-and-exp becomes one instruction. Multiply-by-reciprocal becomes one instruction. Halves the memory traffic.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 4">
+          <div class="step-num">v8</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="Flash Attention processes the attention matrix in tiles without ever materializing the full N x N matrix. It uses online softmax to maintain a running max and sum, updating previous results as new tiles reveal larger values.">Flash Attention</span> Style &mdash; <span class="term" data-definition="Online softmax computes softmax incrementally by maintaining a running maximum and running sum. When a new tile reveals a larger max, all previous exponentials are rescaled. This avoids needing a global pass over all data before computing any output.">Online Softmax</span></strong>
+            <p>Never materializes the full attention matrix. Maintains a running max and running sum across K-tiles. When a new tile reveals a larger max, previous partial results are rescaled. Memory drops from O(n&sup2;) to O(n).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 4: Why Online Softmax Works ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Trick Behind Flash Attention</h3>
+
+      <p>Standard softmax needs two passes: one to find the max, another to compute exp and sum. Online softmax does it in one pass by maintaining corrections.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-2); color: white; border-radius: var(--radius-sm);">M</div>
+          <div class="pattern-title">Running Max</div>
+          <p class="pattern-desc">Track the maximum value seen so far. When a new tile has a larger max, update it and rescale all previous exponentials by e^(old_max - new_max).</p>
+        </div>
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-3); color: white; border-radius: var(--radius-sm);">S</div>
+          <div class="pattern-title">Running Sum</div>
+          <p class="pattern-desc">Maintain the sum of exponentials. When the max changes, the old sum gets multiplied by the rescaling factor before adding new exponentials.</p>
+        </div>
+        <div class="pattern-card">
+          <div class="pattern-icon" style="background: var(--color-actor-4); color: white; border-radius: var(--radius-sm);">O</div>
+          <div class="pattern-title">Delayed Division</div>
+          <p class="pattern-desc">Do not divide by the sum until all tiles are processed. Accumulate unnormalized scores @ V, then divide once at the end. One division instead of many.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1F9E0;</span>
+        <div>
+          <span class="callout-title"><span class="term" data-definition="Numerical stability refers to an algorithm's resistance to amplifying floating-point rounding errors. Unstable algorithms can produce wildly incorrect results even when the mathematical formula is correct, because intermediate values overflow or lose precision.">Numerical Stability</span> Throughout</span>
+          <p class="callout-content">Every version of online softmax preserves the subtract-max trick. The running max ensures that at every point in the computation, the largest exponent being computed is e^0 = 1. No overflow is ever possible, regardless of how many tiles are processed.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 5: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+
+      <div class="quiz-container animate-in" id="quiz-attention">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Without subtracting the max, exp() would receive large positive values (e.g., 100+) and produce infinity. Subtracting the max ensures the largest input to exp() is 0, so outputs stay in [0, 1]. The mathematical result is identical because softmax is shift-invariant."
+             data-explanation-wrong="The max subtraction is purely about preventing floating-point overflow. Softmax is mathematically shift-invariant: softmax(x) = softmax(x - c) for any constant c. We choose c = max(x) to keep all exponents safely bounded.">
+          <div class="quiz-question">Why do we compute the row maximum and subtract it before calling exp()?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It makes the attention weights sharper and more focused
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It prevents exp() from overflowing to infinity on large values
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It normalizes the inputs to have zero mean for better gradient flow
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="Online softmax processes tiles incrementally, maintaining a running max and sum. When a new tile has a larger max, all previously accumulated results are rescaled by e^(old_max - new_max). This makes one-pass softmax possible without knowing the global max in advance."
+             data-explanation-wrong="Online softmax is specifically about computing softmax without a separate pass to find the global maximum. It maintains a running max and corrects previous partial results when a larger value appears.">
+          <div class="quiz-question">What is "online softmax" and why does it matter for flash attention?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that runs on a server (online) instead of locally
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that skips the max subtraction for speed
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              A softmax that processes tiles incrementally with a running max and sum, rescaling as it goes
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Delaying the division means you accumulate (unnormalized_scores @ V) across all K-tiles first, then divide by the final sum once at the end. This avoids dividing partial results that would later need to be rescaled anyway, saving instructions and improving numerical behavior."
+             data-explanation-wrong="Delaying division until the end avoids redundant work. If you divided early, each tile's result would need to be un-divided and re-divided when the sum changes. One final division is both simpler and more numerically stable.">
+          <div class="quiz-question">In flash attention, why is the division by the softmax sum delayed until the very end?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              So you only divide once after the total sum is known, avoiding redundant rescaling
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Division is slow so batching it together is faster
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The hardware cannot divide values stored in PSUM
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-attention')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-attention')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 6: Summary ───────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Big Picture</h3>
+
+      <p>The attention optimization journey is really about one thing: <strong>avoiding materialization</strong>. Version 1 creates the full N&times;N attention matrix in memory. Version 8 never creates it at all.</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code">v1&rarr;v2</span>
+          <span class="badge-desc">Move from auto-managed to explicit buffers &mdash; gain control</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v2&rarr;v3</span>
+          <span class="badge-desc">Add tiling &mdash; handle arbitrary sequence lengths</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v3&rarr;v5</span>
+          <span class="badge-desc">Fuse element-wise ops &mdash; cut memory traffic in half</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">v5&rarr;v8</span>
+          <span class="badge-desc">Online softmax &mdash; eliminate O(n&sup2;) memory entirely</span>
+        </div>
+      </div>
+
+      <p>Each step is independently understandable. Together, they turn a textbook formula into production-grade hardware-optimized code running on NeuronCore.</p>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header">
+      <span class="module-number">07</span>
+      <h2 class="module-title">Mamba &mdash; State Space Models on Custom Silicon</h2>
+      <p class="module-subtitle">How Mamba's selective state space model maps to NKI hardware, and why the associative scan is the single most important operation.</p>
+    </header>
+
+    <!-- Screen 1: Introduction -->
+    <div class="screen">
+      <h3 class="screen-heading">Beyond Attention: The Recurrence Alternative</h3>
+      <p>Transformers dominate sequence modeling, but their <span class="term" data-definition="A computational complexity class meaning the work grows with the square of the input size. For attention, doubling sequence length quadruples the compute.">O(n&sup2;)</span> attention cost becomes painful at long sequences. Mamba offers a fundamentally different approach: instead of letting every token look at every other token, it propagates information forward through a <span class="term" data-definition="A computation where each output depends on the previous output. Like a chain where each link is forged from the one before it. Formula: x[t] = f(x[t-1], u[t]).">recurrence</span>.</p>
+      <p>The core equation of a <span class="term" data-definition="A mathematical framework from control theory that models sequences using hidden states. The state evolves over time via matrices A, B, C — capturing how inputs influence outputs through an internal memory.">state space model</span> is deceptively simple:</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1D465;</span>
+        <div class="callout-content">
+          <span class="callout-title">The SSM Recurrence</span>
+          <p><code>x[t] = A * x[t-1] + B * u[t]</code> &mdash; state update<br>
+          <code>y[t] = C * x[t]</code> &mdash; output projection<br><br>
+          Each position updates a hidden state by decaying the previous state (multiply by A) and injecting new information (add B*u). The output is a linear read of that state.</p>
+        </div>
+      </div>
+      <p>This runs in O(n) time &mdash; linear in sequence length. But naive sequential execution wastes hardware parallelism. The key insight: this recurrence can be computed as an <span class="term" data-definition="A parallel algorithm that computes all prefixes of a binary associative operation simultaneously. Like a prefix sum, but generalized to any operation where (a op b) op c = a op (b op c). Enables O(log n) parallel depth for what looks like a sequential computation.">associative scan</span>.</p>
+    </div>
+
+    <!-- Screen 2: The Associative Scan -->
+    <div class="screen">
+      <h3 class="screen-heading">The Associative Scan: Parallel Recurrence</h3>
+      <p>An associative scan is like a <span class="term" data-definition="An operation that computes running totals. prefix_sum([1,2,3,4]) = [1,3,6,10]. Each output is the sum of all inputs up to that position. Generalizes to any associative binary operation.">prefix sum</span>, but instead of just addition, we use the pair of operations (multiply, add). This lets us compute all positions of the recurrence in parallel.</p>
+      <p>NKI provides direct hardware support via a single instruction:</p>
+
+      <!-- Code-English Translation Block -->
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-function">nisa.tensor_tensor_scan</span>(</span>
+            <span class="code-line">    <span class="code-property">dst</span>=scan_res,</span>
+            <span class="code-line">    <span class="code-property">data0</span>=deltaA,</span>
+            <span class="code-line">    <span class="code-property">data1</span>=deltaBu,</span>
+            <span class="code-line">    <span class="code-property">initial</span>=<span class="code-number">0.0</span>,</span>
+            <span class="code-line">    <span class="code-property">op0</span>=nl.<span class="code-keyword">multiply</span>,</span>
+            <span class="code-line">    <span class="code-property">op1</span>=nl.<span class="code-keyword">add</span></span>
+            <span class="code-line">)</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>For each position i along the sequence:</strong></div>
+            <div class="tl">out[i] = deltaA[i] * out[i-1] + deltaBu[i]</div>
+            <div class="tl">Starting from initial value 0.0</div>
+            <div class="tl"><em>op0=multiply</em>: decay the previous output by deltaA</div>
+            <div class="tl"><em>op1=add</em>: inject new input contribution deltaBu</div>
+            <div class="tl">All positions computed in parallel via hardware scan unit</div>
+            <div class="tl"><strong>Result:</strong> the full state history in one instruction</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Think of it like a relay race. Each runner (position) inherits speed from the previous runner (multiply by deltaA) and adds their own boost (add deltaBu). Normally you'd wait for each runner to finish before the next starts. The hardware scan unit does all handoffs simultaneously &mdash; computing the entire race result in one shot.</p>
+    </div>
+
+    <!-- Screen 3: The Full Mamba Kernel -->
+    <div class="screen">
+      <h3 class="screen-heading">Anatomy of the Mamba Kernel</h3>
+      <p>The full Mamba kernel on NKI has five stages. The <span class="term" data-definition="The process of converting continuous-time SSM parameters into discrete-time equivalents. Uses exp(delta * A) to turn the continuous decay rate A into a per-step multiplicative factor. Named after the zero-order hold method from control theory.">discretization</span> step converts continuous parameters to discrete ones. Then the scan does the heavy lifting.</p>
+
+      <!-- Flow Animation -->
+      <div class="flow-animation animate-in" id="mamba-flow"
+           data-steps='[
+             {"highlight":"flow-actor-1","label":"Input signal u arrives &mdash; the raw token embeddings entering the SSM.","packet":true,"from":"actor-1","to":"actor-2"},
+             {"highlight":"flow-actor-2","label":"Discretizer computes exp(delta * A) &mdash; converting continuous decay to per-step factor.","packet":true,"from":"actor-2","to":"actor-3"},
+             {"highlight":"flow-actor-2","label":"Discretizer also computes delta * B * u &mdash; the input contribution at each step.","packet":true,"from":"actor-2","to":"actor-3"},
+             {"highlight":"flow-actor-3","label":"Scanner runs tensor_tensor_scan: out[i] = deltaA[i] * out[i-1] + deltaBu[i] for all i in parallel.","packet":true,"from":"actor-3","to":"actor-4"},
+             {"highlight":"flow-actor-4","label":"Projector multiplies scan result by C &mdash; reading out the relevant information from hidden state.","packet":true,"from":"actor-4","to":"actor-5"},
+             {"highlight":"flow-actor-5","label":"Output: the SSM response for this channel, accumulated across all state dimensions."}
+           ]'>
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-actor-1">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">u</div>
+            <span>Input</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-2">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">e<sup>x</sup></div>
+            <span>Discretizer</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-3">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">&Sigma;</div>
+            <span>Scanner</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-4">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">C</div>
+            <span>Projector</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-5">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-5); color: var(--color-actor-5);">y</div>
+            <span>Output</span>
+          </div>
+        </div>
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to trace data through the Mamba SSM pipeline.</div>
+        <div class="flow-controls">
+          <button class="btn flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+
+      <p>Notice the loop structure: the kernel iterates over batch, channel tiles, and state dimensions. For each state dimension, it runs the full discretize-scan-project pipeline, then accumulates results. This maps naturally to NKI's tile-based execution.</p>
+    </div>
+
+    <!-- Screen 4: Why This Matters -->
+    <div class="screen">
+      <h3 class="screen-heading">Why exp(delta * A)?</h3>
+      <p>The matrix A represents a continuous-time decay rate. To use it in discrete steps, we need to convert it: if A says "decay at rate -0.5 per unit time" and our step size is delta, then the per-step decay factor is exp(delta * A).</p>
+      <p>NKI handles this elegantly with a fused instruction:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-function">nisa.activation</span>(</span>
+            <span class="code-line">    <span class="code-property">dst</span>=deltaA,</span>
+            <span class="code-line">    <span class="code-property">op</span>=nl.<span class="code-keyword">exp</span>,</span>
+            <span class="code-line">    <span class="code-property">data</span>=delta_i,</span>
+            <span class="code-line">    <span class="code-property">scale</span>=A_i</span>
+            <span class="code-line">)</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Compute:</strong> deltaA = exp(delta * A)</div>
+            <div class="tl">The <code>scale</code> parameter multiplies the input before applying exp</div>
+            <div class="tl">This fuses two operations (multiply + exp) into one instruction</div>
+            <div class="tl"><strong>Result:</strong> the per-step decay factor for the recurrence</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Mamba's "<span class="term" data-definition="Mamba's key innovation over prior SSMs. Instead of using fixed A, B, C matrices for all inputs, Mamba makes B and C depend on the input itself. This lets the model selectively remember or forget information based on content &mdash; similar to a gate in an LSTM.">selective</span>" innovation is that B and C depend on the input &mdash; they are not fixed matrices. This means the model can choose what to remember and what to forget at each step, giving it the expressiveness to match Transformers while keeping linear cost.</p>
+    </div>
+
+    <!-- Screen 5: Key Callout -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&diams;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Core Insight</span>
+          <p>The associative scan is to Mamba what matrix multiply is to Transformers &mdash; the single most important hardware operation. NKI gives you direct access to it via <code>tensor_tensor_scan</code>, letting you express the entire recurrence in one instruction. No manual loop unrolling, no approximations &mdash; the hardware computes the exact parallel prefix in its scan unit.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 6: Quiz -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+      <div class="quiz-container animate-in" id="quiz-module7">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="The scan computes the full recurrence out[i] = data0[i] * out[i-1] + data1[i] for every position, producing all intermediate states in parallel."
+             data-explanation-wrong="The scan computes out[i] = data0[i] * out[i-1] + data1[i] &mdash; a running weighted accumulation, not a simple sum, dot product, or sort.">
+          <div class="quiz-question">What does <code>nisa.tensor_tensor_scan(dst, data0, data1, op0=multiply, op1=add)</code> compute?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A simple element-wise sum: out[i] = data0[i] + data1[i]
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A running recurrence: out[i] = data0[i] * out[i-1] + data1[i]
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A dot product between data0 and data1
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A parallel sort of data0 using data1 as keys
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="The exponential converts a continuous decay rate into a discrete per-step multiplicative factor. If A = -0.5 and delta = 0.1, then exp(-0.05) &asymp; 0.95 means 'retain 95% of previous state per step.'"
+             data-explanation-wrong="exp(delta*A) is the discretization step &mdash; it converts continuous-time decay rate A into a per-step multiplicative factor using the zero-order hold method.">
+          <div class="quiz-question">Why does the kernel compute exp(delta * A) rather than just using A directly?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To normalize A to the range [0, 1]
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To make the computation numerically stable
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To convert a continuous decay rate into a discrete per-step factor
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To apply a non-linearity for expressiveness
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Each position only depends on the immediately previous position (via the recurrence), and the associative scan computes all positions in parallel. There is no all-pairs comparison like attention &mdash; information flows strictly forward through the chain."
+             data-explanation-wrong="Mamba is O(n) because the recurrence at each position only looks at the previous position, not all previous positions. The associative scan parallelizes this without changing the linear work complexity.">
+          <div class="quiz-question">Why is Mamba O(n) instead of O(n&sup2;) like attention?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Each position only interacts with its immediate predecessor via the recurrence, not all other positions
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It uses approximation to skip distant tokens
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It processes tokens in fixed-size chunks
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> The state size is always smaller than the sequence length
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header">
+      <span class="module-number">08</span>
+      <h2 class="module-title">Advanced Patterns &mdash; Transpose, Pooling &amp; Pipelining</h2>
+      <p class="module-subtitle">Three patterns that reveal the full power of NKI: element scatter for transposition, access patterns for virtual views, and software pipelining for overlapped execution.</p>
+    </header>
+
+    <!-- Screen 1: Overview Cards -->
+    <div class="screen">
+      <h3 class="screen-heading">Three Power Patterns</h3>
+      <p>With the fundamentals in place, we can explore the patterns that separate competent NKI code from truly efficient kernels. Each exploits a different axis of the hardware.</p>
+
+      <div class="pattern-cards animate-in stagger-children">
+        <div class="pattern-card animate-in" style="--stagger-index: 0;">
+          <div class="pattern-icon" style="background: var(--color-actor-1); color: white;">&#x21C4;</div>
+          <div class="pattern-title">Scatter Transpose</div>
+          <p class="pattern-desc">Rearrange elements along <span class="term" data-definition="In NKI, the dimensions of a tensor that are NOT the partition dimension. Free dimensions live within a single tile and can be indexed with arbitrary patterns &mdash; but there is no built-in transpose instruction for them.">free dimensions</span> by copying individual columns to computed positions using index arithmetic.</p>
+        </div>
+        <div class="pattern-card animate-in" style="--stagger-index: 1;">
+          <div class="pattern-icon" style="background: var(--color-actor-2); color: white;">&#x1D4D0;</div>
+          <div class="pattern-title">Access Pattern Views</div>
+          <p class="pattern-desc">Create <span class="term" data-definition="A multi-dimensional interpretation of data that does not copy or move any bytes. The hardware reads the same memory with different stride patterns, as if the data had been physically reshaped. Zero cost at runtime.">virtual view</span>s of tensors without copying data. The hardware reads with custom <span class="term" data-definition="The number of memory addresses to skip between consecutive elements along a given dimension. A stride of 1 means elements are contiguous; a stride of N means every Nth element is selected. Changing strides reinterprets memory layout without moving data.">stride</span>s, giving you free reshapes.</p>
+        </div>
+        <div class="pattern-card animate-in" style="--stagger-index: 2;">
+          <div class="pattern-icon" style="background: var(--color-actor-3); color: white;">&#x21BB;</div>
+          <div class="pattern-title">Software Pipelining</div>
+          <p class="pattern-desc"><span class="term" data-definition="A technique where multiple independent operations execute simultaneously on different hardware units. While the compute engine processes group N, the DMA engine loads group N+1, and the store unit writes group N-1. Like an assembly line in a factory.">Overlap</span> load, compute, and store across loop iterations so DMA, compute, and accumulation units all stay busy simultaneously.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 2: Scatter Transpose -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 1: 2D Transpose via Element Scatter</h3>
+      <p>NKI has no built-in transpose instruction for free dimensions. Instead, you <span class="term" data-definition="Writing data to non-contiguous memory locations determined by computed indices. Each element is 'scattered' to its destination independently. The inverse of a gather operation.">scatter</span> individual elements to their transposed positions using index math.</p>
+      <p>For a matrix conceptually shaped (sz_f1, sz_f2) stored in a tile's free dimension, transposing means moving element at position (i, j) to position (j, i). In flattened coordinates: position <code>i*sz_f2 + j</code> moves to <code>j*sz_f1 + i</code>.</p>
+
+      <!-- Code-English Translation Block -->
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-keyword">for</span> i_f1 <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(sz_f1):</span>
+            <span class="code-line">  <span class="code-keyword">for</span> i_f2 <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(sz_f2):</span>
+            <span class="code-line">    <span class="code-function">nisa.tensor_copy</span>(</span>
+            <span class="code-line">      <span class="code-property">dst</span>=out[:, <span class="code-function">nl.ds</span>(</span>
+            <span class="code-line">        i_f2*sz_f1 + i_f1, <span class="code-number">1</span>)],</span>
+            <span class="code-line">      <span class="code-property">src</span>=in_tile[:, <span class="code-function">nl.ds</span>(</span>
+            <span class="code-line">        i_f1*sz_f2 + i_f2, <span class="code-number">1</span>)]</span>
+            <span class="code-line">    )</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>For each (row, col) pair in the source matrix:</strong></div>
+            <div class="tl">Source position: row * num_cols + col (flattened index)</div>
+            <div class="tl">Destination position: col * num_rows + row (transposed)</div>
+            <div class="tl"><code>nl.ds(offset, 1)</code> selects exactly 1 column at that offset</div>
+            <div class="tl"><code>nisa.tensor_copy</code> moves that single column to its new home</div>
+            <div class="tl"><code>nl.affine_range</code> makes both loops <span class="term" data-definition="Loops whose iterations have no dependencies between them and can execute in any order. NKI's nl.affine_range signals to the compiler that iterations are independent, enabling parallel scheduling across hardware resources.">parallelizable</span></div>
+            <div class="tl"><strong>Result:</strong> full transpose via element-by-element scatter</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x26A0;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why not a single instruction?</span>
+          <p>The partition dimension (128 elements) has a hardware transpose via <code>nisa.nc_transpose</code>. But free dimensions are arbitrarily sized and stored linearly in SBUF &mdash; the only way to rearrange them is explicit copy. The <code>affine_range</code> loops tell the compiler all iterations are independent, so it can schedule them efficiently.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 3: Access Pattern Views -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 2: Average Pooling with Access Patterns</h3>
+      <p>Pooling requires reading overlapping windows from a 2D grid. Rather than copying data into a reshaped buffer, NKI's <span class="term" data-definition="A metadata object attached to a tensor that tells the hardware how to interpret linear memory as a multi-dimensional structure. Created via tensor.ap(), it specifies strides and shapes for virtual dimensions without moving any data.">access pattern</span> feature creates a virtual multi-dimensional view.</p>
+
+      <div class="step-cards animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Create a 5D view of a 3D tensor</strong>
+            <p><code>pool_view = in_tile.ap([...])</code> &mdash; the hardware will read with custom strides as if the data were physically reshaped into (batch, out_h, out_w, pool_h, pool_w). No bytes move.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Reduce over the pool window</strong>
+            <p><code>sum_tile = nl.sum(pool_view, axis=[3, 4])</code> &mdash; sum across the last two dimensions (the pool window), collapsing them. The hardware reads the strided view and accumulates.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Divide by pool area for the average</strong>
+            <p><code>nisa.tensor_scalar(dst=out, data=sum_tile, op0=nl.multiply, operand0=1.0/(pool_h*pool_w))</code> &mdash; multiply by the reciprocal of pool size. One fused scalar-multiply instruction.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x2728;</span>
+        <div class="callout-content">
+          <span class="callout-title">Zero-Copy Reshape</span>
+          <p>The <code>.ap()</code> call is the NKI equivalent of NumPy's <code>as_strided</code>. It tells the hardware "read this flat memory as if it had these dimensions and strides." The data never moves &mdash; only the interpretation changes. This is how you get complex windowed access patterns without paying copy costs.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 4: Software Pipelining -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 3: Software Pipelining</h3>
+      <p><span class="term" data-definition="A compiler/programmer technique that overlaps different stages of a loop body across iterations. Iteration N's load overlaps with iteration N-1's compute and iteration N-2's store. Named by analogy with CPU instruction pipelining, but applied at the software level to entire loop bodies.">Software pipelining</span> is the NKI equivalent of doing laundry efficiently. Instead of waiting for each load to wash, dry, and fold before starting the next, you overlap them: while load 2 washes, load 1 dries.</p>
+      <p>The hardware has separate units for DMA (data movement), compute (matrix math), and accumulation that can all run simultaneously. A pipelined Flash Attention kernel exploits this:</p>
+
+      <div class="arch-diagram animate-in">
+        <div class="arch-zone">
+          <div class="arch-zone-label">Pipeline Stages (3 groups overlapping)</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4); text-align: center;">
+            <div>
+              <div style="background: var(--color-actor-1); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 1</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 2)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 1)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 0)</div>
+              </div>
+            </div>
+            <div>
+              <div style="background: var(--color-actor-2); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 2</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 3)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 2)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 1)</div>
+              </div>
+            </div>
+            <div>
+              <div style="background: var(--color-actor-3); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 3</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 4)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 3)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 2)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="arch-description">Each time slot runs three operations simultaneously on different hardware units: DMA loads the next group, the compute engine processes the current group, and the store unit writes back the previous group's results. Three groups are "in flight" at once.</div>
+      </div>
+
+      <p>The key constraint: you must manage the pipeline prologue (filling the pipe) and epilogue (draining it). The first two iterations only load and partially compute. The last two only compute and store. The steady state in between is where you get full <span class="term" data-definition="A technique that hides memory access time by performing useful computation while data transfers complete. When load latency is fully hidden behind compute, the kernel becomes compute-bound rather than memory-bound &mdash; the ideal state.">overlap</span>.</p>
+    </div>
+
+    <!-- Screen 5: Drag and Drop Exercise -->
+    <div class="screen">
+      <h3 class="screen-heading">Match the Operation</h3>
+      <p>Drag each NKI operation to its purpose.</p>
+
+      <div class="dnd-container animate-in" id="dnd-module8">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="tensor_copy">nisa.tensor_copy</div>
+          <div class="dnd-chip" draggable="true" data-answer="ap">.ap()</div>
+          <div class="dnd-chip" draggable="true" data-answer="tensor_tensor_scan">nisa.tensor_tensor_scan</div>
+          <div class="dnd-chip" draggable="true" data-answer="affine_range">nl.affine_range</div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="tensor_copy">
+            <div class="dnd-zone-label">Move individual elements to new positions</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="ap">
+            <div class="dnd-zone-label">Create a virtual multi-dimensional view without copying</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="tensor_tensor_scan">
+            <div class="dnd-zone-label">Compute running recurrence along a sequence</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="affine_range">
+            <div class="dnd-zone-label">Generate parallelizable loop iterations</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6); display: flex; gap: var(--space-3);">
+          <button class="btn btn-primary" onclick="checkDnD('dnd-module8')">Check</button>
+          <button class="btn" onclick="resetDnD('dnd-module8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 6: Quiz -->
+    <div class="screen">
+      <h3 class="screen-heading">Pipelining Concepts</h3>
+      <div class="quiz-container animate-in" id="quiz-module8">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Software pipelining overlaps different stages of consecutive loop iterations. While group N is being computed, group N+1 is being loaded, and group N-1 is being stored &mdash; keeping all hardware units busy."
+             data-explanation-wrong="Software pipelining does not reduce total work &mdash; it overlaps independent operations across iterations so that DMA, compute, and store units all run simultaneously rather than taking turns.">
+          <div class="quiz-question">What is the primary benefit of software pipelining in NKI kernels?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It reduces the total number of operations needed
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It overlaps load, compute, and store to keep all hardware units busy simultaneously
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It increases numerical precision of intermediate results
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It allows larger tensors to fit in SBUF
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="Access patterns (.ap()) reinterpret flat memory with custom strides &mdash; the hardware reads data as if it were in a different shape without any copy. This is ideal for pooling, where you need overlapping window views of a 2D grid."
+             data-explanation-wrong="The .ap() method creates an access pattern that tells the hardware how to interpret linear memory as a multi-dimensional structure using custom strides. No data is moved &mdash; only the read pattern changes.">
+          <div class="quiz-question">How does <code>.ap()</code> achieve a zero-copy reshape?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It compresses the data to fit the new shape
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It creates a copy in a separate memory bank
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It changes the stride pattern the hardware uses to read the same memory
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It moves elements into a hardware transpose buffer
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="d"
+             data-explanation-right="In a 3-deep pipeline, you need a prologue (2 iterations to fill the pipe) and an epilogue (2 iterations to drain it). During steady state, all 3 hardware units run concurrently &mdash; but you must carefully manage what each iteration does to avoid data hazards."
+             data-explanation-wrong="The main challenge is managing the prologue/epilogue and ensuring each iteration's stages don't conflict. You must fill the pipeline before entering steady state and drain it after the last group.">
+          <div class="quiz-question">What is the main challenge when implementing software pipelining?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Choosing which data types to use
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Allocating enough SBUF space for one tile
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Converting the algorithm from O(n^2) to O(n)
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Managing the pipeline prologue/epilogue and avoiding data hazards between overlapping stages
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 7: Closing Callout -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x2699;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Laundry Analogy</span>
+          <p>Software pipelining is the NKI equivalent of doing laundry efficiently &mdash; instead of waiting for each load to wash, dry, and fold before starting the next, you overlap them: while load 2 washes, load 1 dries. The hardware has separate units for DMA, compute, and accumulation that can all run simultaneously. Your job as the kernel author is to keep all three busy at all times.</p>
+        </div>
+      </div>
+
+      <p>With these three patterns &mdash; scatter transpose, access pattern views, and software pipelining &mdash; you have the tools to write kernels that fully exploit NKI hardware. Transpose handles data layout. Access patterns eliminate copy overhead. Pipelining hides latency. Combined, they let you write kernels that approach the theoretical peak of the silicon.</p>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

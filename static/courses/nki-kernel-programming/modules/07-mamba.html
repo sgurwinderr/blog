@@ -1,0 +1,231 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header">
+      <span class="module-number">07</span>
+      <h2 class="module-title">Mamba &mdash; State Space Models on Custom Silicon</h2>
+      <p class="module-subtitle">How Mamba's selective state space model maps to NKI hardware, and why the associative scan is the single most important operation.</p>
+    </header>
+
+    <!-- Screen 1: Introduction -->
+    <div class="screen">
+      <h3 class="screen-heading">Beyond Attention: The Recurrence Alternative</h3>
+      <p>Transformers dominate sequence modeling, but their <span class="term" data-definition="A computational complexity class meaning the work grows with the square of the input size. For attention, doubling sequence length quadruples the compute.">O(n&sup2;)</span> attention cost becomes painful at long sequences. Mamba offers a fundamentally different approach: instead of letting every token look at every other token, it propagates information forward through a <span class="term" data-definition="A computation where each output depends on the previous output. Like a chain where each link is forged from the one before it. Formula: x[t] = f(x[t-1], u[t]).">recurrence</span>.</p>
+      <p>The core equation of a <span class="term" data-definition="A mathematical framework from control theory that models sequences using hidden states. The state evolves over time via matrices A, B, C — capturing how inputs influence outputs through an internal memory.">state space model</span> is deceptively simple:</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1D465;</span>
+        <div class="callout-content">
+          <span class="callout-title">The SSM Recurrence</span>
+          <p><code>x[t] = A * x[t-1] + B * u[t]</code> &mdash; state update<br>
+          <code>y[t] = C * x[t]</code> &mdash; output projection<br><br>
+          Each position updates a hidden state by decaying the previous state (multiply by A) and injecting new information (add B*u). The output is a linear read of that state.</p>
+        </div>
+      </div>
+      <p>This runs in O(n) time &mdash; linear in sequence length. But naive sequential execution wastes hardware parallelism. The key insight: this recurrence can be computed as an <span class="term" data-definition="A parallel algorithm that computes all prefixes of a binary associative operation simultaneously. Like a prefix sum, but generalized to any operation where (a op b) op c = a op (b op c). Enables O(log n) parallel depth for what looks like a sequential computation.">associative scan</span>.</p>
+    </div>
+
+    <!-- Screen 2: The Associative Scan -->
+    <div class="screen">
+      <h3 class="screen-heading">The Associative Scan: Parallel Recurrence</h3>
+      <p>An associative scan is like a <span class="term" data-definition="An operation that computes running totals. prefix_sum([1,2,3,4]) = [1,3,6,10]. Each output is the sum of all inputs up to that position. Generalizes to any associative binary operation.">prefix sum</span>, but instead of just addition, we use the pair of operations (multiply, add). This lets us compute all positions of the recurrence in parallel.</p>
+      <p>NKI provides direct hardware support via a single instruction:</p>
+
+      <!-- Code-English Translation Block -->
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-function">nisa.tensor_tensor_scan</span>(</span>
+            <span class="code-line">    <span class="code-property">dst</span>=scan_res,</span>
+            <span class="code-line">    <span class="code-property">data0</span>=deltaA,</span>
+            <span class="code-line">    <span class="code-property">data1</span>=deltaBu,</span>
+            <span class="code-line">    <span class="code-property">initial</span>=<span class="code-number">0.0</span>,</span>
+            <span class="code-line">    <span class="code-property">op0</span>=nl.<span class="code-keyword">multiply</span>,</span>
+            <span class="code-line">    <span class="code-property">op1</span>=nl.<span class="code-keyword">add</span></span>
+            <span class="code-line">)</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>For each position i along the sequence:</strong></div>
+            <div class="tl">out[i] = deltaA[i] * out[i-1] + deltaBu[i]</div>
+            <div class="tl">Starting from initial value 0.0</div>
+            <div class="tl"><em>op0=multiply</em>: decay the previous output by deltaA</div>
+            <div class="tl"><em>op1=add</em>: inject new input contribution deltaBu</div>
+            <div class="tl">All positions computed in parallel via hardware scan unit</div>
+            <div class="tl"><strong>Result:</strong> the full state history in one instruction</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Think of it like a relay race. Each runner (position) inherits speed from the previous runner (multiply by deltaA) and adds their own boost (add deltaBu). Normally you'd wait for each runner to finish before the next starts. The hardware scan unit does all handoffs simultaneously &mdash; computing the entire race result in one shot.</p>
+    </div>
+
+    <!-- Screen 3: The Full Mamba Kernel -->
+    <div class="screen">
+      <h3 class="screen-heading">Anatomy of the Mamba Kernel</h3>
+      <p>The full Mamba kernel on NKI has five stages. The <span class="term" data-definition="The process of converting continuous-time SSM parameters into discrete-time equivalents. Uses exp(delta * A) to turn the continuous decay rate A into a per-step multiplicative factor. Named after the zero-order hold method from control theory.">discretization</span> step converts continuous parameters to discrete ones. Then the scan does the heavy lifting.</p>
+
+      <!-- Flow Animation -->
+      <div class="flow-animation animate-in" id="mamba-flow"
+           data-steps='[
+             {"highlight":"flow-actor-1","label":"Input signal u arrives &mdash; the raw token embeddings entering the SSM.","packet":true,"from":"actor-1","to":"actor-2"},
+             {"highlight":"flow-actor-2","label":"Discretizer computes exp(delta * A) &mdash; converting continuous decay to per-step factor.","packet":true,"from":"actor-2","to":"actor-3"},
+             {"highlight":"flow-actor-2","label":"Discretizer also computes delta * B * u &mdash; the input contribution at each step.","packet":true,"from":"actor-2","to":"actor-3"},
+             {"highlight":"flow-actor-3","label":"Scanner runs tensor_tensor_scan: out[i] = deltaA[i] * out[i-1] + deltaBu[i] for all i in parallel.","packet":true,"from":"actor-3","to":"actor-4"},
+             {"highlight":"flow-actor-4","label":"Projector multiplies scan result by C &mdash; reading out the relevant information from hidden state.","packet":true,"from":"actor-4","to":"actor-5"},
+             {"highlight":"flow-actor-5","label":"Output: the SSM response for this channel, accumulated across all state dimensions."}
+           ]'>
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-actor-1">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">u</div>
+            <span>Input</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-2">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">e<sup>x</sup></div>
+            <span>Discretizer</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-3">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">&Sigma;</div>
+            <span>Scanner</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-4">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">C</div>
+            <span>Projector</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-5">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-5); color: var(--color-actor-5);">y</div>
+            <span>Output</span>
+          </div>
+        </div>
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to trace data through the Mamba SSM pipeline.</div>
+        <div class="flow-controls">
+          <button class="btn flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+
+      <p>Notice the loop structure: the kernel iterates over batch, channel tiles, and state dimensions. For each state dimension, it runs the full discretize-scan-project pipeline, then accumulates results. This maps naturally to NKI's tile-based execution.</p>
+    </div>
+
+    <!-- Screen 4: Why This Matters -->
+    <div class="screen">
+      <h3 class="screen-heading">Why exp(delta * A)?</h3>
+      <p>The matrix A represents a continuous-time decay rate. To use it in discrete steps, we need to convert it: if A says "decay at rate -0.5 per unit time" and our step size is delta, then the per-step decay factor is exp(delta * A).</p>
+      <p>NKI handles this elegantly with a fused instruction:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-function">nisa.activation</span>(</span>
+            <span class="code-line">    <span class="code-property">dst</span>=deltaA,</span>
+            <span class="code-line">    <span class="code-property">op</span>=nl.<span class="code-keyword">exp</span>,</span>
+            <span class="code-line">    <span class="code-property">data</span>=delta_i,</span>
+            <span class="code-line">    <span class="code-property">scale</span>=A_i</span>
+            <span class="code-line">)</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Compute:</strong> deltaA = exp(delta * A)</div>
+            <div class="tl">The <code>scale</code> parameter multiplies the input before applying exp</div>
+            <div class="tl">This fuses two operations (multiply + exp) into one instruction</div>
+            <div class="tl"><strong>Result:</strong> the per-step decay factor for the recurrence</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Mamba's "<span class="term" data-definition="Mamba's key innovation over prior SSMs. Instead of using fixed A, B, C matrices for all inputs, Mamba makes B and C depend on the input itself. This lets the model selectively remember or forget information based on content &mdash; similar to a gate in an LSTM.">selective</span>" innovation is that B and C depend on the input &mdash; they are not fixed matrices. This means the model can choose what to remember and what to forget at each step, giving it the expressiveness to match Transformers while keeping linear cost.</p>
+    </div>
+
+    <!-- Screen 5: Key Callout -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&diams;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Core Insight</span>
+          <p>The associative scan is to Mamba what matrix multiply is to Transformers &mdash; the single most important hardware operation. NKI gives you direct access to it via <code>tensor_tensor_scan</code>, letting you express the entire recurrence in one instruction. No manual loop unrolling, no approximations &mdash; the hardware computes the exact parallel prefix in its scan unit.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 6: Quiz -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+      <div class="quiz-container animate-in" id="quiz-module7">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="The scan computes the full recurrence out[i] = data0[i] * out[i-1] + data1[i] for every position, producing all intermediate states in parallel."
+             data-explanation-wrong="The scan computes out[i] = data0[i] * out[i-1] + data1[i] &mdash; a running weighted accumulation, not a simple sum, dot product, or sort.">
+          <div class="quiz-question">What does <code>nisa.tensor_tensor_scan(dst, data0, data1, op0=multiply, op1=add)</code> compute?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A simple element-wise sum: out[i] = data0[i] + data1[i]
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A running recurrence: out[i] = data0[i] * out[i-1] + data1[i]
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A dot product between data0 and data1
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> A parallel sort of data0 using data1 as keys
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="The exponential converts a continuous decay rate into a discrete per-step multiplicative factor. If A = -0.5 and delta = 0.1, then exp(-0.05) &asymp; 0.95 means 'retain 95% of previous state per step.'"
+             data-explanation-wrong="exp(delta*A) is the discretization step &mdash; it converts continuous-time decay rate A into a per-step multiplicative factor using the zero-order hold method.">
+          <div class="quiz-question">Why does the kernel compute exp(delta * A) rather than just using A directly?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To normalize A to the range [0, 1]
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To make the computation numerically stable
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To convert a continuous decay rate into a discrete per-step factor
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> To apply a non-linearity for expressiveness
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Each position only depends on the immediately previous position (via the recurrence), and the associative scan computes all positions in parallel. There is no all-pairs comparison like attention &mdash; information flows strictly forward through the chain."
+             data-explanation-wrong="Mamba is O(n) because the recurrence at each position only looks at the previous position, not all previous positions. The associative scan parallelizes this without changing the linear work complexity.">
+          <div class="quiz-question">Why is Mamba O(n) instead of O(n&sup2;) like attention?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Each position only interacts with its immediate predecessor via the recurrence, not all other positions
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It uses approximation to skip distant tokens
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It processes tokens in fixed-size chunks
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> The state size is always smaller than the sequence length
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

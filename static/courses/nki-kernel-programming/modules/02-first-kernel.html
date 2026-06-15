@@ -1,0 +1,349 @@
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Your First Kernel — Tensor Addition</h1>
+      <p class="module-subtitle">The simplest possible NKI kernel, explained line-by-line. Every kernel you'll ever write follows this same pattern.</p>
+    </header>
+
+    <!-- ── SCREEN 1: The Pattern ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Universal Kernel Pattern</h2>
+
+      <p>Every NKI kernel — from simple addition to Flash Attention — follows the same three-step pattern:</p>
+
+      <div class="flow-steps animate-in">
+        <div class="flow-step">
+          <div class="flow-step-num">1</div>
+          <p>Load tile from HBM to SBUF</p>
+        </div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step">
+          <div class="flow-step-num">2</div>
+          <p>Compute on tile in SBUF</p>
+        </div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step">
+          <div class="flow-step-num">3</div>
+          <p>Store tile from SBUF to HBM</p>
+        </div>
+      </div>
+
+      <p>That's it. Load, compute, store. The complexity of advanced kernels comes from <em>what</em> you compute and <em>how</em> you overlap these steps — not from a different pattern.</p>
+    </div>
+
+    <!-- ── SCREEN 2: Code-English Translation ──────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Complete Kernel</h2>
+
+      <p>Here is a tensor addition kernel that adds two matrices element-wise. Left side is code, right side is plain English:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / NKI</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@nki.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">nki_tensor_add</span>(a_input, b_input):</span>
+<span class="code-line">  c_output = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">    a_input.shape, dtype=a_input.dtype,</span>
+<span class="code-line">    buffer=<span class="code-property">nl.shared_hbm</span>)</span>
+<span class="code-line">  M, N = a_input.shape</span>
+<span class="code-line">  TILE_M = <span class="code-number">128</span></span>
+<span class="code-line">  TILE_N = <span class="code-number">512</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):</span>
+<span class="code-line">    <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):</span>
+<span class="code-line">      a_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=a_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line">      b_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=b_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=a_tile,</span>
+<span class="code-line">        src=a_input[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                    n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>])</span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=b_tile,</span>
+<span class="code-line">        src=b_input[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                    n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>])</span>
+<span class="code-line"></span>
+<span class="code-line">      c_tile = <span class="code-function">nl.ndarray</span>(</span>
+<span class="code-line">        (<span class="code-number">128</span>, <span class="code-number">512</span>), dtype=a_input.dtype,</span>
+<span class="code-line">        buffer=<span class="code-property">nl.sbuf</span>)</span>
+<span class="code-line">      <span class="code-function">nisa.tensor_tensor</span>(</span>
+<span class="code-line">        dst=c_tile, data1=a_tile,</span>
+<span class="code-line">        data2=b_tile, op=<span class="code-property">nl.add</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">      <span class="code-function">nisa.dma_copy</span>(</span>
+<span class="code-line">        dst=c_output[m*<span class="code-number">128</span>:(m+<span class="code-number">1</span>)*<span class="code-number">128</span>,</span>
+<span class="code-line">                     n*<span class="code-number">512</span>:(n+<span class="code-number">1</span>)*<span class="code-number">512</span>],</span>
+<span class="code-line">        src=c_tile)</span>
+<span class="code-line">  <span class="code-keyword">return</span> c_output</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"I'm a kernel"</strong> — mark this function for Neuron compilation</div>
+            <div class="tl"><strong>"Takes two tensors as input"</strong></div>
+            <div class="tl"><strong>"Allocate output in HBM"</strong> — same shape/type as input, lives in external memory so the caller can read it</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Get dimensions"</strong> — M rows, N columns</div>
+            <div class="tl"><strong>"128 rows per tile"</strong> — the partition dimension (hardware-mandated)</div>
+            <div class="tl"><strong>"512 cols per tile"</strong> — the free dimension (our choice, max 512)</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Loop over row-tiles"</strong> — compiler can parallelize this</div>
+            <div class="tl"><strong>"Loop over col-tiles"</strong> — nested tile iteration</div>
+            <div class="tl"><strong>"Reserve SBUF space for tile A"</strong> — 128x512 scratchpad slot</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Reserve SBUF space for tile B"</strong> — second scratchpad slot</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: HBM &rarr; SBUF"</strong> — copy a_input[tile] into a_tile on-chip</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: HBM &rarr; SBUF"</strong> — copy b_input[tile] into b_tile on-chip</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Reserve SBUF space for result"</strong></div>
+            <div class="tl"><strong>"ADD them!"</strong> — element-wise addition, result stays in SBUF</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Forklift: SBUF &rarr; HBM"</strong> — copy result back to output in external memory</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Hand back the result"</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 3: Key Concepts Breakdown ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Line-by-Line Breakdown</h2>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="@nki.jit is a decorator that marks a Python function as an NKI kernel. The Neuron compiler traces and compiles this function into hardware instructions for Trainium/Inferentia. Similar to CUDA's __global__ keyword.">@nki.jit</span></strong>
+            <p>Marks this function as a Neuron kernel. The Neuron compiler will trace it, lower it to hardware instructions, and JIT-compile it for Trainium. Like CUDA's <code>__global__</code>.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nl.affine_range(n) generates a loop of n iterations that the Neuron compiler knows is 'affine' (linearly strided). This lets the compiler unroll, pipeline, and parallelize the loop across hardware resources.">nl.affine_range</span></strong>
+            <p>Generates a loop the compiler can optimize. "Affine" means the iteration pattern is linear and predictable, so the compiler can unroll it, overlap DMA with compute, or even run iterations in parallel.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.dma_copy moves data between HBM and SBUF using the DMA engine. It takes a destination (dst) and source (src). The DMA engine operates asynchronously — compute can proceed while the next tile is being loaded.">nisa.dma_copy</span></strong>
+            <p>The forklift instruction. Moves a tile between HBM and SBUF. The DMA engine handles this asynchronously — it's the only way to get data on-chip or off-chip.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_tensor performs an element-wise operation between two tiles that are already in SBUF. Supported ops include add, subtract, multiply, and more. Both input tiles and the output tile must be in SBUF.">nisa.tensor_tensor</span></strong>
+            <p>Element-wise operation between two tiles already in SBUF. Supports add, subtract, multiply, etc. Both inputs and the output must be in SBUF — it cannot reach into HBM.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128270;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why 128 x 512?</span>
+          <p>128 rows = the partition dimension (hardware-mandated). 512 columns = the maximum free dimension that fits in one SBUF allocation. You can use fewer columns (e.g., 256), but 512 maximizes throughput per tile.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Group Chat Animation ──────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Watch the Components Talk</h2>
+
+      <p>Here's how HBM, SBUF, and Compute coordinate during one iteration of our addition kernel. Click "Next" to advance the conversation:</p>
+
+      <div class="chat-window animate-in" id="chat-module2">
+        <div class="chat-messages">
+
+          <div class="chat-message" data-sender="HBM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">HBM</span>
+              <p>Hey SBUF, I've got two 128x512 tiles ready for you. Tile A and Tile B from the input tensors. Sending them over via DMA now.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="SBUF" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">SBUF</span>
+              <p>Got both tiles! A is in slot a_tile, B is in slot b_tile. I've also reserved a slot called c_tile for the result. Compute, you're up!</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="Compute" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Compute Engine</span>
+              <p>Running tensor_tensor with op=add. Adding a_tile + b_tile element-wise... done! Result is in c_tile (still in SBUF).</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="SBUF" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">SBUF</span>
+              <p>Result ready in c_tile. Initiating DMA copy back to HBM... sending to c_output at the right offset.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="HBM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">HBM</span>
+              <p>Received! That tile is committed to c_output. Ready for the next tile whenever you are. Just (M//128) * (N//512) - 1 more to go!</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="Compute" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Compute Engine</span>
+              <p>And that's the whole loop. Load two tiles, add them, store the result. Repeat for every 128x512 chunk of the input. Simple as that.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 6 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Buffer Allocation ─────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Buffer Allocation: Where Things Live</h2>
+
+      <p>Notice the <code>buffer=</code> parameter in every <code>nl.ndarray</code> call. This tells the compiler <em>where</em> to place the tensor:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="nl.shared_hbm tells the compiler to allocate this tensor in HBM (external memory). Use this for tensors that need to be visible outside the kernel — inputs, outputs, and anything the host CPU will read.">nl.shared_hbm</span></span>
+          <span class="badge-desc">Place in HBM. Used for output tensors that the caller needs to read after the kernel finishes.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="nl.sbuf tells the compiler to allocate this tensor in SBUF (on-chip scratchpad). Data in SBUF is only visible inside the kernel and only during the current tile iteration. It is the working memory for all compute operations.">nl.sbuf</span></span>
+          <span class="badge-desc">Place in SBUF. Used for temporary tiles that only exist during one loop iteration. Fast, private, ephemeral.</span>
+        </div>
+      </div>
+
+      <p>If you forget to specify <code>buffer=nl.sbuf</code> for your working tiles, the compiler won't know where to put them and will error. Always be explicit about where data lives.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module2">
+
+        <div class="quiz-question-block" data-correct="parallelize" data-explanation-right="Correct! nl.affine_range tells the compiler the loop has a linear (affine) iteration pattern, allowing it to unroll, pipeline, or parallelize the iterations across hardware resources." data-explanation-wrong="nl.affine_range is not about memory allocation or random access. It signals to the compiler that the loop iterations are linearly-strided and can be optimized — unrolled, pipelined, or parallelized.">
+          <p class="quiz-question">1. What does <code>nl.affine_range</code> do?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="allocate" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Allocates a range of memory addresses in SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="parallelize" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Generates a loop the compiler can unroll/parallelize</span>
+            </button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Creates a random access pattern for DMA</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="hardware" data-explanation-right="Correct! 128 rows is the partition dimension — a hardware constraint. SBUF has 128 physical memory banks. 512 columns is the maximum free dimension, chosen to maximize throughput per tile." data-explanation-wrong="The tile size is not arbitrary or software-determined. 128 rows matches the hardware's partition dimension (128 SBUF banks), and 512 columns is the maximum free dimension for peak throughput.">
+          <p class="quiz-question">2. Why are tiles 128x512?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="software" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It's a software convention that can be changed freely</span>
+            </button>
+            <button class="quiz-option" data-value="hardware" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>128 rows = hardware partition dim; 512 cols = max free dim for throughput</span>
+            </button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It matches the L2 cache line size</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="dma" data-explanation-right="Correct! nisa.dma_copy uses the DMA engine to physically move tile data between HBM (off-chip) and SBUF (on-chip). It's the only way to get data into or out of the on-chip scratchpad." data-explanation-wrong="nisa.dma_copy doesn't do math or allocate memory. It's purely a data movement instruction — it activates the DMA hardware engine to copy bytes between HBM and SBUF.">
+          <p class="quiz-question">3. What does <code>nisa.dma_copy</code> do?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Performs a compute operation and copies the result</span>
+            </button>
+            <button class="quiz-option" data-value="dma" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Moves data between HBM and SBUF via the DMA engine</span>
+            </button>
+            <button class="quiz-option" data-value="alloc" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Allocates and initializes a new tensor in SBUF</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 7: What's Next ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Kernel Pattern Mastered</span>
+          <p>You now know the universal NKI pattern: allocate tiles in SBUF, DMA data in from HBM, compute on-chip, DMA results back. Every kernel in this course — including matrix multiply and attention — is just a more sophisticated version of these same three steps.</p>
+        </div>
+      </div>
+
+      <p>In the next module, we'll tackle <strong>matrix multiplication</strong> — where PSUM finally comes into play and we see the systolic array in action.</p>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,324 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Tiles &amp; Loops &mdash; Thinking in Chunks</h1>
+      <p class="module-subtitle">Tensors are too big for on-chip memory. Tiling is how we break the problem into pieces the hardware can digest &mdash; 128 rows at a time.</p>
+    </header>
+
+    <!-- ── SCREEN 1: Why We Tile ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Why Tiling Is Not Optional</h2>
+
+      <p><span class="term" data-definition="Tiling is the process of dividing a large tensor into smaller fixed-size blocks (tiles) that fit in on-chip memory. Each tile is processed independently, and results are written back before the next tile is loaded.">Tiling</span> is the single most important concept in NKI programming. Without it, nothing works.</p>
+
+      <p>Consider a typical tensor in a transformer: 4096 rows by 4096 columns of float16 values. That is 4096 * 4096 * 2 bytes = <strong>32 MB</strong>. SBUF holds a few kilobytes. The mismatch is roughly 1000x.</p>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Tiling Is a Necessity, Not an Optimization</span>
+          <p>SBUF can only hold a few KB at a time. A typical 4096x4096 float16 tensor is 32MB &mdash; roughly 1000x larger than SBUF capacity. Tiling is not an optimization, it is a necessity.</p>
+        </div>
+      </div>
+
+      <p>The metaphor: tiling is like reading a newspaper. The full broadsheet page won't fit on your desk, so you fold it into sections and read one section at a time, moving your "window" across the page. The news is the same &mdash; you just process it in pieces.</p>
+    </div>
+
+    <!-- ── SCREEN 2: The Two Dimensions ────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Partition Dimension vs. Free Dimension</h2>
+
+      <p>Every NKI tile has exactly two axes, and they are <em>not</em> interchangeable:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-1);">P</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="The partition dimension is axis 0 of every NKI tile. It is always exactly 128 elements because SBUF has 128 physical memory banks &mdash; one element per bank. This is a hardware constraint that cannot be changed.">Partition Dimension</span> (Axis 0) &mdash; Always 128</strong>
+            <p>This maps directly to SBUF's 128 physical memory banks. Each of the 128 rows lives in its own bank, enabling all rows to be accessed simultaneously. You cannot change this number &mdash; it is baked into the silicon.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-2);">F</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="The free dimension is axis 1 of an NKI tile. It can range from 1 to 512 elements. This dimension stores contiguous data within each memory bank. A larger free dimension means more data processed per tile, up to the SBUF capacity limit.">Free Dimension</span> (Axis 1) &mdash; Up to 512</strong>
+            <p>This is how many columns you process per tile. Each memory bank can hold up to 512 elements contiguously. You choose this value &mdash; 512 maximizes throughput, but smaller values work when you need to conserve SBUF space.</p>
+          </div>
+        </div>
+      </div>
+
+      <p>So a tile is always shaped <code>(128, N)</code> where N is at most 512. The partition dimension is hardware-mandated. The free dimension is your choice (within limits).</p>
+    </div>
+
+    <!-- ── SCREEN 3: The Tiling Pattern ────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Basic Tiling Pattern</h2>
+
+      <p>Here is the fundamental loop structure that appears in every NKI kernel. It breaks a large tensor into 128x512 tiles and processes them one at a time:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line">M, N = tensor.shape</span>
+<span class="code-line">TILE_M = <span class="code-number">128</span>   <span class="code-comment"># partition dim</span></span>
+<span class="code-line">TILE_N = <span class="code-number">512</span>   <span class="code-comment"># free dim</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):</span>
+<span class="code-line">  <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):</span>
+<span class="code-line">    <span class="code-comment"># Slice: rows [m*128..(m+1)*128]</span></span>
+<span class="code-line">    <span class="code-comment">#        cols [n*512..(n+1)*512]</span></span>
+<span class="code-line">    tile = tensor[m * TILE_M:(m+<span class="code-number">1</span>) * TILE_M,</span>
+<span class="code-line">                  n * TILE_N:(n+<span class="code-number">1</span>) * TILE_N]</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Get dimensions"</strong> &mdash; M rows, N columns of the full tensor</div>
+            <div class="tl"><strong>"128 rows per tile"</strong> &mdash; hardware-mandated partition size</div>
+            <div class="tl"><strong>"512 cols per tile"</strong> &mdash; max throughput per chunk</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Loop over row-groups"</strong> &mdash; M/128 iterations, compiler can reorder</div>
+            <div class="tl"><strong>"Loop over col-groups"</strong> &mdash; N/512 iterations, nested inside</div>
+            <div class="tl"><strong>"Compute which slice"</strong> &mdash; row start = m*128, row end = (m+1)*128</div>
+            <div class="tl"><strong>"of the tensor we need"</strong> &mdash; col start = n*512, col end = (n+1)*512</div>
+            <div class="tl"><strong>"Extract the 128x512 chunk"</strong> &mdash; this sub-array fits in SBUF</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Visual Tile Grid ──────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Visualizing the Tile Grid</h2>
+
+      <p>A 1024x2048 tensor split into 128x512 tiles produces a grid of 8 rows by 4 columns &mdash; 32 tiles total. Each tile is one loop iteration:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">&#9638;</div>
+          <div class="step-body">
+            <strong>Grid Layout: 1024 rows / 128 = 8 tile-rows, 2048 cols / 512 = 4 tile-cols</strong>
+            <p style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre; overflow-x: auto;">
+              col:    0-511     512-1023   1024-1535  1536-2047
+           ┌──────────┬──────────┬──────────┬──────────┐
+  row 0-127│  (0,0)   │  (0,1)   │  (0,2)   │  (0,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 128-255│  (1,0)   │  (1,1)   │  (1,2)   │  (1,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 256-383│  (2,0)   │  (2,1)   │  (2,2)   │  (2,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 384-511│  (3,0)   │  (3,1)   │  (3,2)   │  (3,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 512-639│  (4,0)   │  (4,1)   │  (4,2)   │  (4,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 640-767│  (5,0)   │  (5,1)   │  (5,2)   │  (5,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+ row 768-895│  (6,0)   │  (6,1)   │  (6,2)   │  (6,3)   │
+           ├──────────┼──────────┼──────────┼──────────┤
+row 896-1023│  (7,0)   │  (7,1)   │  (7,2)   │  (7,3)   │
+           └──────────┴──────────┴──────────┴──────────┘</p>
+            <p>Each <code>(m, n)</code> label is one tile. The loops iterate: <code>m=0..7</code>, <code>n=0..3</code>. With <code>affine_range</code>, the compiler may process these in any order or even in parallel.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: affine_range vs sequential_range ──────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">affine_range vs. sequential_range</h2>
+
+      <p>NKI provides two loop constructs. They look similar but give the compiler very different freedoms:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="nl.affine_range(n) creates a loop of n iterations with an affine (linear) access pattern. The compiler is free to reorder, unroll, or parallelize these iterations because you promise that iteration order does not matter.">nl.affine_range(n)</span></span>
+          <span class="badge-desc"><strong>Order doesn't matter.</strong> The compiler can reorder iterations, overlap DMA with compute, even run multiple iterations simultaneously. Use this when each iteration is independent (most common case).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="nl.sequential_range(n) creates a loop of n iterations that MUST execute in order (0, 1, 2, ..., n-1). Use this when iteration i depends on the result of iteration i-1, such as when accumulating a running sum or maintaining state across tiles.">nl.sequential_range(n)</span></span>
+          <span class="badge-desc"><strong>Order matters.</strong> Iterations execute strictly in order: 0, 1, 2, ... n-1. Use this when iteration i depends on the result of iteration i-1 (e.g., running accumulations, online algorithms).</span>
+        </div>
+      </div>
+
+      <p><strong>Rule of thumb:</strong> default to <code>affine_range</code>. Only switch to <code>sequential_range</code> when you have a true data dependency between iterations &mdash; like accumulating a running maximum for online softmax.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Dynamic Slice Notation ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Dynamic Slice: nl.ds(start, size)</h2>
+
+      <p>Standard Python slicing (<code>a:b</code>) works in NKI, but for computed offsets, <span class="term" data-definition="nl.ds(start, size) is NKI's dynamic slice notation. It represents the range [start, start+size). Unlike Python slice a:b where both endpoints are explicit, nl.ds takes a start and a length, which is more natural when both are computed from loop variables.">dynamic slice</span> notation is cleaner:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># These two are equivalent:</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Python slice notation</span></span>
+<span class="code-line">data = tensor[:, i*<span class="code-number">512</span> : i*<span class="code-number">512</span>+<span class="code-number">512</span>]</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Dynamic slice notation</span></span>
+<span class="code-line">data = tensor[:, <span class="code-function">nl.ds</span>(i * <span class="code-number">512</span>, <span class="code-number">512</span>)]</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Standard Python slicing"</strong></div>
+            <div class="tl"><strong>"All rows, columns i*512 to i*512+512"</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Dynamic slice: start=i*512, length=512"</strong></div>
+            <div class="tl"><strong>"Same thing, but clearer when offsets are computed"</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <p><code>nl.ds(start, size)</code> means "starting at <code>start</code>, take <code>size</code> elements." It is especially useful in nested loops where both the start and size are expressions of loop variables.</p>
+    </div>
+
+    <!-- ── SCREEN 7: Index Arithmetic ──────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Index Arithmetic Decoded</h2>
+
+      <p>The expression <code>m * TILE_M : (m+1) * TILE_M</code> appears everywhere. Here is what it computes for each value of m:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">0</div>
+          <div class="step-body">
+            <strong>m=0:</strong> <code>0*128 : 1*128</code> &rarr; rows 0 to 127
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>m=1:</strong> <code>1*128 : 2*128</code> &rarr; rows 128 to 255
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>m=2:</strong> <code>2*128 : 3*128</code> &rarr; rows 256 to 383
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">...</div>
+          <div class="step-body">
+            <strong>General:</strong> tile m covers rows <code>[m*128, (m+1)*128)</code>. No overlap, no gaps &mdash; they tile the entire dimension.
+          </div>
+        </div>
+      </div>
+
+      <p>The same <span class="term" data-definition="Index arithmetic is the calculation of start and end positions for each tile based on the loop variable and tile size. The pattern 'i * TILE_SIZE : (i+1) * TILE_SIZE' ensures tiles cover the full dimension without overlap or gaps.">index arithmetic</span> applies to the free dimension with <code>n * TILE_N</code>. Together, the two loop variables select a unique 128x512 rectangle from the full tensor.</p>
+    </div>
+
+    <!-- ── SCREEN 8: When Tiles Don't Divide Evenly ────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">When Tiles Don't Divide Evenly</h2>
+
+      <p>What happens if your tensor has 1000 rows instead of 1024? 1000 is not divisible by 128 (1000 / 128 = 7.8125). You have two options:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);"><span class="term" data-definition="Padding means adding extra zeros to a tensor so its dimensions become divisible by the tile size. For example, padding 1000 rows to 1024 rows (adding 24 zeros). The extra elements are ignored in the final result.">Padding</span></span>
+          <span class="badge-desc">Pad the tensor to the next multiple of 128 before the kernel runs. Process 1024 rows (8 tiles), then discard the last 24 rows of the result. Simple and common.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Masking means processing a partial tile (with fewer than 128 valid rows) and using a mask to ignore the invalid elements during computation. More complex than padding but avoids wasting memory on zeros.">Masking</span></span>
+          <span class="badge-desc">Process 7 full tiles (896 rows), then handle the remaining 104 rows as a partial tile with a mask that ignores the invalid elements. More complex but avoids allocating extra memory.</span>
+        </div>
+      </div>
+
+      <p>In practice, most ML tensors have dimensions that are already multiples of 128 (batch sizes, hidden dimensions, sequence lengths are typically powers of 2). When they are not, padding is the simpler approach.</p>
+    </div>
+
+    <!-- ── SCREEN 9: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module3">
+
+        <div class="quiz-question-block" data-correct="pad-or-mask" data-explanation-right="Correct! If M is not divisible by 128, you must either pad the tensor to the next multiple of 128, or handle the remainder with a partial tile and masking. The naive loop M//128 would skip the leftover rows entirely." data-explanation-wrong="If M is not divisible by 128, M//128 rounds down, so the last partial chunk of rows would be skipped. You need to pad the tensor to a multiple of 128, or explicitly handle the remainder with masking.">
+          <p class="quiz-question">1. What happens if M (number of rows) is not divisible by 128?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>The kernel crashes with a hardware error</span>
+            </button>
+            <button class="quiz-option" data-value="auto" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>The compiler automatically pads the tensor</span>
+            </button>
+            <button class="quiz-option" data-value="pad-or-mask" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>You must pad the tensor or handle the remainder with masking</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="reorder" data-explanation-right="Correct! affine_range allows the compiler to reorder, unroll, or parallelize loop iterations because you promise there are no cross-iteration dependencies. sequential_range forces strict in-order execution (0, 1, 2, ...) for when iteration i depends on iteration i-1." data-explanation-wrong="The key difference is freedom of execution order. affine_range lets the compiler reorder and parallelize iterations. sequential_range forces strict sequential execution because there are data dependencies between iterations.">
+          <p class="quiz-question">2. What is the difference between <code>nl.affine_range</code> and <code>nl.sequential_range</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range is faster; sequential_range is slower but uses less memory</span>
+            </button>
+            <button class="quiz-option" data-value="reorder" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range allows iteration reordering; sequential_range forces strict order</span>
+            </button>
+            <button class="quiz-option" data-value="size" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>affine_range is for large loops; sequential_range is for small loops</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="slice-256-768" data-explanation-right="Correct! nl.ds(256, 512) means 'starting at index 256, take 512 elements' — which gives you indices 256 through 767 (i.e., 256:768 in Python slice notation)." data-explanation-wrong="nl.ds(start, size) means 'starting at start, take size elements.' So nl.ds(256, 512) starts at index 256 and takes 512 elements, giving you indices 256 through 767 — equivalent to the Python slice 256:768.">
+          <p class="quiz-question">3. What does <code>nl.ds(256, 512)</code> mean?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="slice-256-512" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Elements at indices 256 and 512 (two specific positions)</span>
+            </button>
+            <button class="quiz-option" data-value="slice-256-768" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Elements from index 256 to 767 (start=256, length=512)</span>
+            </button>
+            <button class="quiz-option" data-value="slice-0-256" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>First 256 elements with stride 512</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 10: Summary ──────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Tiling Mastered</span>
+          <p>You now understand the tiling machinery that every NKI kernel uses: the 128-row partition dimension, the up-to-512 free dimension, affine vs. sequential loops, index arithmetic, and dynamic slicing. In the next module, we will use these tiles to perform element-wise operations beyond simple addition.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

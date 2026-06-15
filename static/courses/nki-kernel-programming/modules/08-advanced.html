@@ -1,0 +1,283 @@
+<section class="module" id="module-8" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header">
+      <span class="module-number">08</span>
+      <h2 class="module-title">Advanced Patterns &mdash; Transpose, Pooling &amp; Pipelining</h2>
+      <p class="module-subtitle">Three patterns that reveal the full power of NKI: element scatter for transposition, access patterns for virtual views, and software pipelining for overlapped execution.</p>
+    </header>
+
+    <!-- Screen 1: Overview Cards -->
+    <div class="screen">
+      <h3 class="screen-heading">Three Power Patterns</h3>
+      <p>With the fundamentals in place, we can explore the patterns that separate competent NKI code from truly efficient kernels. Each exploits a different axis of the hardware.</p>
+
+      <div class="pattern-cards animate-in stagger-children">
+        <div class="pattern-card animate-in" style="--stagger-index: 0;">
+          <div class="pattern-icon" style="background: var(--color-actor-1); color: white;">&#x21C4;</div>
+          <div class="pattern-title">Scatter Transpose</div>
+          <p class="pattern-desc">Rearrange elements along <span class="term" data-definition="In NKI, the dimensions of a tensor that are NOT the partition dimension. Free dimensions live within a single tile and can be indexed with arbitrary patterns &mdash; but there is no built-in transpose instruction for them.">free dimensions</span> by copying individual columns to computed positions using index arithmetic.</p>
+        </div>
+        <div class="pattern-card animate-in" style="--stagger-index: 1;">
+          <div class="pattern-icon" style="background: var(--color-actor-2); color: white;">&#x1D4D0;</div>
+          <div class="pattern-title">Access Pattern Views</div>
+          <p class="pattern-desc">Create <span class="term" data-definition="A multi-dimensional interpretation of data that does not copy or move any bytes. The hardware reads the same memory with different stride patterns, as if the data had been physically reshaped. Zero cost at runtime.">virtual view</span>s of tensors without copying data. The hardware reads with custom <span class="term" data-definition="The number of memory addresses to skip between consecutive elements along a given dimension. A stride of 1 means elements are contiguous; a stride of N means every Nth element is selected. Changing strides reinterprets memory layout without moving data.">stride</span>s, giving you free reshapes.</p>
+        </div>
+        <div class="pattern-card animate-in" style="--stagger-index: 2;">
+          <div class="pattern-icon" style="background: var(--color-actor-3); color: white;">&#x21BB;</div>
+          <div class="pattern-title">Software Pipelining</div>
+          <p class="pattern-desc"><span class="term" data-definition="A technique where multiple independent operations execute simultaneously on different hardware units. While the compute engine processes group N, the DMA engine loads group N+1, and the store unit writes group N-1. Like an assembly line in a factory.">Overlap</span> load, compute, and store across loop iterations so DMA, compute, and accumulation units all stay busy simultaneously.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 2: Scatter Transpose -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 1: 2D Transpose via Element Scatter</h3>
+      <p>NKI has no built-in transpose instruction for free dimensions. Instead, you <span class="term" data-definition="Writing data to non-contiguous memory locations determined by computed indices. Each element is 'scattered' to its destination independently. The inverse of a gather operation.">scatter</span> individual elements to their transposed positions using index math.</p>
+      <p>For a matrix conceptually shaped (sz_f1, sz_f2) stored in a tile's free dimension, transposing means moving element at position (i, j) to position (j, i). In flattened coordinates: position <code>i*sz_f2 + j</code> moves to <code>j*sz_f1 + i</code>.</p>
+
+      <!-- Code-English Translation Block -->
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI</span>
+          <pre><code>
+            <span class="code-line"><span class="code-keyword">for</span> i_f1 <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(sz_f1):</span>
+            <span class="code-line">  <span class="code-keyword">for</span> i_f2 <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(sz_f2):</span>
+            <span class="code-line">    <span class="code-function">nisa.tensor_copy</span>(</span>
+            <span class="code-line">      <span class="code-property">dst</span>=out[:, <span class="code-function">nl.ds</span>(</span>
+            <span class="code-line">        i_f2*sz_f1 + i_f1, <span class="code-number">1</span>)],</span>
+            <span class="code-line">      <span class="code-property">src</span>=in_tile[:, <span class="code-function">nl.ds</span>(</span>
+            <span class="code-line">        i_f1*sz_f2 + i_f2, <span class="code-number">1</span>)]</span>
+            <span class="code-line">    )</span>
+          </code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>For each (row, col) pair in the source matrix:</strong></div>
+            <div class="tl">Source position: row * num_cols + col (flattened index)</div>
+            <div class="tl">Destination position: col * num_rows + row (transposed)</div>
+            <div class="tl"><code>nl.ds(offset, 1)</code> selects exactly 1 column at that offset</div>
+            <div class="tl"><code>nisa.tensor_copy</code> moves that single column to its new home</div>
+            <div class="tl"><code>nl.affine_range</code> makes both loops <span class="term" data-definition="Loops whose iterations have no dependencies between them and can execute in any order. NKI's nl.affine_range signals to the compiler that iterations are independent, enabling parallel scheduling across hardware resources.">parallelizable</span></div>
+            <div class="tl"><strong>Result:</strong> full transpose via element-by-element scatter</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x26A0;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why not a single instruction?</span>
+          <p>The partition dimension (128 elements) has a hardware transpose via <code>nisa.nc_transpose</code>. But free dimensions are arbitrarily sized and stored linearly in SBUF &mdash; the only way to rearrange them is explicit copy. The <code>affine_range</code> loops tell the compiler all iterations are independent, so it can schedule them efficiently.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 3: Access Pattern Views -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 2: Average Pooling with Access Patterns</h3>
+      <p>Pooling requires reading overlapping windows from a 2D grid. Rather than copying data into a reshaped buffer, NKI's <span class="term" data-definition="A metadata object attached to a tensor that tells the hardware how to interpret linear memory as a multi-dimensional structure. Created via tensor.ap(), it specifies strides and shapes for virtual dimensions without moving any data.">access pattern</span> feature creates a virtual multi-dimensional view.</p>
+
+      <div class="step-cards animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Create a 5D view of a 3D tensor</strong>
+            <p><code>pool_view = in_tile.ap([...])</code> &mdash; the hardware will read with custom strides as if the data were physically reshaped into (batch, out_h, out_w, pool_h, pool_w). No bytes move.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Reduce over the pool window</strong>
+            <p><code>sum_tile = nl.sum(pool_view, axis=[3, 4])</code> &mdash; sum across the last two dimensions (the pool window), collapsing them. The hardware reads the strided view and accumulates.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Divide by pool area for the average</strong>
+            <p><code>nisa.tensor_scalar(dst=out, data=sum_tile, op0=nl.multiply, operand0=1.0/(pool_h*pool_w))</code> &mdash; multiply by the reciprocal of pool size. One fused scalar-multiply instruction.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x2728;</span>
+        <div class="callout-content">
+          <span class="callout-title">Zero-Copy Reshape</span>
+          <p>The <code>.ap()</code> call is the NKI equivalent of NumPy's <code>as_strided</code>. It tells the hardware "read this flat memory as if it had these dimensions and strides." The data never moves &mdash; only the interpretation changes. This is how you get complex windowed access patterns without paying copy costs.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 4: Software Pipelining -->
+    <div class="screen">
+      <h3 class="screen-heading">Pattern 3: Software Pipelining</h3>
+      <p><span class="term" data-definition="A compiler/programmer technique that overlaps different stages of a loop body across iterations. Iteration N's load overlaps with iteration N-1's compute and iteration N-2's store. Named by analogy with CPU instruction pipelining, but applied at the software level to entire loop bodies.">Software pipelining</span> is the NKI equivalent of doing laundry efficiently. Instead of waiting for each load to wash, dry, and fold before starting the next, you overlap them: while load 2 washes, load 1 dries.</p>
+      <p>The hardware has separate units for DMA (data movement), compute (matrix math), and accumulation that can all run simultaneously. A pipelined Flash Attention kernel exploits this:</p>
+
+      <div class="arch-diagram animate-in">
+        <div class="arch-zone">
+          <div class="arch-zone-label">Pipeline Stages (3 groups overlapping)</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4); text-align: center;">
+            <div>
+              <div style="background: var(--color-actor-1); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 1</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 2)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 1)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 0)</div>
+              </div>
+            </div>
+            <div>
+              <div style="background: var(--color-actor-2); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 2</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 3)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 2)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 1)</div>
+              </div>
+            </div>
+            <div>
+              <div style="background: var(--color-actor-3); color: white; padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm);">Time slot 3</div>
+              <div style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+                <div style="padding: var(--space-1); background: var(--color-accent-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">load(grp 4)</div>
+                <div style="padding: var(--space-1); background: #F3E8FF; border-radius: var(--radius-sm); margin: var(--space-1) 0;">compute(grp 3)</div>
+                <div style="padding: var(--space-1); background: var(--color-success-light); border-radius: var(--radius-sm); margin: var(--space-1) 0;">store(grp 2)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="arch-description">Each time slot runs three operations simultaneously on different hardware units: DMA loads the next group, the compute engine processes the current group, and the store unit writes back the previous group's results. Three groups are "in flight" at once.</div>
+      </div>
+
+      <p>The key constraint: you must manage the pipeline prologue (filling the pipe) and epilogue (draining it). The first two iterations only load and partially compute. The last two only compute and store. The steady state in between is where you get full <span class="term" data-definition="A technique that hides memory access time by performing useful computation while data transfers complete. When load latency is fully hidden behind compute, the kernel becomes compute-bound rather than memory-bound &mdash; the ideal state.">overlap</span>.</p>
+    </div>
+
+    <!-- Screen 5: Drag and Drop Exercise -->
+    <div class="screen">
+      <h3 class="screen-heading">Match the Operation</h3>
+      <p>Drag each NKI operation to its purpose.</p>
+
+      <div class="dnd-container animate-in" id="dnd-module8">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="tensor_copy">nisa.tensor_copy</div>
+          <div class="dnd-chip" draggable="true" data-answer="ap">.ap()</div>
+          <div class="dnd-chip" draggable="true" data-answer="tensor_tensor_scan">nisa.tensor_tensor_scan</div>
+          <div class="dnd-chip" draggable="true" data-answer="affine_range">nl.affine_range</div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="tensor_copy">
+            <div class="dnd-zone-label">Move individual elements to new positions</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="ap">
+            <div class="dnd-zone-label">Create a virtual multi-dimensional view without copying</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="tensor_tensor_scan">
+            <div class="dnd-zone-label">Compute running recurrence along a sequence</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="affine_range">
+            <div class="dnd-zone-label">Generate parallelizable loop iterations</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6); display: flex; gap: var(--space-3);">
+          <button class="btn btn-primary" onclick="checkDnD('dnd-module8')">Check</button>
+          <button class="btn" onclick="resetDnD('dnd-module8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 6: Quiz -->
+    <div class="screen">
+      <h3 class="screen-heading">Pipelining Concepts</h3>
+      <div class="quiz-container animate-in" id="quiz-module8">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Software pipelining overlaps different stages of consecutive loop iterations. While group N is being computed, group N+1 is being loaded, and group N-1 is being stored &mdash; keeping all hardware units busy."
+             data-explanation-wrong="Software pipelining does not reduce total work &mdash; it overlaps independent operations across iterations so that DMA, compute, and store units all run simultaneously rather than taking turns.">
+          <div class="quiz-question">What is the primary benefit of software pipelining in NKI kernels?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It reduces the total number of operations needed
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It overlaps load, compute, and store to keep all hardware units busy simultaneously
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It increases numerical precision of intermediate results
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It allows larger tensors to fit in SBUF
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="Access patterns (.ap()) reinterpret flat memory with custom strides &mdash; the hardware reads data as if it were in a different shape without any copy. This is ideal for pooling, where you need overlapping window views of a 2D grid."
+             data-explanation-wrong="The .ap() method creates an access pattern that tells the hardware how to interpret linear memory as a multi-dimensional structure using custom strides. No data is moved &mdash; only the read pattern changes.">
+          <div class="quiz-question">How does <code>.ap()</code> achieve a zero-copy reshape?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It compresses the data to fit the new shape
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It creates a copy in a separate memory bank
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It changes the stride pattern the hardware uses to read the same memory
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> It moves elements into a hardware transpose buffer
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="d"
+             data-explanation-right="In a 3-deep pipeline, you need a prologue (2 iterations to fill the pipe) and an epilogue (2 iterations to drain it). During steady state, all 3 hardware units run concurrently &mdash; but you must carefully manage what each iteration does to avoid data hazards."
+             data-explanation-wrong="The main challenge is managing the prologue/epilogue and ensuring each iteration's stages don't conflict. You must fill the pipeline before entering steady state and drain it after the last group.">
+          <div class="quiz-question">What is the main challenge when implementing software pipelining?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Choosing which data types to use
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Allocating enough SBUF space for one tile
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Converting the algorithm from O(n^2) to O(n)
+            </button>
+            <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span> Managing the pipeline prologue/epilogue and avoiding data hazards between overlapping stages
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 7: Closing Callout -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x2699;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Laundry Analogy</span>
+          <p>Software pipelining is the NKI equivalent of doing laundry efficiently &mdash; instead of waiting for each load to wash, dry, and fold before starting the next, you overlap them: while load 2 washes, load 1 dries. The hardware has separate units for DMA, compute, and accumulation that can all run simultaneously. Your job as the kernel author is to keep all three busy at all times.</p>
+        </div>
+      </div>
+
+      <p>With these three patterns &mdash; scatter transpose, access pattern views, and software pipelining &mdash; you have the tools to write kernels that fully exploit NKI hardware. Transpose handles data layout. Access patterns eliminate copy overhead. Pipelining hides latency. Combined, they let you write kernels that approach the theoretical peak of the silicon.</p>
+    </div>
+
+  </div>
+</section>

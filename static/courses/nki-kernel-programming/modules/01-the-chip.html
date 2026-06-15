@@ -1,0 +1,227 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Chip — Meet AWS Trainium</h1>
+      <p class="module-subtitle">Why AWS built custom silicon for AI, and how NKI lets you program it at the metal level.</p>
+    </header>
+
+    <!-- ── SCREEN 1: What is NKI? ──────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Why Custom Silicon?</h2>
+
+      <p>NVIDIA GPUs are general-purpose parallel processors. They're great, but they pay a "generality tax" — transistors spent on features AI workloads never use. AWS asked: <em>what if we built a chip that does nothing but tensor math, and does it insanely well?</em></p>
+
+      <p>The answer is <span class="term" data-definition="AWS Trainium is a custom AI training accelerator chip designed by AWS. It powers EC2 Trn1 instances and is optimized exclusively for deep learning workloads.">Trainium</span> (for training) and <span class="term" data-definition="AWS Inferentia is a custom AI inference chip designed by AWS. Inferentia2 shares the same architecture as Trainium and supports NKI programming.">Inferentia</span> (for inference). These are purpose-built AI accelerators with a radically different memory hierarchy than GPUs.</p>
+
+      <p><span class="term" data-definition="Neuron Kernel Interface — the low-level programming API for AWS Trainium and Inferentia chips. Think of it as 'CUDA for Neuron hardware.' It gives you direct control over data movement and compute.">NKI</span> is the programming interface that lets you write custom kernels for these chips. If CUDA is how you talk to NVIDIA hardware, NKI is how you talk to Neuron hardware.</p>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9889;</span>
+        <div class="callout-content">
+          <span class="callout-title">Key Insight</span>
+          <p>NKI is not a framework or a library — it is a kernel language. You control exactly which bytes move where, and when compute fires. This is the lowest level of programming on Trainium, analogous to writing PTX or SASS on NVIDIA.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: The Shipping Port Metaphor ────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Memory Hierarchy (A Shipping Port)</h2>
+
+      <p>Trainium's memory system has three levels. To understand them, imagine a shipping port:</p>
+
+      <div class="pattern-cards stagger-children animate-in">
+        <div class="pattern-card" style="border-top-color: var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128674;</div>
+          <div class="pattern-title"><span class="term" data-definition="High Bandwidth Memory — the large external memory attached to the Trainium chip. Capacity: tens of GBs. Bandwidth: high but latency is significant compared to on-chip memory. All input/output tensors live here.">HBM</span> — The Cargo Ship</div>
+          <p class="pattern-desc">Massive capacity (tens of GBs), but slow to access. All your model weights and tensors start here. Think: ocean freighter carrying containers across the sea.</p>
+        </div>
+
+        <div class="pattern-card" style="border-top-color: var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127970;</div>
+          <div class="pattern-title"><span class="term" data-definition="State Buffer — the fast on-chip SRAM scratchpad on Trainium. Organized as 128 rows (partition dimension) x up to 512 columns (free dimension). Data must be in SBUF before any computation can happen.">SBUF</span> — The Dock Warehouse</div>
+          <p class="pattern-desc">Limited space, but lightning-fast access. Data must be here before compute can touch it. Organized as 128 rows x up to 512 columns. Think: warehouse right on the dock.</p>
+        </div>
+
+        <div class="pattern-card" style="border-top-color: var(--color-actor-3);">
+          <div class="pattern-icon" style="background: rgba(123,109,170,0.1); color: var(--color-actor-3);">&#128290;</div>
+          <div class="pattern-title"><span class="term" data-definition="Partial Sum Accumulator — an ultra-fast on-chip accumulator used to store intermediate results of matrix multiplications. Only supports float32. Results flow here from the systolic array, then get moved back to SBUF.">PSUM</span> — The Calculator on the Desk</div>
+          <p class="pattern-desc">Tiny capacity, instant access. Holds matrix multiply results (float32 only). Think: the calculator on the dock worker's desk — it can only hold one answer at a time, but it's instant.</p>
+        </div>
+      </div>
+
+      <p>The golden rule: <strong>data must travel HBM &rarr; SBUF before any computation, and results must travel SBUF &rarr; HBM to be visible outside the kernel.</strong> PSUM is an intermediate stop only for matmul results.</p>
+    </div>
+
+    <!-- ── SCREEN 3: Data Flow Animation ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Data Flow: Watch It Move</h2>
+
+      <p>Every NKI kernel follows this data flow. Click "Next Step" to see how a tile of data moves through the chip:</p>
+
+      <div class="flow-animation animate-in" id="flow-module1" data-steps='[
+        {"highlight":"flow-hbm","label":"Step 1: Data starts in HBM (the cargo ship). Your full tensors live here.","packet":true,"from":"hbm","to":"sbuf"},
+        {"highlight":"flow-sbuf","label":"Step 2: DMA engine copies a 128-row tile from HBM into SBUF (the dock warehouse). Now compute can access it.","packet":true,"from":"hbm","to":"sbuf"},
+        {"highlight":"flow-compute","label":"Step 3: The compute engines operate on data in SBUF. Element-wise ops stay in SBUF; matmuls send results to PSUM.","packet":true,"from":"sbuf","to":"psum"},
+        {"highlight":"flow-psum","label":"Step 4: Matrix multiply results accumulate in PSUM (the calculator). Float32 only.","packet":false},
+        {"highlight":"flow-sbuf","label":"Step 5: Results move from PSUM back to SBUF for further processing or type conversion.","packet":true,"from":"psum","to":"sbuf"},
+        {"highlight":"flow-hbm","label":"Step 6: Final results are DMA-copied from SBUF back to HBM. The outside world can now see them.","packet":true,"from":"sbuf","to":"hbm"}
+      ]'>
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-hbm">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">&#128674;</div>
+            <span>HBM</span>
+          </div>
+          <div class="flow-actor" id="flow-sbuf">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">&#127970;</div>
+            <span>SBUF</span>
+          </div>
+          <div class="flow-actor" id="flow-compute">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">&#9881;</div>
+            <span>Compute</span>
+          </div>
+          <div class="flow-actor" id="flow-psum">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">&#128290;</div>
+            <span>PSUM</span>
+          </div>
+        </div>
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to begin</div>
+        <div class="flow-controls">
+          <button class="btn btn-primary flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Tile Semantics ────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Tile Semantics: Why 128?</h2>
+
+      <p>Everything on Trainium operates on <span class="term" data-definition="A tile is a fixed-size chunk of a tensor that fits in on-chip memory. On Trainium, tiles always have 128 rows (the partition dimension). The number of columns (the free dimension) can vary up to 512.">tiles</span>. A tile is a 2D block of data with a fixed shape: <strong>128 rows</strong> (the <span class="term" data-definition="The partition dimension is the first axis of every tile on Trainium. It is always exactly 128 elements. The hardware physically partitions SBUF into 128 lanes, one per row.">partition dimension</span>) by up to 512 columns (the "free dimension").</p>
+
+      <p>Why 128? Because SBUF is physically organized into 128 parallel memory banks. Each bank holds one row of your tile. This is not a software choice — it is baked into the silicon.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The 128-Row Rule</span>
+          <p>If your tensor's first dimension is not a multiple of 128, you must pad it. There is no way around this — the hardware demands it. Every load, every store, every compute op works on 128-row chunks.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Two API Levels ────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Two API Levels</h2>
+
+      <p>NKI gives you two ways to talk to the hardware. Think of them as "Python" vs "Assembly":</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code">nki.language (nl)</span>
+          <span class="badge-desc">High-level API. Use <code>nl.load</code>, <code>nl.matmul</code>, <code>nl.store</code>. The compiler decides DMA scheduling and buffer allocation.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code">nki.isa (nisa)</span>
+          <span class="badge-desc">Bare-metal API. Use <code>nisa.dma_copy</code>, <code>nisa.nc_matmul</code>, <code>nisa.tensor_tensor</code>. You control every data movement explicitly.</span>
+        </div>
+      </div>
+
+      <p>In this course, we start with <code>nki.isa</code> so you understand exactly what's happening. Once you've built intuition, the high-level <code>nki.language</code> API will feel like a natural shortcut.</p>
+    </div>
+
+    <!-- ── SCREEN 6: DMA Concept ──────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">DMA: The Forklift</h2>
+
+      <p><span class="term" data-definition="Direct Memory Access — a hardware engine that copies data between HBM and SBUF without involving the compute cores. On Trainium, DMA is initiated via nisa.dma_copy or nl.load/nl.store. It operates asynchronously.">DMA</span> stands for Direct Memory Access. It is a dedicated hardware engine whose only job is moving tiles between HBM and SBUF. Think of it as an autonomous forklift that carries containers between the cargo ship and the dock warehouse.</p>
+
+      <p>Key properties of DMA on Trainium:</p>
+      <ul style="margin: var(--space-4) 0; padding-left: var(--space-6); color: var(--color-text-secondary); font-size: var(--text-sm); line-height: var(--leading-loose);">
+        <li>It runs <strong>asynchronously</strong> — compute can happen while DMA is moving the next tile</li>
+        <li>It always moves full 128-row tiles (partition dimension)</li>
+        <li>It can handle strided access patterns (non-contiguous memory)</li>
+      </ul>
+    </div>
+
+    <!-- ── SCREEN 7: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module1">
+
+        <div class="quiz-question-block" data-correct="sbuf" data-explanation-right="Correct! Data must be in SBUF (the on-chip scratchpad) before any compute engine can touch it. PSUM only receives results from matrix multiply." data-explanation-wrong="The compute engines can only access data that's already in SBUF. HBM is off-chip external memory — too slow for direct compute. PSUM only holds matmul results.">
+          <p class="quiz-question">1. Where must data be before the compute engines can operate on it?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hbm" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>HBM (High Bandwidth Memory)</span>
+            </button>
+            <button class="quiz-option" data-value="sbuf" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>SBUF (State Buffer)</span>
+            </button>
+            <button class="quiz-option" data-value="psum" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>PSUM (Partial Sum Accumulator)</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="128" data-explanation-right="Correct! The partition dimension is always 128 because SBUF has 128 physical memory banks — one per row." data-explanation-wrong="The partition dimension is always 128. This is a hardware constraint: SBUF has exactly 128 parallel memory banks.">
+          <p class="quiz-question">2. How many rows does the partition dimension always have?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="64" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>64</span>
+            </button>
+            <button class="quiz-option" data-value="128" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>128</span>
+            </button>
+            <button class="quiz-option" data-value="256" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>256</span>
+            </button>
+            <button class="quiz-option" data-value="512" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>512</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="psum" data-explanation-right="Correct! PSUM is the Partial Sum Accumulator — it holds intermediate float32 results from matrix multiplications performed by the systolic array." data-explanation-wrong="Matrix multiply results accumulate in PSUM (Partial Sum Accumulator). SBUF holds input tiles; HBM holds full tensors.">
+          <p class="quiz-question">3. Where do matrix multiply results initially land?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hbm" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Directly in HBM</span>
+            </button>
+            <button class="quiz-option" data-value="sbuf" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="psum" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>PSUM</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

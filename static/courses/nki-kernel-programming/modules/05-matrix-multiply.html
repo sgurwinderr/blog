@@ -1,0 +1,263 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">05</span>
+      <h2 class="module-title">Matrix Multiplication &mdash; The Heart of AI</h2>
+      <p class="module-subtitle">From a single hardware multiply to fully optimized tiled matmul in four progressive steps.</p>
+    </header>
+
+    <!-- ─── SCREEN 1: The Tensor Engine ─────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Hardware That Does the Heavy Lifting</h3>
+
+      <p>Every neural network is, at its core, a chain of matrix multiplications. NeuronCore has a dedicated <span class="term" data-definition="A fixed-function hardware unit on NeuronCore that performs 128x128 @ 128x512 matrix multiplications in a single instruction. It operates on data already resident in SBUF and writes results to PSUM.">Tensor Engine</span> that can multiply a 128&times;128 matrix by a 128&times;512 matrix in one shot &mdash; producing a 128&times;512 result.</p>
+
+      <p>But the Tensor Engine has rules. The left-hand side (LHS) is <span class="term" data-definition="The 'stationary' operand stays loaded in the Tensor Engine's internal registers while multiple 'moving' operands stream through it. This avoids reloading the same data repeatedly.">stationary</span> &mdash; it stays in place inside the engine. The right-hand side (RHS) is <span class="term" data-definition="The 'moving' operand streams through the Tensor Engine one tile at a time, getting multiplied against the stationary operand that remains fixed in place.">moving</span> &mdash; it streams through the engine. The result always lands in <span class="term" data-definition="Partial Sum buffer (PSUM) — a special on-chip memory bank that stores intermediate float32 accumulation results from the Tensor Engine. Values here can be accumulated across multiple matmul calls before being copied out.">PSUM</span> as float32, regardless of input types.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#x1F4D0;</span>
+        <div>
+          <span class="callout-title">Key Dimensions</span>
+          <p class="callout-content">TILE_M = 128 (stationary free dimension) &middot; TILE_K = 128 (contraction dimension) &middot; TILE_N = 512 (moving free dimension). These are hardware constants &mdash; every NKI matmul works within these tile sizes.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 2: The Four Versions ─────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Four Steps to an Optimized Matmul</h3>
+
+      <p>NKI matmul kernels evolve through four stages. Each version addresses a limitation of the previous one.</p>
+
+      <div class="step-cards stagger-children">
+        <div class="step-card animate-in" style="--stagger-index: 0">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Basic &mdash; Single Fixed-Size Multiply</strong>
+            <p>Load lhsT[128,64] and rhs[128,512] into SBUF, call <code>nisa.nc_matmul</code>, copy result back to HBM. Works only for matrices that fit in one tile.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 1">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Tiled &mdash; Loop Over M, N, K</strong>
+            <p>Use <code>nl.affine_range</code> to tile the computation. Loop over the <span class="term" data-definition="The contraction dimension (K) is the shared dimension between LHS and RHS that gets summed over during multiplication. When K is larger than TILE_K, you must accumulate partial sums across multiple tiles.">contraction dimension</span> K, <span class="term" data-definition="To accumulate means to add successive partial products into the same PSUM buffer. After looping over all K tiles, the PSUM holds the complete result for that output tile.">accumulate</span> <span class="term" data-definition="A partial sum is an intermediate result from multiplying one K-tile of data. The full result requires summing all partial sums across the entire K dimension.">partial sums</span> in PSUM. Now handles arbitrary-size matrices.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 2">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Hoisted Loads &mdash; Reuse LHS Across Columns</strong>
+            <p>Pull the lhsT load out of the inner N-loop. Each LHS tile gets loaded once and reused for every column tile of the output. Cuts memory traffic significantly.</p>
+          </div>
+        </div>
+        <div class="step-card animate-in" style="--stagger-index: 3">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Blocked Free Dimension &mdash; Better Access Patterns</strong>
+            <p>Load RHS in bigger contiguous chunks to improve DMA efficiency. Aligns memory accesses with the hardware's preferred access patterns for maximum bandwidth.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 3: Code-English Translation ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Reading the Tiled Matmul</h3>
+
+      <p>Here is the tiled version (Version 2) &mdash; the foundation every later optimization builds upon.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-keyword">for</span> m <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(M // TILE_M):
+  <span class="code-keyword">for</span> n <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(N // TILE_N):
+    res_psum = <span class="code-function">nl.ndarray</span>(
+      (TILE_M, TILE_N), nl.float32,
+      buffer=nl.psum)
+    <span class="code-keyword">for</span> k <span class="code-keyword">in</span> <span class="code-function">nl.affine_range</span>(K // TILE_K):
+      lhsT_tile = <span class="code-function">nl.ndarray</span>(
+        (TILE_K, TILE_M), dtype=lhsT.dtype,
+        buffer=nl.sbuf)
+      rhs_tile = <span class="code-function">nl.ndarray</span>(
+        (TILE_K, TILE_N), dtype=rhs.dtype,
+        buffer=nl.sbuf)
+      <span class="code-function">nisa.dma_copy</span>(dst=lhsT_tile,
+        src=lhsT[k*TILE_K:(k+1)*TILE_K,
+                 m*TILE_M:(m+1)*TILE_M])
+      <span class="code-function">nisa.dma_copy</span>(dst=rhs_tile,
+        src=rhs[k*TILE_K:(k+1)*TILE_K,
+                n*TILE_N:(n+1)*TILE_N])
+      <span class="code-function">nisa.nc_matmul</span>(dst=res_psum,
+        stationary=lhsT_tile,
+        moving=rhs_tile)
+    res_sb = <span class="code-function">nl.ndarray</span>(
+      res_psum.shape, dtype=result.dtype,
+      buffer=nl.sbuf)
+    <span class="code-function">nisa.tensor_copy</span>(dst=res_sb,
+      src=res_psum)
+    <span class="code-function">nisa.dma_copy</span>(
+      dst=result[m*TILE_M:(m+1)*TILE_M,
+                 n*TILE_N:(n+1)*TILE_N],
+      src=res_sb)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Walk down the rows</strong> of the output, one 128-row chunk at a time.</div>
+            <div class="tl"><strong>Walk across the columns</strong> of the output, one 512-column chunk at a time.</div>
+            <div class="tl"><strong>Reserve a scratchpad</strong> in PSUM to accumulate the result for this output tile (always float32).</div>
+            <div class="tl"><strong>Walk along the shared K dimension</strong>, one 128-element slice at a time.</div>
+            <div class="tl"><strong>Allocate space in SBUF</strong> for one tile of the transposed LHS and one tile of RHS.</div>
+            <div class="tl"><strong>DMA the LHS tile</strong> from HBM into on-chip SBUF memory.</div>
+            <div class="tl"><strong>DMA the RHS tile</strong> from HBM into on-chip SBUF memory.</div>
+            <div class="tl"><strong>Fire the Tensor Engine</strong> &mdash; multiply stationary LHS by moving RHS, accumulating into PSUM.</div>
+            <div class="tl"><strong>After all K tiles are done</strong>, PSUM holds the complete result. Copy it to SBUF (converting to output dtype).</div>
+            <div class="tl"><strong>DMA the finished tile</strong> from SBUF back to HBM at the correct position in the output matrix.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 4: Flow Animation ────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Data Flow: One Tile Iteration</h3>
+
+      <p>Watch how data moves through the hardware during a single K-tile iteration of the matmul.</p>
+
+      <div class="flow-animation animate-in" id="flow-matmul"
+           data-steps='[
+             {"label":"Load LHS tile from HBM into SBUF via DMA","highlight":"flow-actor-2","packet":true,"from":"actor-1","to":"actor-2"},
+             {"label":"Load RHS tile from HBM into SBUF via DMA","highlight":"flow-actor-2","packet":true,"from":"actor-1","to":"actor-2"},
+             {"label":"Tensor Engine fires: stationary LHS x moving RHS","highlight":"flow-actor-3","packet":true,"from":"actor-2","to":"actor-3"},
+             {"label":"Result accumulates in PSUM as float32","highlight":"flow-actor-4","packet":true,"from":"actor-3","to":"actor-4"},
+             {"label":"After all K tiles: copy accumulated result from PSUM to SBUF","highlight":"flow-actor-2","packet":true,"from":"actor-4","to":"actor-2"},
+             {"label":"DMA the final result from SBUF back to HBM","highlight":"flow-actor-1","packet":true,"from":"actor-2","to":"actor-1"}
+           ]'>
+
+        <div class="flow-actors">
+          <div class="flow-actor" id="flow-actor-1">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-1); color: var(--color-actor-1);">H</div>
+            <span>HBM</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-2">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-2); color: var(--color-actor-2);">S</div>
+            <span>SBUF</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-3">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-3); color: var(--color-actor-3);">T</div>
+            <span>Tensor Engine</span>
+          </div>
+          <div class="flow-actor" id="flow-actor-4">
+            <div class="flow-actor-icon" style="border-color: var(--color-actor-4); color: var(--color-actor-4);">P</div>
+            <span>PSUM</span>
+          </div>
+        </div>
+
+        <div class="flow-packet"></div>
+        <div class="flow-step-label">Click "Next Step" to begin</div>
+
+        <div class="flow-controls">
+          <button class="btn btn-primary flow-next-btn">Next Step</button>
+          <button class="btn flow-reset-btn">Reset</button>
+          <span class="flow-progress">Step 0 / 6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SCREEN 5: Key Optimization Insight ──────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">The Optimization That Matters Most</h3>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#x1F4A1;</span>
+        <div>
+          <span class="callout-title">Data Reuse is Everything</span>
+          <p class="callout-content">The key optimization insight in NKI matmul is data reuse &mdash; by hoisting the LHS load outside the N-loop, each LHS tile gets used for every column of the result instead of being re-loaded. If your output has 8 column tiles, you save 7 redundant DMA transfers of the same LHS data per K iteration.</p>
+        </div>
+      </div>
+
+      <p>In the basic tiled version (Version 2), both LHS and RHS are loaded inside the innermost loop. Version 3 restructures the loops so the LHS load sits in the M-K loop, outside of N. The Tensor Engine keeps the <span class="term" data-definition="A fixed-function hardware unit on NeuronCore that performs 128x128 @ 128x512 matrix multiplications in a single instruction. It operates on data already resident in SBUF and writes results to PSUM.">Tensor Engine</span>'s stationary operand loaded while new RHS tiles stream through.</p>
+
+      <p>Version 4 goes further by loading RHS in larger contiguous blocks. Instead of fetching one 128&times;512 tile per iteration, it grabs multiple adjacent tiles in a single DMA burst. This keeps the memory controller busy and hides latency behind computation.</p>
+    </div>
+
+    <!-- ─── SCREEN 6: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h3 class="screen-heading">Check Your Understanding</h3>
+
+      <div class="quiz-container animate-in" id="quiz-matmul">
+
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="The Tensor Engine requires the stationary operand's free dimension along columns (dim 1). Transposing LHS puts the M dimension in position for the hardware to hold it stationary while K streams as the contraction axis."
+             data-explanation-wrong="It is not about saving memory. The transpose is required because the Tensor Engine's hardware layout expects the stationary operand in [K, M] shape &mdash; with K as the leading (partition) dimension.">
+          <div class="quiz-question">Why is lhsT stored transposed as [K, M] instead of the natural [M, K]?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It saves memory by packing data more efficiently
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The Tensor Engine hardware requires the stationary operand in [K, M] layout
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              It allows the compiler to fuse the transpose with the multiply
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="a"
+             data-explanation-right="Stationary stays loaded in the Tensor Engine while multiple moving operands stream through. This is why hoisting the LHS load works &mdash; one stationary load serves many moving tiles."
+             data-explanation-wrong="Stationary means the operand stays fixed inside the Tensor Engine's registers. Moving means the operand streams through the engine one tile at a time. This asymmetry is what enables data reuse.">
+          <div class="quiz-question">What does "stationary" vs "moving" mean in the context of the Tensor Engine?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary stays in-place in the engine; moving streams through it
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary is in HBM; moving is in SBUF
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Stationary means read-only; moving means read-write
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="c"
+             data-explanation-right="The Tensor Engine always outputs float32 to PSUM to preserve numerical precision during accumulation. Partial products from each K-tile are summed in float32 before the final result is cast to the output dtype."
+             data-explanation-wrong="PSUM uses float32 because accumulation requires higher precision than the input types. If you accumulated in fp16 or bf16, rounding errors would compound across K tiles and degrade the result.">
+          <div class="quiz-question">Why does PSUM always store results in float32, even when inputs are fp16 or bf16?</div>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              The hardware does not support other types in PSUM
+            </button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Float32 is faster for the accumulation hardware
+            </button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              Accumulating partial sums requires higher precision to avoid compounding rounding errors
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-matmul')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-matmul')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

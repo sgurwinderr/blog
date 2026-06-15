@@ -1,0 +1,419 @@
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Element-wise Operations &mdash; Beyond Addition</h1>
+      <p class="module-subtitle">The full toolkit of per-element operations: binary ops, scalar broadcasting, activations, and the secret weapon of chained instructions.</p>
+    </header>
+
+    <!-- ── SCREEN 1: The Building Blocks ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Four Element-wise Primitives</h2>
+
+      <p>In Module 2 we used <code>nisa.tensor_tensor</code> for addition. That is just one of four <span class="term" data-definition="Element-wise operations apply the same function independently to every element in a tile (or corresponding elements in two tiles). No element's result depends on any other element. Examples: add, multiply, exp, log.">element-wise</span> primitives that NKI provides. Together, they form the complete set of per-element building blocks:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-1);">T</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_tensor performs a binary operation (add, subtract, multiply, min, max) between two tiles of the same shape that are both in SBUF. Every element in tile A is combined with the corresponding element in tile B.">nisa.tensor_tensor</span></strong>
+            <p><span class="term" data-definition="A binary operation takes two inputs and produces one output. In the context of NKI, it means combining corresponding elements from two tiles: result[i,j] = op(a[i,j], b[i,j]).">Binary ops</span> between two tiles: add, subtract, multiply, min, max. Both tiles must be in SBUF and have the same shape.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-2);">S</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_scalar applies an operation between a tile and a scalar (single value) or a vector (one value per row). The scalar/vector gets broadcast across all columns of the tile. Can chain two operations in a single instruction.">nisa.tensor_scalar</span></strong>
+            <p>Op between a tile and a <span class="term" data-definition="A scalar in NKI is a single value (or a column vector with one value per row) that gets applied to every element in the free dimension. Shape (128,1) gets broadcast to (128,512) — the same value is used across all 512 columns of each row.">scalar</span>/vector. Supports <span class="term" data-definition="Broadcasting is when a smaller tensor (like shape 128x1) is automatically expanded to match a larger tensor (like 128x512) by repeating its values along the missing dimension. In NKI, a (128,1) vector broadcasts across all columns.">broadcasting</span> and can chain two ops in one instruction.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-3);">A</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.activation applies a unary nonlinear function (exp, log, tanh, reciprocal, sigmoid) to every element of a tile. Can optionally apply a scale and/or bias before the activation: activation(data * scale + bias).">nisa.activation</span></strong>
+            <p><span class="term" data-definition="A unary operation takes one input and produces one output. Examples: exp(x), log(x), tanh(x). Each element is transformed independently.">Unary ops</span>: exp, log, tanh, reciprocal, sigmoid. Optionally applies scale and bias before the nonlinearity.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num" style="background: var(--color-actor-4);">C</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="nisa.tensor_copy moves data between memory spaces (PSUM to SBUF, or SBUF to SBUF) with optional type conversion. It does not cross the HBM boundary — use nisa.dma_copy for that.">nisa.tensor_copy</span></strong>
+            <p>Copies data between PSUM and SBUF (with optional <span class="term" data-definition="Type casting converts data from one numeric format to another (e.g., float32 to float16, or bfloat16 to float32). In NKI, type conversion often happens during tensor_copy when moving between PSUM (always float32) and SBUF (which can hold float16/bfloat16).">type casting</span>). The glue that connects compute results in PSUM back to SBUF for further processing.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: tensor_tensor Deep Dive ───────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Binary Operations: tensor_tensor</h2>
+
+      <p>The simplest element-wise primitive. Two tiles go in, one tile comes out. Every element at position (i, j) is combined independently:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Element-wise multiply</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_tensor</span>(</span>
+<span class="code-line">  dst=result,</span>
+<span class="code-line">  data1=a_tile,</span>
+<span class="code-line">  data2=b_tile,</span>
+<span class="code-line">  op=<span class="code-property">nl.multiply</span></span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>"Multiply two tiles element-by-element"</strong></div>
+            <div class="tl"><strong>"Put the result here"</strong> &mdash; must be in SBUF</div>
+            <div class="tl"><strong>"First input tile"</strong> &mdash; in SBUF</div>
+            <div class="tl"><strong>"Second input tile"</strong> &mdash; same shape, in SBUF</div>
+            <div class="tl"><strong>"The operation: multiply"</strong> &mdash; also: add, subtract, min, max</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Supported operations: <code>nl.add</code>, <code>nl.subtract</code>, <code>nl.multiply</code>, <code>nl.minimum</code>, <code>nl.maximum</code>. All inputs and output must be in SBUF with matching shapes.</p>
+    </div>
+
+    <!-- ── SCREEN 3: tensor_scalar and Broadcasting ────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Scalar Broadcast: tensor_scalar</h2>
+
+      <p>Often you need to apply the same value across an entire row &mdash; subtract the row maximum, multiply by a scale factor, add a bias. This is where <code>nisa.tensor_scalar</code> shines:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Subtract row-max for numerical stability</span></span>
+<span class="code-line"><span class="code-comment"># row_max shape: (128, 1)</span></span>
+<span class="code-line"><span class="code-comment"># scores shape:  (128, 512)</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_scalar</span>(</span>
+<span class="code-line">  dst=normalized,</span>
+<span class="code-line">  data=scores,</span>
+<span class="code-line">  op0=<span class="code-property">nl.subtract</span>,</span>
+<span class="code-line">  operand0=row_max</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Subtract the maximum from each row"</strong></div>
+            <div class="tl"><strong>"row_max has one value per row"</strong> &mdash; shape (128, 1)</div>
+            <div class="tl"><strong>"scores has 512 values per row"</strong> &mdash; shape (128, 512)</div>
+            <div class="tl"><strong>"Apply a scalar operation"</strong></div>
+            <div class="tl"><strong>"Store result here"</strong> &mdash; shape (128, 512)</div>
+            <div class="tl"><strong>"The tile to operate on"</strong> &mdash; full 128x512 tile</div>
+            <div class="tl"><strong>"Operation: subtract"</strong> &mdash; applied per-element</div>
+            <div class="tl"><strong>"The scalar/vector to subtract"</strong> &mdash; broadcast across cols</div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>The key insight: <code>row_max</code> has shape (128, 1) but gets broadcast to (128, 512). Each row's single max value is subtracted from all 512 columns in that row. This is identical to NumPy broadcasting &mdash; just happening on custom hardware.</p>
+    </div>
+
+    <!-- ── SCREEN 4: Chaining Operations ───────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Secret Weapon: Chained Operations</h2>
+
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#9889;</span>
+        <div class="callout-content">
+          <span class="callout-title">One Instruction, Two Operations</span>
+          <p>The <span class="term" data-definition="Chaining means performing two scalar operations (op0 then op1) in a single tensor_scalar instruction. The hardware applies op0 first, then immediately applies op1 to the intermediate result — without an extra memory read/write cycle.">chained</span> tensor_scalar instruction is the secret weapon of NKI optimization. Instead of two separate instructions (multiply then add), one instruction does both &mdash; halving the memory reads and pipeline bubbles.</p>
+        </div>
+      </div>
+
+      <p><code>nisa.tensor_scalar</code> can perform <strong>two operations in sequence</strong> with a single instruction. First <code>op0</code> is applied, then <code>op1</code> is applied to the intermediate result:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Fused multiply-add: out = x * scale + bias</span></span>
+<span class="code-line"><span class="code-function">nisa.tensor_scalar</span>(</span>
+<span class="code-line">  dst=out,</span>
+<span class="code-line">  data=x,</span>
+<span class="code-line">  op0=<span class="code-property">nl.multiply</span>,</span>
+<span class="code-line">  operand0=scale,</span>
+<span class="code-line">  op1=<span class="code-property">nl.add</span>,</span>
+<span class="code-line">  operand1=bias</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Multiply then add in ONE instruction"</strong></div>
+            <div class="tl"><strong>"Apply chained scalar ops"</strong></div>
+            <div class="tl"><strong>"Result goes here"</strong></div>
+            <div class="tl"><strong>"Input tile"</strong></div>
+            <div class="tl"><strong>"First op: multiply each element by scale"</strong></div>
+            <div class="tl"><strong>"Scale value (broadcast)"</strong></div>
+            <div class="tl"><strong>"Second op: add bias to intermediate"</strong></div>
+            <div class="tl"><strong>"Bias value (broadcast)"</strong></div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Without chaining, you would need two instructions: one tensor_scalar for multiply, then another for add. Each instruction reads the tile from SBUF and writes it back. Chaining eliminates the intermediate read-write cycle.</p>
+    </div>
+
+    <!-- ── SCREEN 5: Activations ───────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Activations: The Nonlinear Functions</h2>
+
+      <p><span class="term" data-definition="An activation function is a nonlinear mathematical function applied element-wise to tensor values. Neural networks need nonlinearities (like exp, tanh, sigmoid) to model complex patterns. Without them, stacking layers would just be matrix multiplication.">Activation functions</span> are the nonlinear transformations that make neural networks powerful. NKI provides them as a single instruction:</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">NKI Code</span>
+          <pre><code><span class="code-line"><span class="code-comment"># Compute exp(data * scale)</span></span>
+<span class="code-line"><span class="code-function">nisa.activation</span>(</span>
+<span class="code-line">  dst=exp_result,</span>
+<span class="code-line">  op=<span class="code-property">nl.exp</span>,</span>
+<span class="code-line">  data=delta,</span>
+<span class="code-line">  scale=A_val</span>
+<span class="code-line">)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Plain English</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>"Apply exponential with a scale factor"</strong></div>
+            <div class="tl"><strong>"Activation instruction"</strong></div>
+            <div class="tl"><strong>"Store result here"</strong></div>
+            <div class="tl"><strong>"Which function: exponential"</strong> &mdash; also: log, tanh, reciprocal</div>
+            <div class="tl"><strong>"Input tile"</strong> &mdash; computes exp(delta * A_val)</div>
+            <div class="tl"><strong>"Multiply input by this before applying exp"</strong></div>
+            <div class="tl">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <p>Available activations: <code>nl.exp</code>, <code>nl.log</code>, <code>nl.tanh</code>, <code>nl.reciprocal</code>, <code>nl.sigmoid</code>. The optional <code>scale</code> and <code>bias</code> parameters let you compute <code>op(data * scale + bias)</code> in a single instruction.</p>
+    </div>
+
+    <!-- ── SCREEN 6: Group Chat ────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">The Operations Argue</h2>
+
+      <p>Each element-wise operation has its own specialty. Here they are, debating who is the most important:</p>
+
+      <div class="chat-window animate-in" id="chat-module4">
+        <div class="chat-messages">
+
+          <div class="chat-message" data-sender="tensor_tensor" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">T</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">tensor_tensor</span>
+              <p>I handle all the binary ops &mdash; add, multiply, subtract, you name it. Two tiles go in, one comes out. I'm the workhorse of every kernel. Without me, you can't even combine two loaded tiles.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_scalar" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">tensor_scalar</span>
+              <p>Cute. I can broadcast a single value across 512 columns AND chain two operations in one shot. Multiply-then-add? That's one instruction for me, two for you. I'm the fused-op king.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="activation" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">A</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">activation</span>
+              <p>You two are just arithmetic. I do the nonlinear magic &mdash; exp, log, tanh, sigmoid. Without me, your neural network is just a stack of linear transforms. I make it actually learn things.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_copy" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">C</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">tensor_copy</span>
+              <p>Everyone forgets about me, but nothing works without me. After matmul, results sit in PSUM as float32. Someone has to move them back to SBUF so you three can do your thing. That someone is me.</p>
+            </div>
+          </div>
+
+          <div class="chat-message" data-sender="tensor_scalar" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">tensor_scalar</span>
+              <p>Fair point, tensor_copy. But let's be real &mdash; in every softmax kernel, I subtract the max and then activation computes exp. We're a team. The real enemy is doing these as separate instructions when we could fuse them.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 7: Drag-and-Drop Matching ────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Operation to Its Use Case</h2>
+
+      <p>Drag each NKI instruction to its correct real-world application:</p>
+
+      <div class="dnd-container animate-in" id="dnd-module4">
+        <div class="dnd-items">
+          <div class="dnd-item" draggable="true" data-match="scale-tiles">
+            <code>nisa.tensor_tensor(op=nl.multiply)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="subtract-max">
+            <code>nisa.tensor_scalar(op0=nl.subtract, operand0=max_val)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="compute-exp">
+            <code>nisa.activation(op=nl.exp)</code>
+          </div>
+          <div class="dnd-item" draggable="true" data-match="move-psum">
+            <code>nisa.tensor_copy</code>
+          </div>
+        </div>
+        <div class="dnd-targets">
+          <div class="dnd-target" data-accept="scale-tiles">
+            <span class="dnd-target-label">Scale one tile by another (e.g., attention scores * values)</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="subtract-max">
+            <span class="dnd-target-label">Subtract row-max for numerical stability</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="compute-exp">
+            <span class="dnd-target-label">Compute exponentials for softmax</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+          <div class="dnd-target" data-accept="move-psum">
+            <span class="dnd-target-label">Move results from PSUM to SBUF</span>
+            <div class="dnd-drop-zone"></div>
+          </div>
+        </div>
+        <div class="dnd-feedback"></div>
+        <button class="btn btn-primary dnd-check-btn">Check Matches</button>
+        <button class="btn dnd-reset-btn">Reset</button>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 8: Type Conversion ───────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Type Conversion: float32, float16, bfloat16</h2>
+
+      <p>NeuronCore uses mixed precision internally. The Tensor Engine always outputs float32 into PSUM. But SBUF often holds float16 or bfloat16 to save space. You need to convert between them:</p>
+
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">PSUM &rarr; SBUF</span>
+          <span class="badge-desc"><code>nisa.tensor_copy(dst=sbuf_tile, src=psum_tile)</code> &mdash; automatically converts float32 to the destination dtype (float16 or bfloat16).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">SBUF &rarr; SBUF</span>
+          <span class="badge-desc"><code>nisa.tensor_copy</code> can also convert between float16 and bfloat16 within SBUF when you need a specific format for the next operation.</span>
+        </div>
+      </div>
+
+      <p>The general rule: compute in float32 (for precision), store in float16/bfloat16 (for space). The Tensor Engine enforces this &mdash; PSUM is always float32.</p>
+    </div>
+
+    <!-- ── SCREEN 9: Quiz ──────────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Check Your Understanding</h2>
+
+      <div class="quiz-container animate-in" id="quiz-module4">
+
+        <div class="quiz-question-block" data-correct="broadcast-row" data-explanation-right="Correct! A (128, 1) vector in NKI broadcasts across the free dimension. Each row's single value is applied to all 512 columns in that row — like NumPy broadcasting but on custom hardware." data-explanation-wrong="Broadcasting in NKI works along the free dimension (columns). A (128, 1) operand means 'one value per row' and that value is applied to every column in the row. It does NOT replicate to 128 separate tiles.">
+          <p class="quiz-question">1. When <code>operand0</code> has shape (128, 1) in tensor_scalar, what happens?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Shape mismatch error &mdash; operand must be (128, 512)</span>
+            </button>
+            <button class="quiz-option" data-value="broadcast-row" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Each row's value is broadcast across all 512 columns</span>
+            </button>
+            <button class="quiz-option" data-value="first-only" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Only the first column is affected; the rest stay unchanged</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="one-instruction" data-explanation-right="Correct! Chaining with op0 and op1 performs both operations in a single hardware instruction. The intermediate result never gets written to memory — it flows directly through the pipeline. This halves memory traffic compared to two separate instructions." data-explanation-wrong="Chaining (using both op0 and op1 in tensor_scalar) is a hardware feature that fuses two operations into one instruction. The intermediate result stays in the pipeline — no extra memory read/write. It genuinely reduces instruction count and memory traffic.">
+          <p class="quiz-question">2. What is the advantage of chaining op0 and op1 in <code>nisa.tensor_scalar</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="readability" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>It only improves code readability; performance is the same</span>
+            </button>
+            <button class="quiz-option" data-value="one-instruction" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Two ops execute in one instruction, halving memory reads/writes</span>
+            </button>
+            <button class="quiz-option" data-value="parallel" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>op0 and op1 run in parallel on different hardware units</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="tensor-copy" data-explanation-right="Correct! After a matrix multiply, results live in PSUM as float32. To use them in element-wise operations (which operate on SBUF), you must first use nisa.tensor_copy to move the data from PSUM to SBUF, converting types if needed." data-explanation-wrong="Results from the Tensor Engine (matmul) always land in PSUM. Element-wise operations like tensor_tensor and tensor_scalar work on SBUF. The bridge between them is nisa.tensor_copy, which moves data from PSUM to SBUF.">
+          <p class="quiz-question">3. After a matrix multiply puts results in PSUM, how do you use them in element-wise ops?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="direct" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Reference PSUM directly &mdash; element-wise ops can read from any buffer</span>
+            </button>
+            <button class="quiz-option" data-value="dma" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Use nisa.dma_copy to move PSUM to HBM, then back to SBUF</span>
+            </button>
+            <button class="quiz-option" data-value="tensor-copy" onclick="selectOption(this)">
+              <span class="quiz-option-radio"></span>
+              <span>Use nisa.tensor_copy to move data from PSUM to SBUF</span>
+            </button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 10: Summary ──────────────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">What You've Learned</h2>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127937;</span>
+        <div class="callout-content">
+          <span class="callout-title">Element-wise Toolkit Complete</span>
+          <p>You now command the four element-wise primitives: tensor_tensor for binary ops, tensor_scalar for broadcast and chained ops, activation for nonlinear functions, and tensor_copy for shuffling data between PSUM and SBUF. In the next module, we will combine these with tiling to build a full matrix multiplication kernel.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
