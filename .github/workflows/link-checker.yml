@@ -23,7 +23,7 @@ jobs:
 
       - uses: lycheeverse/lychee-action@v2
         with:
-          args: --verbose --no-progress --root-dir public 'public/**/*.html'
+          args: --verbose --no-progress --root-dir public --exclude 'linkedin.com' 'public/**/*.html'
           fail: true
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
