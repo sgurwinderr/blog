@@ -43,7 +43,7 @@ def relu_kernel(input_ptr, output_ptr, num_elem, block_size: tl.constexpr):
     tl.store(output_ptr + offsets, z, mask=mask)
 ```
 
-**How to read this line by line:** for a deeper foundation, see [Understanding Triton Kernels from First Principles](/post/triton-kernel-first-principles/).
+**How to read this line by line:** for a deeper foundation, see [Understanding Triton Kernels from First Principles](/triton-kernel-first-principles/).
 
 **The Python launcher:**
 
