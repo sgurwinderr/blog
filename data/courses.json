@@ -31,5 +31,16 @@
     "iconType": "emoji",
     "modules": "10 Modules",
     "duration": "2-3 Hours"
+  },
+  {
+    "title": "NKI Kernel Programming",
+    "url": "/learn-ai/nki-kernel-programming/",
+    "category": "Custom Silicon",
+    "summary": "Program AWS Trainium from first tile to Flash Attention using NKI — the CUDA of Neuron hardware.",
+    "gradient": "linear-gradient(135deg, #2A7B9B 0%, #1a5c75 100%)",
+    "icon": "🧠",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "3-4 Hours"
   }
 ]
