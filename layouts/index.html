@@ -17,7 +17,7 @@
                 <h2><span>Learn AI</span></h2>
             </div>
             <div class="row">
-                {{ range site.Data.courses }}
+                {{ range first 3 site.Data.courses }}
                 <div class="col-12 col-md-4 mb-4">
                     <div class="featured-card">
                         <a href="{{ .url }}" class="featured-card-img-wrap">
