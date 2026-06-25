@@ -1,0 +1,167 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Validation, Prior Art &amp; Risk</h1>
+      <p class="module-subtitle">What the pass actually recovers on ARL-S, where the idea comes from, and why it is safe</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Measured on ARL-S</h2>
+        <p>The pass was validated on an Arrow Lake-S iGPU across three groups of kernels: ones that used to fail, ones that already worked but were slow, and ones that should be untouched.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x2705;</div>
+            <div>
+              <strong>Group A — Previously failing: 9 / 9 recovered</strong>
+              <p>Every one of the nine kernels that hit the <code>INVALID_NATIVE_BINARY</code> cliff now builds and runs correctly. The PTSS overflow is gone.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f680;</div>
+            <div>
+              <strong>Group B — Already working: 1.86&times; geomean speedup</strong>
+              <p>Kernels that compiled but spilled heavily got faster too — a 1.86&times; geometric-mean speedup from trading PTSS round-trips for bounded SLM traffic.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-bg-warm); color: var(--color-text-secondary)">&#x2696;&#xfe0f;</div>
+            <div>
+              <strong>Group C — Should be untouched: verified no-op</strong>
+              <p>DPAS-path and small-dot kernels produced byte-identical IR with the pass on or off — confirming the four gates hold.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Not a New Idea — A Ported One</h2>
+        <p>Staging operands in scratchpad and tiling the contraction dimension is the oldest trick in the high-performance GEMM book. This pass brings it to a path that was missing it.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">CUTLASS</span>
+            <span class="badge-desc">NVIDIA's GEMM templates stage tiles through shared memory and iterate over K in its main loop — the canonical reference for this pattern.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Composable Kernel</span>
+            <span class="badge-desc">AMD's CK library does the same LDS-staged, K-tiled blocking for its matmul pipelines.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Triton pipeliner</span>
+            <span class="badge-desc">Upstream Triton's software pipeliner already stages DPAS/MMA operands in shared memory — this pass extends the idea to the FMA fallback the pipeliner skips.</span>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" aria-label="Cross-iteration circular vs intra-iteration sub-slice">
+            <text x="180" y="25" class="mem-title" text-anchor="middle">CUTLASS / CK / upstream Triton</text>
+            <text x="180" y="45" class="mem-mono" text-anchor="middle">circular multi-buffer across iterations</text>
+            <rect x="40" y="65" width="60" height="50" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <rect x="105" y="65" width="60" height="50" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <rect x="170" y="65" width="60" height="50" fill="#e1f0fa" stroke="#0071c5" stroke-width="2"/>
+            <rect x="235" y="65" width="60" height="50" fill="#f0e6f6" stroke="#7b6daa" stroke-width="2"/>
+            <text x="70" y="95" class="mem-mono" text-anchor="middle">Iter 0</text>
+            <text x="135" y="95" class="mem-mono" text-anchor="middle">Iter 1</text>
+            <text x="200" y="95" class="mem-mono" text-anchor="middle">Iter 2</text>
+            <text x="265" y="95" class="mem-mono" text-anchor="middle">Iter 3</text>
+            <text x="70" y="135" class="mem-mono" text-anchor="middle">smem[0]</text>
+            <text x="135" y="135" class="mem-mono" text-anchor="middle">smem[1]</text>
+            <text x="200" y="135" class="mem-mono" text-anchor="middle">smem[0]</text>
+            <text x="265" y="135" class="mem-mono" text-anchor="middle">smem[1]</text>
+            <text x="540" y="25" class="mem-title" text-anchor="middle">This pass</text>
+            <text x="540" y="45" class="mem-mono" text-anchor="middle">single SMEM, sub-slice within one iteration</text>
+            <rect x="380" y="65" width="320" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="540" y="95" class="mem-mono" text-anchor="middle" fill="#0071c5">one allocation: full A and B in SLM</text>
+            <line x1="460" y1="65" x2="460" y2="115" stroke="#0071c5" stroke-dasharray="3,3"/>
+            <line x1="540" y1="65" x2="540" y2="115" stroke="#0071c5" stroke-dasharray="3,3"/>
+            <line x1="620" y1="65" x2="620" y2="115" stroke="#0071c5" stroke-dasharray="3,3"/>
+            <text x="420" y="135" class="mem-mono" text-anchor="middle">K-tile 0</text>
+            <text x="500" y="135" class="mem-mono" text-anchor="middle">K-tile 1</text>
+            <text x="580" y="135" class="mem-mono" text-anchor="middle">K-tile 2</text>
+            <text x="660" y="135" class="mem-mono" text-anchor="middle">K-tile 3</text>
+            <text x="360" y="200" class="mem-text" text-anchor="middle">Trade-off: this pass gives up cross-iteration prefetch overlap</text>
+            <text x="360" y="222" class="mem-text" text-anchor="middle">in exchange for a hard cap on per-thread register pressure.</text>
+            <text x="360" y="252" class="mem-text" text-anchor="middle" font-style="italic" fill="#6b6560">The two patterns compose — software pipelining still buys the overlap.</text>
+          </svg>
+          <div class="post-diagram-caption">Same SMEM tool, used differently: across iterations vs within one iteration.</div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f9ed;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The gap it fills</strong>
+            <p>Every mature GEMM stack tiles K through scratchpad — but only on its <em>fast</em> path. The non-DPAS FMA fallback on Intel iGPUs never got that treatment. This pass closes that specific gap.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Risk &amp; Composability</h2>
+        <p>The pass ships behind the four gates and emits only standard TTGIR. That bounds its blast radius tightly.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-success)">
+            <div class="pattern-icon" style="background: var(--color-success)">&#x1f512;</div>
+            <h4 class="pattern-title">Bounded downside</h4>
+            <p class="pattern-desc">If any gate fails, the dot is untouched. The worst case for an unhelped kernel is a no-op — never a regression.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-accent)">
+            <div class="pattern-icon" style="background: var(--color-accent)">&#x1f9e9;</div>
+            <h4 class="pattern-title">Composes cleanly</h4>
+            <p class="pattern-desc">Output is ordinary <code>scf.for</code> + SLM ops, so the pipeliner, allocator, and lowerings need no special-casing.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x1f441;&#xfe0f;</div>
+            <h4 class="pattern-title">Watch SLM pressure</h4>
+            <p class="pattern-desc">Staging consumes SLM that other parts of a kernel might want. Gate 4 guards the budget, but occupancy on SLM-heavy kernels is worth monitoring.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Final Check</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="recovered"
+               data-explanation-right="Correct. Group A — the nine kernels that previously failed to build with the PTSS overflow — all 9 now compile and run. Group B kernels got a 1.86x geomean speedup, and Group C confirmed the no-op behavior."
+               data-explanation-wrong="Look again. Group A was the set of nine kernels that used to fail outright at the PTSS cliff; all nine are now recovered. The 1.86x figure is the Group B speedup; Group C is the no-op verification.">
+            <p class="quiz-question">On ARL-S, what happened to the nine kernels in Group A that previously failed to build?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="recovered" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">All 9 now build and run correctly</span></button>
+              <button class="quiz-option" data-value="some" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Only the smallest few were recovered</span></button>
+              <button class="quiz-option" data-value="slower" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">They build but run slower than before</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="noop"
+               data-explanation-right="Exactly. Because all four gates must pass and the fallback is to do nothing, a kernel the pass cannot help is left byte-identical — a guaranteed no-op, which is what Group C verified."
+               data-explanation-wrong="Not quite. The defining safety property is that a failed gate means the dot is left untouched — a guaranteed no-op, verified byte-for-byte in Group C.">
+            <p class="quiz-question">What is the worst-case outcome for a kernel that doesn't clear the gates?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="noop" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A guaranteed no-op — IR is unchanged</span></button>
+              <button class="quiz-option" data-value="crash" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A compile error</span></button>
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A small slowdown</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4e6;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Ships in</strong>
+            <p>This pass landed as <a href="https://github.com/intel/intel-xpu-backend-for-triton/pull/7291" target="_blank" rel="noopener">intel/intel-xpu-backend-for-triton#7291</a>, evolving the original sketch from PR #7276.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

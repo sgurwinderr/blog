@@ -42,5 +42,16 @@
     "iconType": "emoji",
     "modules": "8 Modules",
     "duration": "3-4 Hours"
+  },
+  {
+    "title": "Staging Large FMA Dots via SLM",
+    "url": "/learn-ai/stage-large-fma-dots-slm/",
+    "category": "Triton Kernels",
+    "summary": "Fix the PTSS overflow cliff on non-DPAS Intel iGPUs by staging tt.dot operands in SLM and tiling K.",
+    "gradient": "linear-gradient(135deg, #0071c5 0%, #003d6b 100%)",
+    "icon": "SLM",
+    "iconType": "text",
+    "modules": "6 Modules",
+    "duration": "1-2 Hours"
   }
 ]

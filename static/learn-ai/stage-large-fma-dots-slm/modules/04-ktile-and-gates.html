@@ -1,0 +1,113 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Picking <code>K_TILE</code> &amp; the Four Gates</h1>
+      <p class="module-subtitle">A byte budget decides the tile size; four predicates decide whether to fire at all</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The SLM Footprint</h2>
+        <p>Before tiling, the pass checks that staging <em>both</em> operands in SLM actually fits the workgroup budget. For the running 64×128×128 f16 example:</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">SLM BUDGET CHECK</span>
+            <pre><code><span class="code-line"><span class="code-comment"># A tile: 64 x 128 f16</span></span>
+<span class="code-line">A = <span class="code-number">64</span> * <span class="code-number">128</span> * <span class="code-number">2</span>  = <span class="code-number">16384</span> B</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># B tile: 128 x 128 f16</span></span>
+<span class="code-line">B = <span class="code-number">128</span> * <span class="code-number">128</span> * <span class="code-number">2</span> = <span class="code-number">32768</span> B</span>
+<span class="code-line"></span>
+<span class="code-line">total = <span class="code-number">48</span> KB  <span class="code-keyword">&lt;</span>  <span class="code-number">64</span> KB SLM &#x2713;</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHY IT MATTERS</span>
+            <div class="translation-lines">
+              <p class="tl">Staging both operands costs 48 KB of the 64 KB workgroup SLM — it fits, with 16 KB to spare.</p>
+              <p class="tl">If the operands did <em>not</em> fit, the pass would bail rather than blow the SLM budget and serialize the workgroup.</p>
+              <p class="tl"><code>K_TILE</code> then controls only how much of each operand is <em>live in registers</em> per loop iteration — the SLM copy stays whole.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Choosing <code>K_TILE</code></h2>
+        <p>The tile size is the one tuning knob. Pick it too large and the per-iteration live set spills again; too small and loop overhead and SLM traffic dominate.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x2b06;&#xfe0f;</div>
+            <h4 class="pattern-title">Too large</h4>
+            <p class="pattern-desc">A wide slice keeps too many columns live per iteration — register pressure climbs back toward the PTSS cliff we were escaping.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x2b07;&#xfe0f;</div>
+            <h4 class="pattern-title">Too small</h4>
+            <p class="pattern-desc">Many tiny iterations mean more loop bookkeeping and more <code>local_load</code> round-trips — SLM bandwidth and loop overhead start to dominate.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-success)">
+            <div class="pattern-icon" style="background: var(--color-success)">&#x1f3af;</div>
+            <h4 class="pattern-title">Just right</h4>
+            <p class="pattern-desc">The largest <code>K_TILE</code> whose live set still fits the GRF budget — maximal work per iteration with no spill. The pass solves for this directly.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Four Gates</h2>
+        <p>The pass is conservative by design. A dot is rewritten only if it passes <strong>all four</strong> gates — otherwise it is left exactly as-is, guaranteeing the pass can never make a healthy kernel worse.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Gate 1 — FMA path only</strong><p>The target must lack a DPAS unit. On DPAS hardware the dot is already cheap, so the pass refuses to touch it.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Gate 2 — Size threshold</strong><p>The dot's estimated spill must actually exceed the budget. Small dots that schedule fine are left alone.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Gate 3 — Tileable K</strong><p>K must be large enough, and cleanly divisible, to split into <code>K_TILE</code> chunks without a ragged remainder.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Gate 4 — SLM fits</strong><p>The staged operands must fit the workgroup SLM budget. If staging would overflow SLM, the pass declines.</p></div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f6e1;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Fail-safe by construction</strong>
+            <p>Because all four gates must pass and the fallback is "do nothing," the worst case for any kernel the pass <em>doesn't</em> help is a no-op. That property is what makes it safe to enable by default.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block" data-correct="all"
+               data-explanation-right="Right. A dot must clear all four gates — FMA path, size threshold, tileable K, and SLM fit — or it is left untouched. That all-or-nothing predicate is what guarantees the pass never regresses a healthy kernel."
+               data-explanation-wrong="Not quite. The pass requires every one of the four gates to pass. If any single gate fails, it leaves the dot exactly as it was — a guaranteed no-op rather than a risky partial rewrite.">
+            <p class="quiz-question">How many of the four gates must a dot pass to be rewritten?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="any" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Any one is enough</span></button>
+              <button class="quiz-option" data-value="two" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A majority — at least two</span></button>
+              <button class="quiz-option" data-value="all" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">All four</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answer</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

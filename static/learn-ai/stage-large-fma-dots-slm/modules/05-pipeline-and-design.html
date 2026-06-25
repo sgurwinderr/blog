@@ -1,0 +1,69 @@
+<section class="module" id="module-5" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Pipeline Placement &amp; Design Choices</h1>
+      <p class="module-subtitle">Where the pass sits in the compiler, and how the shipped design diverged from the first sketch</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where It Runs</h2>
+        <p>Placement matters as much as the rewrite. The pass runs in the TTGIR phase — after layouts are assigned (so it knows the operand shapes and the FMA-vs-DPAS decision) but before the software pipeliner and SLM allocation finalize.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>After layout assignment</strong><p>The pass needs the resolved operand layouts and the FMA/DPAS verdict to evaluate its gates. Running earlier would mean guessing.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Before the pipeliner</strong><p>The new <code>scf.for</code> K-loop and SLM ops are handed to the existing pipeliner and allocator, which schedule and place them like any other loop.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Inside the Intel backend</strong><p>It lives in the <code>intel</code> third-party tree as a target-specific TTGIR pass, so it only ever runs for Intel GPU compilation.</p></div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f517;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Composability is free</strong>
+            <p>Because the pass emits ordinary <code>scf.for</code> + SLM ops, the downstream pipeliner, allocator, and lowerings treat its output as a normal loop. No special-casing anywhere else in the stack.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Five Ways the Final Design Diverged</h2>
+        <p>The shipped pass is not the napkin sketch from the original proposal (PR #7276). Five deliberate changes hardened it for production.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>TTGIR, not LLVM IR</strong><p>The sketch patched late, near codegen. The shipped pass works in TTGIR so it can reuse <code>local_alloc</code>/<code>local_load</code> and ride the existing pipeliner.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Explicit FMA gate</strong><p>The sketch assumed the caller only invoked it on FMA dots. The shipped pass checks the path itself, so it is safe to run unconditionally.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Both operands staged</strong><p>Staging only the larger operand left the smaller one spilling. The final design stages A <em>and</em> B for a clean, bounded live set.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Solved <code>K_TILE</code>, not hard-coded</strong><p>A fixed tile size regressed some shapes. The pass now derives <code>K_TILE</code> from the register and SLM budgets per dot.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">5</div>
+            <div class="step-body"><strong>Four gates, fail-safe</strong><p>The sketch always rewrote. The shipped pass added the size, tileability, and SLM-fit gates so the fallback is always a guaranteed no-op.</p></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

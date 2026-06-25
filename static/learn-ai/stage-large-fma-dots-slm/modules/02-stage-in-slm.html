@@ -1,0 +1,138 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">The Idea: Stage in SLM, Tile K</h1>
+      <p class="module-subtitle">Trade a register-bound flat schedule for a small, bounded loop fed from the scratchpad</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Moves, One Goal</h2>
+        <p>The fix is a new TTGIR pass — <code>tritonintelgpu-stage-large-fma-dots-via-slm</code> — that rewrites a doomed <code>tt.dot</code> into a shape IGC can actually schedule. It makes exactly two moves.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">&#x1f4e5;</div>
+            <h4 class="pattern-title">Move 1 — Stage operands in SLM</h4>
+            <p class="pattern-desc">Instead of keeping the full A and B tiles live in registers, write them once to SLM. The scratchpad becomes the home for the operands; the GRF only holds the slice in flight.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">&#x2702;&#xfe0f;</div>
+            <h4 class="pattern-title">Move 2 — Tile the K dimension</h4>
+            <p class="pattern-desc">Split the 128-deep dot into chunks of <code>K_TILE</code>. Loop over the chunks, accumulating into C. Only <code>K_TILE</code> columns of each operand are live in registers at any instant.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The core trade</strong>
+            <p>We swap a <em>flat, fully-unrolled</em> schedule that spills 345 KB to PTSS for a <em>small, looped</em> schedule whose live set is bounded by <code>K_TILE</code>. SLM bandwidth replaces register pressure — and SLM is the one budget we have headroom in.</p>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" aria-label="Before vs after: monolithic dot vs four K-tiled dots">
+            <text x="180" y="25" class="mem-title" text-anchor="middle" fill="#c93b3b">BEFORE — one monolithic K=128 dot</text>
+            <rect x="40" y="40" width="280" height="80" rx="8" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="180" y="72" class="mem-title" text-anchor="middle">tt.dot (full K=128)</text>
+            <text x="180" y="98" class="mem-mono" text-anchor="middle">8192 FMAs unrolled flat</text>
+            <text x="180" y="148" class="mem-mono" text-anchor="middle" fill="#c93b3b">→ 345 KB spill → fail</text>
+            <text x="540" y="25" class="mem-title" text-anchor="middle" fill="#2d8b55">AFTER — four K=32 dots fed from SLM</text>
+            <rect x="380" y="40" width="78" height="80" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <rect x="468" y="40" width="78" height="80" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <rect x="556" y="40" width="78" height="80" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <rect x="644" y="40" width="56" height="80" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="419" y="76" class="mem-mono" text-anchor="middle">K=32</text>
+            <text x="507" y="76" class="mem-mono" text-anchor="middle">K=32</text>
+            <text x="595" y="76" class="mem-mono" text-anchor="middle">K=32</text>
+            <text x="672" y="76" class="mem-mono" text-anchor="middle">K=32</text>
+            <text x="419" y="96" class="mem-mono" text-anchor="middle" fill="#2d8b55">~1 KB</text>
+            <text x="507" y="96" class="mem-mono" text-anchor="middle" fill="#2d8b55">~1 KB</text>
+            <text x="595" y="96" class="mem-mono" text-anchor="middle" fill="#2d8b55">~1 KB</text>
+            <text x="672" y="96" class="mem-mono" text-anchor="middle" fill="#2d8b55">~1 KB</text>
+            <text x="540" y="148" class="mem-mono" text-anchor="middle" fill="#2d8b55">→ each fits in GRF, no spill</text>
+            <rect x="380" y="200" width="320" height="60" rx="8" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="540" y="226" class="mem-title" text-anchor="middle">SLM: full A and B staged once (16 KB)</text>
+            <text x="540" y="248" class="mem-mono" text-anchor="middle">memdesc_subslice + local_load per K-tile</text>
+            <path d="M 419 200 L 419 168" stroke="#0071c5" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <path d="M 507 200 L 507 168" stroke="#0071c5" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <path d="M 595 200 L 595 168" stroke="#0071c5" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <path d="M 672 200 L 672 168" stroke="#0071c5" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <text x="540" y="290" class="mem-text" text-anchor="middle">Same total work. Fewer registers live at once.</text>
+            <defs>
+              <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#0071c5"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Before: one big dot, full unroll, spill exceeds the cap. After: SLM holds A and B, four small dots pull K-tiles back, each one fits in GRF.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Watch the Bytes Move</h2>
+        <p>Step through how a single K-tiled, SLM-staged dot processes its operands. Notice that the register file only ever holds one <code>K_TILE</code>-wide slice at a time.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"A and B tiles arrive in registers — too large to keep live across all of K."},
+          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Move 1: stage both operands into SLM, once. The GRF is now free."},
+          {"highlight":"actor-3","label":"Move 2: split K=128 into chunks of K_TILE. Begin the loop."},
+          {"highlight":"actor-1","packet":true,"from":"actor-2","to":"actor-1","label":"Load just one K_TILE-wide slice of A and B back from SLM into registers."},
+          {"highlight":"actor-4","packet":true,"from":"actor-1","to":"actor-4","label":"FMA the slice into the C accumulator. Live set stays bounded by K_TILE."},
+          {"highlight":"actor-3","label":"Advance to the next K-tile and repeat — registers never hold more than one slice."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">GRF</div>
+              <span>Register File</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">SLM</div>
+              <span>Shared Local Memory</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">K&#x2702;</div>
+              <span>K-Tile Loop</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">&#x2211;C</div>
+              <span>Accumulator</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 6</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why SLM Is the Right Place to Spill</h2>
+        <p>We are not eliminating the data movement — the operands are big, they have to live somewhere. The insight is <em>which</em> budget to spend.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f6d1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Spilling to PTSS (the default)</strong>
+            <p>Hard 256 KB per-thread cap — overflow means no binary. Backed by DRAM via L3 with high miss latency, private per thread so nothing is reused, and there is no TTGIR-level knob to control it.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x2705;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Staging in SLM (this pass)</strong>
+            <p>A 64 KB workgroup budget with real headroom at these tile sizes, one- to two-cycle access instead of DRAM latency, shared across the workgroup so operands can be reused, and explicitly sized and placed by the pass itself.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

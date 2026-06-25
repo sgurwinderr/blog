@@ -1,0 +1,212 @@
+<section class="module" id="module-1" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The PTSS Cliff: A Kernel That Won't Build</h1>
+      <p class="module-subtitle">Why a large-K FMA matmul on a non-DPAS Intel iGPU fails before it ever runs</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: Where bytes can live -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where Bytes Can Live</h2>
+        <p>Every GPU optimization argument is, at heart, an argument about <em>where</em> a value sits when you need it. Get the location wrong and either the memory bus or the register file bottlenecks you. Three locations matter for this story.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">G</div>
+            <h4 class="pattern-title">GRF — Register File</h4>
+            <p class="pattern-desc">128 registers × 32 bytes = <strong>4 KB per thread</strong>, 1-cycle access. The entire universe of things a thread can name at once. Overflow it and the compiler spills.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">S</div>
+            <h4 class="pattern-title">SLM — Shared Local Memory</h4>
+            <p class="pattern-desc">A software-managed scratchpad shared across a workgroup. <strong>64 KB</strong> on Xe-LPG iGPUs, one or two cycles to access. CUDA calls it "shared memory."</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">P</div>
+            <h4 class="pattern-title">PTSS — Per-Thread Scratch</h4>
+            <p class="pattern-desc">A DRAM region (backed by L3) where spilled registers land. <strong>Capped at 256 KB per thread</strong>. Spill past that and the kernel does not even build.</p>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" aria-label="Memory hierarchy on Intel Xe-LPG">
+            <rect x="20" y="290" width="680" height="70" rx="8" fill="#e8e0d0" stroke="#6b6560" stroke-width="2"/>
+            <text x="360" y="316" class="mem-title" text-anchor="middle">DRAM / system memory</text>
+            <text x="360" y="338" class="mem-mono" text-anchor="middle">~50 GB/s · GBs of capacity · ~hundreds of cycles · PTSS lives here</text>
+            <rect x="80" y="200" width="560" height="70" rx="8" fill="#f0e6f6" stroke="#7b6daa" stroke-width="2"/>
+            <text x="360" y="226" class="mem-title" text-anchor="middle">L3 cache (shared across the GPU)</text>
+            <text x="360" y="248" class="mem-mono" text-anchor="middle">few MB · ~tens of cycles</text>
+            <rect x="180" y="110" width="360" height="70" rx="8" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="360" y="136" class="mem-title" text-anchor="middle">SLM — Shared Local Memory</text>
+            <text x="360" y="158" class="mem-mono" text-anchor="middle">64 KB per workgroup · ~few cycles · software-managed</text>
+            <rect x="260" y="20" width="200" height="70" rx="8" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="360" y="46" class="mem-title" text-anchor="middle">GRF — General Register File</text>
+            <text x="360" y="68" class="mem-mono" text-anchor="middle">4 KB per thread · 1 cycle</text>
+            <path d="M 360 90 L 360 110" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arr1)"/>
+            <path d="M 360 180 L 360 200" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arr1)"/>
+            <path d="M 360 270 L 360 290" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arr1)"/>
+            <defs>
+              <marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b6560"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Smaller, faster, more private as you go up. The pass moves bytes between these levels to dodge a specific disaster.</div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4cd;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The hierarchy in one line</strong>
+            <p>Smaller, faster, more private as you go up: DRAM/PTSS → L3 → SLM → GRF. This pass moves bytes between these levels to dodge a specific disaster.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: Two paths from a tt.dot -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Paths From a <code>tt.dot</code></h2>
+        <p>When you write <code>tl.dot(a, b, acc)</code> in a <span class="term" data-definition="Triton is a Python-like language and compiler for writing GPU kernels. It lowers through several IR stages — including TTGIR (Triton GPU IR) — before reaching machine code.">Triton</span> kernel, the compiler picks one of two lowering paths depending on the hardware.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">D</div>
+            <h4 class="pattern-title">DPAS Path</h4>
+            <p class="pattern-desc">On hardware with a systolic matrix unit (PVC, BMG, ARL-H Xe2), the dot lowers to a few <code>dpas</code> instructions per K step. Register pressure stays bounded. <strong>This pass is a no-op here.</strong></p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">F</div>
+            <h4 class="pattern-title">FMA Path</h4>
+            <p class="pattern-desc">On non-DPAS iGPUs (ARL-S, MTL, A770), there is no matrix unit. The dot falls back to a hand-coded <span class="term" data-definition="Fused multiply-add: a single instruction computing a*b + c. A matmul micro-tile is thousands of these.">FMA</span> loop nest, fully unrolled along K. <strong>This is the path that breaks.</strong></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: The arithmetic of fully unrolled K -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Arithmetic of "Fully Unrolled K"</h2>
+        <p>Take a concrete shape: a 64×128×128 f16 GEMM where one thread covers an 8×8 micro-tile of the output. For its 8×8 chunk of C, the thread needs:</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">PER-THREAD WORK</span>
+            <pre><code><span class="code-line"><span class="code-comment"># One thread owns an 8x8 block of C</span></span>
+<span class="code-line">C[i][j] = <span class="code-keyword">sum</span>(A[i][k] * B[k][j]</span>
+<span class="code-line">          <span class="code-keyword">for</span> k <span class="code-keyword">in</span> range(<span class="code-number">128</span>))</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># 64 output cells x 128 K-steps</span></span>
+<span class="code-line"><span class="code-comment"># = 8192 FMAs per thread, unrolled flat</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHAT IT MEANS</span>
+            <div class="translation-lines">
+              <p class="tl">Each thread is responsible for 64 output cells.</p>
+              <p class="tl">Each cell needs a 128-step dot product along K.</p>
+              <p class="tl">The Triton lowering plus IGC's backend fully unroll that K loop — all 8192 FMAs live flat, with no loop structure left to bound register pressure.</p>
+              <p class="tl">There is no TTGIR-level K-tile knob in upstream's pipeliner, and IGC's unroll heuristic does not fire at this pressure regime.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" aria-label="One thread covers an 8x8 micro-tile">
+            <rect x="40" y="60" width="80" height="160" fill="#e1f0fa" stroke="#0071c5" stroke-width="2"/>
+            <text x="80" y="50" class="mem-title" text-anchor="middle">A: 64×128</text>
+            <rect x="40" y="80" width="80" height="20" fill="#0071c5" opacity="0.5"/>
+            <rect x="180" y="60" width="160" height="80" fill="#e1f0fa" stroke="#0071c5" stroke-width="2"/>
+            <text x="260" y="50" class="mem-title" text-anchor="middle">B: 128×128</text>
+            <rect x="200" y="60" width="20" height="80" fill="#0071c5" opacity="0.5"/>
+            <text x="370" y="115" class="mem-title" font-size="22" text-anchor="middle">=</text>
+            <rect x="420" y="60" width="160" height="80" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="500" y="50" class="mem-title" text-anchor="middle">C: 64×128</text>
+            <rect x="440" y="80" width="20" height="20" fill="#d94f30"/>
+            <text x="350" y="255" class="mem-text" text-anchor="middle">For my 8×8 chunk of C, I need C[i][j] = Σ A[i][k] × B[k][j] for k = 0..127</text>
+            <text x="350" y="280" class="mem-text" text-anchor="middle">That's 64 output cells × 128 K-steps = <tspan font-weight="700" fill="#0071c5">8192 FMAs per thread, all unrolled flat</tspan></text>
+          </svg>
+          <div class="post-diagram-caption">One thread is responsible for 64 output cells × 128 multiply-add steps each = 8192 FMAs. Highlighted strips are the operand slices it actually consumes.</div>
+        </div>
+      </section>
+
+      <!-- Screen 4: The cliff -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Cliff: 345 KB Spill, 256 KB Cap</h2>
+        <p>A SIMD16 thread on Xe-LPG has a 4 KB GRF in the default <em>small</em> register mode. The fully-unrolled schedule wants far more than that, so IGC spills the surplus into PTSS. But ARL-S, A770, and MTL iGPUs cap PTSS at <strong>256 KB per thread</strong>, enforced by Intel's compute-runtime (NEO) driver.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Spill estimate: 345 KB</strong><p>On the 64×128×128 f16 GEMM, the spilled schedule wants 345 KB per thread — an 89 KB overshoot past the ceiling.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>IGC reports: out of scratch space</strong><p>The backend cannot fit the schedule into the 256 KB scratch budget.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Driver returns: <code>ZE_RESULT_ERROR_INVALID_NATIVE_BINARY</code></strong><p>The kernel is rejected at <code>zeKernelCreate</code> time. No SPIR-V is emitted.</p></div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" aria-label="PTSS overflow: 345 KB requested, 256 KB ceiling">
+            <line x1="500" y1="40" x2="500" y2="120" stroke="#c93b3b" stroke-width="2" stroke-dasharray="6,3"/>
+            <text x="500" y="32" class="mem-title" fill="#c93b3b" text-anchor="middle">256 KB ceiling</text>
+            <rect x="40" y="65" width="460" height="40" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <rect x="500" y="65" width="160" height="40" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="270" y="90" class="mem-title" text-anchor="middle" fill="#2d8b55">“in-budget” zone</text>
+            <text x="580" y="90" class="mem-title" text-anchor="middle" fill="#c93b3b">overshoot 89 KB</text>
+            <text x="350" y="135" class="mem-mono" text-anchor="middle">FMA-unrolled spill estimate per thread: 345 KB</text>
+            <text x="40" y="175" class="mem-text">↳ IGC reports: <tspan font-family="JetBrains Mono, monospace" fill="#c93b3b">out of scratch space</tspan></text>
+            <text x="40" y="195" class="mem-text">↳ Driver returns: <tspan font-family="JetBrains Mono, monospace" fill="#c93b3b">ZE_RESULT_ERROR_INVALID_NATIVE_BINARY</tspan></text>
+            <text x="40" y="215" class="mem-text">↳ <tspan font-weight="700">No SPIR-V is emitted. The kernel never gets to run.</tspan></text>
+          </svg>
+          <div class="post-diagram-caption">Full-K unroll asks for 345 KB; the driver caps you at 256 KB. There is no compiler flag to flip.</div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">This is not a soft regression</strong>
+            <p>The kernel does not run slowly — it does not run at all. And there is no compiler flag to flip: the <code>-ftarget-register-alloc-mode</code> large-GRF switch is restricted to PVC, so it is not a portable escape hatch.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: Quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block" data-correct="ptss"
+               data-explanation-right="Correct. PTSS is the per-thread scratch region in DRAM where IGC dumps spilled registers, and it is hard-capped at 256 KB. Exceed it and the binary is rejected at creation time."
+               data-explanation-wrong="Not quite. The GRF (4 KB) is where values live to begin with; SLM (64 KB) is the shared scratchpad. The hard 256 KB ceiling that rejects the binary is PTSS — per-thread scratch space in DRAM.">
+            <p class="quiz-question">Which memory region's 256 KB cap causes the build to fail outright?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="grf" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">GRF — the register file</span></button>
+              <button class="quiz-option" data-value="slm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">SLM — shared local memory</span></button>
+              <button class="quiz-option" data-value="ptss" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">PTSS — per-thread scratch space</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="fma"
+               data-explanation-right="Right. Only the FMA path — used on non-DPAS iGPUs like ARL-S — fully unrolls K into a flat schedule that overflows the GRF and spills past the PTSS cap. DPAS hardware keeps pressure bounded."
+               data-explanation-wrong="Look again. DPAS hardware lowers the dot to a few systolic matrix instructions and keeps register pressure bounded. It is the FMA fallback path, on hardware with no matrix unit, that unrolls K flat and hits the cliff.">
+            <p class="quiz-question">Which lowering path hits the PTSS cliff?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="dpas" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The DPAS (systolic matrix) path</span></button>
+              <button class="quiz-option" data-value="fma" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The FMA loop-nest path</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

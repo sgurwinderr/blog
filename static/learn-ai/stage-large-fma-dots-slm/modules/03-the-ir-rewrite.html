@@ -1,0 +1,95 @@
+<section class="module" id="module-3" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">The Algorithm &amp; the IR Rewrite</h1>
+      <p class="module-subtitle">Five steps that turn one oversized <code>tt.dot</code> into a tiled, SLM-staged loop</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Pass, Step by Step</h2>
+        <p>The pass walks every <code>tt.dot</code> in the module. For each one that lands on the FMA path <em>and</em> trips the size gate (Module 4), it performs this rewrite:</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Allocate SLM scratch</strong><p>Reserve two <code>ttg.local_alloc</code> buffers — one for the A operand tile, one for B — sized to the operand tiles in their native dtype.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Store operands to SLM</strong><p>Emit <code>ttg.local_store</code> for A and B before the dot. The full operands now live in the scratchpad, not in registers.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Build the K-tile loop</strong><p>Wrap the accumulation in an <code>scf.for</code> over <code>K / K_TILE</code> iterations, carrying the C accumulator as a loop-carried value.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Load slice, dot, accumulate</strong><p>Inside the loop, <code>ttg.local_load</code> one <code>K_TILE</code>-wide slice of A and B, run a small <code>tt.dot</code> on it, and add into the accumulator.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">5</div>
+            <div class="step-body"><strong>Yield the result</strong><p>After the loop, the carried accumulator <em>is</em> the original dot's result. Replace all uses of the old <code>tt.dot</code> with it and erase the original.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Before &rarr; After, in TTGIR</h2>
+        <p>Here is the shape of the rewrite. On the left, the original single oversized dot; on the right, what the pass leaves behind.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">BEFORE — one flat dot</span>
+            <pre><code><span class="code-line"><span class="code-comment">// K = 128, fully unrolled by the</span></span>
+<span class="code-line"><span class="code-comment">// FMA lowering -> 345 KB spill</span></span>
+<span class="code-line">%c = <span class="code-keyword">tt.dot</span> %a, %b, %c0</span>
+<span class="code-line">  : tensor&lt;<span class="code-number">64</span>x<span class="code-number">128</span>xf16&gt;</span>
+<span class="code-line">  * tensor&lt;<span class="code-number">128</span>x<span class="code-number">128</span>xf16&gt;</span>
+<span class="code-line">  -&gt; tensor&lt;<span class="code-number">64</span>x<span class="code-number">128</span>xf32&gt;</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">AFTER — staged + tiled</span>
+            <div class="translation-lines">
+              <p class="tl"><code>%sA = ttg.local_alloc</code> / <code>%sB = ttg.local_alloc</code> — SLM scratch for both operands.</p>
+              <p class="tl"><code>ttg.local_store %a, %sA</code> and <code>%b, %sB</code> — operands written to SLM once.</p>
+              <p class="tl"><code>%c = scf.for %k = 0 to 128 step K_TILE iter_args(%acc = %c0)</code> — the K-tile loop.</p>
+              <p class="tl">Inside: <code>local_load</code> a <code>K_TILE</code> slice of each, a small <code>tt.dot</code>, then <code>scf.yield %acc + %partial</code>.</p>
+              <p class="tl">All uses of the old result are RAUW'd to the loop's result; the original dot is erased.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">It stays in TTGIR</strong>
+            <p>Every op the pass emits — <code>local_alloc</code>, <code>local_store</code>, <code>local_load</code>, <code>scf.for</code>, <code>tt.dot</code> — already has a lowering. The pass composes existing primitives; it introduces no new codegen.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block" data-correct="local"
+               data-explanation-right="Correct. The pass allocates SLM with ttg.local_alloc, writes operands with local_store, and reads slices back with local_load — all pre-existing TTGIR ops, which is why it needs no new codegen."
+               data-explanation-wrong="Not quite. The pass deliberately reuses existing TTGIR ops — local_alloc, local_store, local_load, scf.for — so that nothing new has to be taught to the backend.">
+            <p class="quiz-question">Which ops does the pass use to move operands into and out of SLM?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="local" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>ttg.local_alloc</code> / <code>local_store</code> / <code>local_load</code></span></button>
+              <button class="quiz-option" data-value="global" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">New custom <code>slm.stage</code> intrinsics</span></button>
+              <button class="quiz-option" data-value="dma" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A hand-written DMA descriptor op</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answer</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

@@ -842,6 +842,107 @@ body.search-open {
     border-color: #3fb950;
 }
 
+/* Post visualization reveal animation */
+.article-post .post-animate-in {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.55s ease, transform 0.55s ease;
+    transition-delay: calc(var(--post-stagger-index, 0) * 40ms);
+}
+
+.article-post .post-animate-in.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .article-post .post-animate-in {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+}
+
+/* In-diagram animation (safe: no text geometry mutation) */
+.article-post .post-diagram-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    margin-top: 0.9rem;
+    margin-bottom: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.article-post .post-diagram-btn {
+    border: 1px solid #cfd7e3;
+    background: #ffffff;
+    color: #2c2a28;
+    border-radius: 999px;
+    padding: 0.38rem 0.78rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.article-post .post-diagram-btn:hover {
+    border-color: #0071c5;
+    color: #0071c5;
+    background: #eef6fd;
+}
+
+.article-post .post-diagram-btn-primary {
+    background: #0071c5;
+    border-color: #0071c5;
+    color: #ffffff;
+}
+
+.article-post .post-diagram-btn-primary:hover {
+    background: #005a9d;
+    border-color: #005a9d;
+    color: #ffffff;
+}
+
+.article-post .post-diagram-stage {
+    margin-left: 0.2rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #6b6560;
+    letter-spacing: 0.01em;
+}
+
+.article-post .post-diagram svg.diagram-active .diagram-pulse {
+    animation: diagramPulse 1.4s ease-in-out var(--diagram-delay, 0ms) 2;
+}
+
+.article-post .post-diagram svg.diagram-active .diagram-flow {
+    animation: diagramFlow 1.1s linear var(--diagram-delay, 0ms) 2;
+}
+
+.article-post .post-diagram svg.diagram-active .diagram-pop {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: diagramPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) var(--diagram-delay, 0ms) both;
+}
+
+@keyframes diagramPulse {
+    0%, 100% { opacity: inherit; }
+    50% { opacity: 0.72; }
+}
+
+@keyframes diagramFlow {
+    0% { opacity: 0.45; }
+    50% { opacity: 1; }
+    100% { opacity: 1; }
+}
+
+@keyframes diagramPop {
+    from { transform: scale(0.985); }
+    to { transform: scale(1); }
+}
+
 /* Inline code */
 code {
     background: #161b22 !important;
