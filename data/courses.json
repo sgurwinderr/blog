@@ -58,11 +58,11 @@
     "title": "TD Q-Load for Non-Power-of-2 GQA",
     "url": "/learn-ai/td-qload-nonpow2-gqa/",
     "category": "Triton Kernels",
-    "summary": "When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack — a general technique, taught through attention's Q load.",
+    "summary": "When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack — a general technique, taught through attention's Q load and prefill tile sizing.",
     "gradient": "linear-gradient(135deg, #0071c5 0%, #2A7B9B 100%)",
     "icon": "GQA",
     "iconType": "text",
-    "modules": "6 Modules",
+    "modules": "7 Modules",
     "duration": "1-2 Hours"
   }
 ]

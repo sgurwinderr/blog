@@ -1,0 +1,165 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">A Companion Fix: Widen the Prefill Tile</h1>
+      <p class="module-subtitle">The same kernel had a second problem — a Q tile too small to feed the matrix engine — and the cure runs straight into the same power-of-2 rule</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: the starvation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Matrix Engine Is Starving</h2>
+        <p>Getting Q onto the fast load path fixes <em>movement</em>. But prefill is dominated by the two matmuls inside attention — <code>Q@K</code> and <code>P@V</code> — and those dots can still be too small to keep the hardware busy.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x1f4c9;</div>
+            <h4 class="pattern-title">Default tile, starved engine</h4>
+            <p class="pattern-desc">The common GQA&le;16 case defaults to <code>BLOCK_M = 16</code>. That makes each <code>Q@K</code> / <code>P@V</code> dot tiny — measured at a flat <strong>~5.7 TFLOPS</strong>, against a vendor kernel's 50+.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-success)">
+            <div class="pattern-icon" style="background: var(--color-success)">&#x1f4c8;</div>
+            <h4 class="pattern-title">Wider tile, fed engine</h4>
+            <p class="pattern-desc">Doubling the Q tile to <code>BLOCK_M = 32</code> for prefill gives the matrix engine enough work per instruction to approach its throughput — roughly <strong>2&times;</strong> on prefill.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4cd;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Two independent levers, one kernel</strong>
+            <p>Module 4 was about the <em>Q load</em> — getting bytes in via the fast path. This is about the <em>matmul tile</em> — giving the compute units enough work. They are orthogonal: this fix stands alone and does not depend on the non-pow2 Q-load change.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the change -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Change: Bump <code>BLOCK_M</code> to 32 for Prefill</h2>
+        <p>The fix is a single guarded reassignment of the tile size, placed right after the default <code>BLOCK_M</code> / <code>BLOCK_Q</code> are computed.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">PREFILL TILE WIDENING</span>
+            <pre><code><span class="code-line">_is_pow2_nq = \</span>
+<span class="code-line">  (nq &amp; (nq - <span class="code-number">1</span>)) == <span class="code-number">0</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">if</span> max_seqlen_q &gt; <span class="code-number">1</span> \</span>
+<span class="code-line">   <span class="code-keyword">and</span> use_td \</span>
+<span class="code-line">   <span class="code-keyword">and</span> _is_pow2_nq \</span>
+<span class="code-line">   <span class="code-keyword">and</span> BLOCK_M &lt; <span class="code-number">32</span>:</span>
+<span class="code-line">  BLOCK_Q = max(<span class="code-number">32</span> <span class="code-keyword">//</span> nq, <span class="code-number">1</span>)</span>
+<span class="code-line">  BLOCK_M = BLOCK_Q * nq</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE FOUR CONDITIONS</span>
+            <div class="translation-lines">
+              <p class="tl"><code>max_seqlen_q &gt; 1</code> — prefill only. Decode (one query token) is latency/occupancy bound, and a wider tile can <em>regress</em> it.</p>
+              <p class="tl"><code>use_td</code> — only on the tensor-descriptor path, where the wide tile turns into an efficient block load.</p>
+              <p class="tl"><code>_is_pow2_nq</code> — the now-familiar gate. <strong>See the next screen for why it's load-bearing here.</strong></p>
+              <p class="tl"><code>BLOCK_M &lt; 32</code> — only widen tiles that are actually too small; never shrink one that's already &ge; 32.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the pow2 rule again -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why Pow-2 GQA — Again</h2>
+        <p>This fix gates on <code>_is_pow2_nq</code> for the very same reason Module 2's gate existed. Widening <code>BLOCK_M</code> for a non-pow2 group size would produce an <em>invalid</em> tile.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" aria-label="Widening BLOCK_M: valid for pow2 nq, invalid for non-pow2">
+            <text x="180" y="28" class="mem-title" text-anchor="middle" fill="#2d8b55">nq = 4 (pow2)</text>
+            <rect x="40" y="48" width="280" height="60" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="180" y="72" class="mem-mono" text-anchor="middle">BLOCK_Q = 32 // 4 = 8</text>
+            <text x="180" y="92" class="mem-mono" text-anchor="middle" fill="#2d8b55">BLOCK_M = 8 &times; 4 = 32 = 2&#x2075; &#x2713;</text>
+            <text x="540" y="28" class="mem-title" text-anchor="middle" fill="#c93b3b">nq = 7 (non-pow2)</text>
+            <rect x="400" y="48" width="280" height="60" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="540" y="72" class="mem-mono" text-anchor="middle">BLOCK_Q = 32 // 7 = 4</text>
+            <text x="540" y="92" class="mem-mono" text-anchor="middle" fill="#c93b3b">BLOCK_M = 4 &times; 7 = 28 &#x2717; not pow2</text>
+            <text x="360" y="145" class="mem-text" text-anchor="middle"><code>tl.arange(0, BLOCK_M)</code> and the TD <code>block_shape</code> both need a power-of-two <code>BLOCK_M</code>.</text>
+            <text x="360" y="168" class="mem-text" text-anchor="middle">28 is invalid — so non-pow2 GQA keeps the default tile and this fix is a no-op there.</text>
+            <rect x="160" y="190" width="400" height="32" rx="8" fill="#fff4e0" stroke="#d4a843" stroke-width="2"/>
+            <text x="360" y="211" class="mem-title" text-anchor="middle">Module 4 padded the load; here we simply don't widen.</text>
+          </svg>
+          <div class="post-diagram-caption">The same power-of-two constraint shows up twice. Module 4 satisfied it by padding; here the cheaper answer is to leave non-pow2 tiles at the default.</div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Two answers to one constraint</strong>
+            <p>Not every power-of-two wall is worth padding around. For the <em>Q load</em>, padding unlocked a 2&times; for an otherwise-stuck shape. For <em>tile widening</em>, the pow2 shapes already get the win and the non-pow2 path stays correct on the default — so the simplest safe move is to gate, not pad.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: results -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What It Buys</h2>
+        <p>Like the Q-load fix, this was validated against a reference SDPA across the full prefill/decode shape matrix — and is a strict no-op everywhere it shouldn't fire.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f680;</div>
+            <div>
+              <strong>~2.0&times; prefill for pow2 GQA</strong>
+              <p>For a pow2 group size at a multi-thousand-token prefill, the wider tile feeds the matrix engine enough work to roughly <strong>halve kernel time</strong>.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-bg-warm); color: var(--color-text-secondary)">&#x2696;&#xfe0f;</div>
+            <div>
+              <strong>Decode &amp; non-pow2: untouched</strong>
+              <p>Decode (<code>max_seqlen_q == 1</code>) and non-pow2 GQA fail a guard and keep the default tile. Verified byte-identical to baseline.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x1f9ed;</div>
+            <div>
+              <strong>Narrows, doesn't close, the bigger gap</strong>
+              <p>It's an honest partial win: prefill throughput roughly doubles, but a residual structural gap to the hand-tuned vendor kernel remains a separate item.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="starve"
+               data-explanation-right="Correct. At BLOCK_M=16 the Q@K / P@V dots are too small to saturate the matrix engine — flat ~5.7 TFLOPS. Widening to BLOCK_M=32 gives each dot enough work to roughly double prefill throughput."
+               data-explanation-wrong="Look again. The problem is matmul starvation: BLOCK_M=16 makes the attention dots too small to feed the matrix engine (~5.7 TFLOPS). The wider tile is about compute utilization, not data movement.">
+            <p class="quiz-question">Why does widening <code>BLOCK_M</code> to 32 help prefill?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="movement" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It moves Q faster from memory</span></button>
+              <button class="quiz-option" data-value="starve" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Bigger dots feed the matrix engine, which was starved at BLOCK_M=16</span></button>
+              <button class="quiz-option" data-value="mem" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It uses less memory</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="invalid"
+               data-explanation-right="Right. For nq=7, 32//7=4 and BLOCK_M=4*7=28 — not a power of two, which tl.arange and the TD block_shape can't accept. So non-pow2 GQA keeps the default tile; this fix gates rather than pads."
+               data-explanation-wrong="Not quite. Widening for nq=7 yields BLOCK_M=28, which isn't a power of two and is invalid for the kernel's tl.arange / TD block_shape. That's why the fix is gated to pow2 GQA.">
+            <p class="quiz-question">Why is the tile-widening gated to power-of-2 GQA?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Non-pow2 would just be slower</span></button>
+              <button class="quiz-option" data-value="invalid" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Non-pow2 <code>nq</code> would make <code>BLOCK_M</code> non-pow2 (e.g. 28) — invalid for the kernel</span></button>
+              <button class="quiz-option" data-value="decode" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Only decode supports non-pow2</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
