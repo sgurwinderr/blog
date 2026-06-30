@@ -1,0 +1,182 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">The Fix: Pad the Head Count, Mask the Slack</h1>
+      <p class="module-subtitle">Pack <code>BLOCK_M = BLOCK_Q &times; next_pow2(nq)</code>, read <code>NQ_PADDED</code> head-slots through the descriptor, then mask the padding rows in-kernel</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: NQ_PADDED -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Moves</h2>
+        <p>Conceptually the change is three coordinated moves that turn the non-pow2 head count into a padded, masked, power-of-two read — small in code, but each move has to line up with the others.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Repack <code>BLOCK_M</code> around <code>NQ_PADDED</code></strong><p>Define <code>NQ_PADDED = next_pow2(nq)</code>. Recompute <code>BLOCK_Q = max(BLOCK_M // NQ_PADDED, 1)</code> and <code>BLOCK_M = BLOCK_Q &times; NQ_PADDED</code>, so each query position now owns <code>NQ_PADDED</code> head-slots, not <code>nq</code>.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Widen the descriptor to <code>NQ_PADDED &times; HEAD_SIZE_PADDED</code></strong><p>The TD block's inner extent becomes a power of two. The descriptor zero-pads the read past the real <code>nq &times; HEAD_SIZE</code> — exactly like the head-dim padding already does.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Mask the padding head-slots</strong><p>Rows where <code>head_in_group &gt;= nq</code> are pure padding. Fold that into <code>query_mask_1</code> so they never contribute to softmax and never alias the next KV group.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the repacking arithmetic -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The New Row Arithmetic</h2>
+        <p>Because each group now spans <code>NQ_PADDED</code> slots instead of <code>nq</code>, every index that used <code>nq</code> to split position from head switches to <code>NQ_PADDED</code>.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">IN-KERNEL (AFTER)</span>
+            <pre><code><span class="code-line"><span class="code-comment"># BLOCK_M = BLOCK_Q * NQ_PADDED</span></span>
+<span class="code-line">NQ_PADDED: tl.constexpr = \</span>
+<span class="code-line">  BLOCK_M <span class="code-keyword">//</span> BLOCK_Q</span>
+<span class="code-line"></span>
+<span class="code-line">head_in_group = offs_m % NQ_PADDED</span>
+<span class="code-line">query_pos = base + offs_m <span class="code-keyword">//</span> NQ_PADDED</span>
+<span class="code-line"></span>
+<span class="code-line">query_offset_1 = \</span>
+<span class="code-line">  kv_head_idx * nq + head_in_group</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHAT CHANGED</span>
+            <div class="translation-lines">
+              <p class="tl"><code>offs_m // nq</code> &rarr; <code>offs_m // NQ_PADDED</code> for the query position; <code>offs_m % nq</code> &rarr; <code>offs_m % NQ_PADDED</code> for the head slot.</p>
+              <p class="tl">For pow2 <code>nq</code>, <code>NQ_PADDED == nq</code>, so every line is bit-for-bit identical to before. <strong>A genuine no-op for any pow2 group size.</strong></p>
+              <p class="tl">For <code>nq = 7</code>, <code>NQ_PADDED = 8</code>: each group has 7 real head rows + 1 padding row that must be masked off so it doesn't bleed into the next KV group's output.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" aria-label="nq=7 group packed into 8 slots, slot 7 masked">
+            <text x="360" y="24" class="mem-title" text-anchor="middle">One KV group, nq = 7, NQ_PADDED = 8</text>
+            <g>
+              <rect x="40" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="75" y="80" class="mem-mono" text-anchor="middle">h0</text>
+              <rect x="112" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="147" y="80" class="mem-mono" text-anchor="middle">h1</text>
+              <rect x="184" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="219" y="80" class="mem-mono" text-anchor="middle">h2</text>
+              <rect x="256" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="291" y="80" class="mem-mono" text-anchor="middle">h3</text>
+              <rect x="328" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="363" y="80" class="mem-mono" text-anchor="middle">h4</text>
+              <rect x="400" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="435" y="80" class="mem-mono" text-anchor="middle">h5</text>
+              <rect x="472" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="507" y="80" class="mem-mono" text-anchor="middle">h6</text>
+              <rect x="544" y="50" width="70" height="50" fill="#fde0e0" stroke="#c93b3b" stroke-width="2" stroke-dasharray="5,3"/><text x="579" y="76" class="mem-mono" text-anchor="middle" fill="#c93b3b">pad</text><text x="579" y="92" class="mem-mono" text-anchor="middle" fill="#c93b3b">slot 7</text>
+            </g>
+            <text x="307" y="130" class="mem-mono" text-anchor="middle" fill="#0071c5">7 real heads &mdash; loaded &amp; computed</text>
+            <text x="579" y="130" class="mem-mono" text-anchor="middle" fill="#c93b3b">zero-read, masked</text>
+            <text x="360" y="170" class="mem-text" text-anchor="middle">Descriptor reads all 8 slots (8 &times; 128 = 1024 = 2&#x00b9;&#x2070;, a valid pow2 extent).</text>
+            <text x="360" y="192" class="mem-text" text-anchor="middle">query_mask_1 zeroes slot 7 so it never reaches softmax or the next group.</text>
+          </svg>
+          <div class="post-diagram-caption">Pad 7 heads up to 8, read the whole power-of-two block, then mask the one padding slot. The descriptor is happy; the math is unchanged.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the mask -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Mask That Makes It Safe</h2>
+        <p>The padding slots carry garbage-or-zero values. Two conditions must both hold for a row to count — the original out-of-range head check <em>and</em> the new padding check.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">query_mask_1 (AFTER)</span>
+            <pre><code><span class="code-line">query_mask_1 = tl.where(</span>
+<span class="code-line">  (query_offset_1 &lt; num_query_heads)</span>
+<span class="code-line">  &amp; (head_in_group &lt; nq),  <span class="code-comment"># NEW</span></span>
+<span class="code-line">  <span class="code-number">1</span>, <span class="code-number">0</span>,</span>
+<span class="code-line">).to(tl.int1)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHY BOTH CLAUSES</span>
+            <div class="translation-lines">
+              <p class="tl"><code>query_offset_1 &lt; num_query_heads</code> — the original guard against running off the end of the head axis.</p>
+              <p class="tl"><code>head_in_group &lt; nq</code> — the new guard. It kills the <code>NQ_PADDED − nq</code> padding slots per group (slot 7 when nq=7).</p>
+              <p class="tl">Without the second clause, slot 7's stale data would alias into <code>kv_head_idx + 1</code>'s rows and silently corrupt the output. The mask is the correctness linchpin.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: flow animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Watch One Group Flow Through</h2>
+        <p>Step through how a single non-pow2 KV group (nq = 7) is loaded, padded, and masked on the new path.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"A KV group has 7 real query heads (nq = 7) — not a power of two, so the old descriptor was rejected."},
+          {"highlight":"actor-2","label":"Pad the head count: NQ_PADDED = next_pow2(7) = 8. The group now occupies 8 row-slots."},
+          {"highlight":"actor-3","packet":true,"from":"actor-2","to":"actor-3","label":"The TD descriptor reads 8 x 128 = 1024 columns — a valid power-of-two extent. Slot 7 is zero-padded by the read."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"query_mask_1 masks slot 7 (head_in_group >= 7) so the padding never reaches softmax."},
+          {"highlight":"actor-1","label":"Result: 7 correct head outputs, hardware 2D-block load, zero aliasing into the next KV group."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">nq=7</div>
+              <span>Real Heads</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">&#x2192;8</div>
+              <span>Pad to NQ_PADDED</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">TD</div>
+              <span>2D-Block Load</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">&#x2717;7</div>
+              <span>Mask Slot</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block" data-correct="eight"
+               data-explanation-right="Correct. NQ_PADDED = next_pow2(7) = 8. Each KV group is packed into 8 row-slots: 7 real heads plus 1 padding slot, making the descriptor's inner extent (8 x 128) a power of two."
+               data-explanation-wrong="Not quite. NQ_PADDED is next_pow2(nq) = next_pow2(7) = 8 when nq = 7 — 7 real heads plus one padding slot per group.">
+            <p class="quiz-question">For <code>nq = 7</code>, what is <code>NQ_PADDED</code>?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="seven" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">7</span></button>
+              <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">8</span></button>
+              <button class="quiz-option" data-value="sixteen" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">16</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="alias"
+               data-explanation-right="Right. Without the head_in_group < nq clause, the stale padding-slot data would alias into the next KV group's query rows and corrupt the attention output. The mask is what keeps the padded read correct."
+               data-explanation-wrong="Look again. The danger is aliasing: an unmasked padding slot carries stale data that would bleed into the adjacent KV group's rows, corrupting the output. That's exactly what the head_in_group < nq clause prevents.">
+            <p class="quiz-question">What would happen if the padding head-slots were <em>not</em> masked?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The kernel would just run slower</span></button>
+              <button class="quiz-option" data-value="alias" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Stale padding data would alias into the next KV group and corrupt output</span></button>
+              <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Nothing — the zeros are harmless</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

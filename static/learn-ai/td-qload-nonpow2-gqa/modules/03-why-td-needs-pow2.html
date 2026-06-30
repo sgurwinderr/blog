@@ -1,0 +1,130 @@
+<section class="module" id="module-3" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Why the TD Path Demands a Power of 2</h1>
+      <p class="module-subtitle">The tensor-descriptor validator has a hard rule about the inner extent — and a flattened <code>nq &times; HEAD_SIZE</code> axis violates it for <code>nq = 7</code></p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: the flattened inner axis -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Descriptor Sees a Flattened Axis</h2>
+        <p>The TD Q load doesn't describe a 3D <code>(positions, heads, head_dim)</code> tensor. It flattens the head and head-dim axes into one contiguous inner extent and describes a 2D block: <code>(BLOCK_Q positions, nq &times; HEAD_SIZE columns)</code>.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE Q DESCRIPTOR (BEFORE)</span>
+            <pre><code><span class="code-line">q_desc = tl.make_tensor_descriptor(</span>
+<span class="code-line">  base=q_base,</span>
+<span class="code-line">  shape=(q_block_local_len,</span>
+<span class="code-line">         nq * HEAD_SIZE),</span>
+<span class="code-line">  strides=(query_stride_0, <span class="code-number">1</span>),</span>
+<span class="code-line">  block_shape=(BLOCK_Q,</span>
+<span class="code-line">    nq * HEAD_SIZE_PADDED),  <span class="code-comment"># &lt;-- inner</span></span>
+<span class="code-line">)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE INNER EXTENT</span>
+            <div class="translation-lines">
+              <p class="tl">The inner <code>block_shape</code> dimension is <code>nq &times; HEAD_SIZE_PADDED</code> — all the heads of a KV group laid end to end.</p>
+              <p class="tl"><code>HEAD_SIZE_PADDED</code> is already <code>next_pow2(head_size)</code>, so head-dim padding was a solved problem.</p>
+              <p class="tl">But the <em>head count</em> <code>nq</code> still multiplies in raw. For <code>nq = 4</code>, <code>4 &times; 128 = 512</code> — a power of two. For <code>nq = 7</code>, <code>7 &times; 128 = 896</code> — <strong>not</strong> a power of two.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the validator rule -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Validator's Rule</h2>
+        <p>The Xe 2D-block I/O lowering requires the flattened inner extent of a tensor descriptor's block to be a <strong>power of two</strong>. This isn't a Triton style preference — it's what the hardware descriptor encoding and its validator accept.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" aria-label="Inner extent power-of-two check, pow2 vs non-pow2">
+            <text x="180" y="28" class="mem-title" text-anchor="middle" fill="#2d8b55">nq = 4</text>
+            <rect x="40" y="48" width="280" height="44" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="180" y="68" class="mem-mono" text-anchor="middle">4 &times; 128 = 512 columns</text>
+            <text x="180" y="84" class="mem-mono" text-anchor="middle" fill="#2d8b55">512 = 2&#x2079; &#x2713; pow2 &#x2192; valid</text>
+            <text x="540" y="28" class="mem-title" text-anchor="middle" fill="#c93b3b">nq = 7</text>
+            <rect x="400" y="48" width="280" height="44" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="540" y="68" class="mem-mono" text-anchor="middle">7 &times; 128 = 896 columns</text>
+            <text x="540" y="84" class="mem-mono" text-anchor="middle" fill="#c93b3b">896 = 2&#x2077;&#xb7;7 &#x2717; not pow2 &#x2192; rejected</text>
+            <text x="360" y="135" class="mem-text" text-anchor="middle">The TD validator rejects an inner extent that isn't a power of two.</text>
+            <text x="360" y="158" class="mem-text" text-anchor="middle">The safe-but-blunt route is to gate the whole TD path off for non-pow2 nq.</text>
+            <rect x="160" y="185" width="400" height="44" rx="8" fill="#fff4e0" stroke="#d4a843" stroke-width="2"/>
+            <text x="360" y="206" class="mem-title" text-anchor="middle">_is_pow2_nq = false &#x2192; use_td_qo = false</text>
+            <text x="360" y="222" class="mem-mono" text-anchor="middle">non-pow2 nq falls to the slow pointer path</text>
+          </svg>
+          <div class="post-diagram-caption">The gate was correct but blunt: rather than reshape the descriptor, it disabled the fast path entirely for any non-pow2 head count.</div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The key realization</strong>
+            <p>The validator cares about the <em>extent the descriptor reads</em>, not how many heads are <em>real</em>. If we read a power-of-two number of head-slots and simply <em>ignore</em> the extras, the descriptor is valid — and the load is correct. That is the whole idea behind the fix.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: padding precedent -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">There's Already a Precedent</h2>
+        <p>The kernel already pads one axis for exactly this reason. <code>HEAD_SIZE_PADDED = next_pow2(head_size)</code> rounds an awkward head dimension (say 96 or 80) up to the next power of two, and the descriptor zero-pads the read past the real <code>HEAD_SIZE</code>. A <code>dim_mask</code> then drops the padding columns.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x2705;</div>
+            <div>
+              <strong>Head dim: already padded</strong>
+              <p>The inner <code>HEAD_SIZE</code> axis is rounded to <code>HEAD_SIZE_PADDED</code>; the descriptor reads zeros past the real extent and <code>dim_mask</code> masks them out. Proven, shipping behavior.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f4a1;</div>
+            <div>
+              <strong>Head count: do the same thing</strong>
+              <p>If padding the head <em>dim</em> to a power of two is safe and masked, then padding the head <em>count</em> <code>nq</code> to <code>next_pow2(nq)</code> — and masking the extra head-slots — is the same trick on a second axis.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block" data-correct="inner"
+               data-explanation-right="Correct. The Xe 2D-block lowering requires the flattened inner block extent (nq x HEAD_SIZE) to be a power of two. For nq=7 that extent is 896, which is not pow2, so the validator rejected it."
+               data-explanation-wrong="Not quite. The constraint is on the descriptor's flattened inner block extent (nq x HEAD_SIZE). It must be a power of two; 7 x 128 = 896 is not, which is why the validator rejects the descriptor for nq=7.">
+            <p class="quiz-question">What must be a power of two for the TD load to validate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="batch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The batch size</span></button>
+              <button class="quiz-option" data-value="inner" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The flattened inner block extent (<code>nq &times; HEAD_SIZE</code>)</span></button>
+              <button class="quiz-option" data-value="seqlen" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The sequence length</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="headdim"
+               data-explanation-right="Right. HEAD_SIZE_PADDED = next_pow2(head_size) already rounds the head dimension up and masks the padding via dim_mask — the exact pattern the fix reuses for the head count."
+               data-explanation-wrong="Look again. The existing precedent is HEAD_SIZE_PADDED, which rounds the head dimension up to a power of two and masks the padding. The fix applies that same pad-and-mask idea to the head count nq.">
+            <p class="quiz-question">What existing mechanism does the fix take as its precedent?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="headdim" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>HEAD_SIZE_PADDED</code> — padding the head dimension</span></button>
+              <button class="quiz-option" data-value="slm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Staging operands in SLM</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">There is no precedent — this is brand new</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

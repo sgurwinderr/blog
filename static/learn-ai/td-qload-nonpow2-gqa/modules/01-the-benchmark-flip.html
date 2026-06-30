@@ -1,0 +1,124 @@
+<section class="module" id="module-1" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Power-of-2 Wall</h1>
+      <p class="module-subtitle">Why GPU block-I/O hardware insists on power-of-two extents — and how a single awkward dimension can lock an entire kernel out of the fast path</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: two ways to move a tile -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Ways to Move a Tile</h2>
+        <p>Every tiled GPU kernel has to get a 2D block of data from memory into registers. On modern hardware there are two very different ways to do it, and the gap between them is large.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">&#x1f680;</div>
+            <h4 class="pattern-title">Block I/O (fast)</h4>
+            <p class="pattern-desc">A single <span class="term" data-definition="A small hardware structure describing a 2D region of memory — base, shape, strides, block size. One descriptor drives a wide hardware-accelerated block transfer.">tensor descriptor</span> drives a hardware 2D-block transfer — one wide, coalesced read of the whole tile. On Intel Xe this is the 2D-block load; CUDA calls the analogous idea TMA.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x1f40c;</div>
+            <h4 class="pattern-title">Pointer gather (slow)</h4>
+            <p class="pattern-desc">Compute a pointer per element (or per row), then load with explicit masks. Correct for <em>any</em> shape, but it leaves the block-transfer hardware idle and is often ~2&times; slower on memory-bound tiles.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4cd;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The whole course in one sentence</strong>
+            <p>The fast path is the one you want — but it comes with a hardware constraint. This course is about <em>satisfying</em> that constraint for a shape that naively fails it, instead of falling back to the slow path.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the constraint -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Constraint: Power-of-Two Inner Extent</h2>
+        <p>The catch with block I/O is that the descriptor's <strong>inner (contiguous) block extent must be a power of two</strong>. This isn't a software style rule — it falls out of how the descriptor is encoded and what the hardware's validator will accept.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" aria-label="Power-of-two inner extent: accepted vs rejected">
+            <text x="180" y="28" class="mem-title" text-anchor="middle" fill="#2d8b55">Inner extent = 512</text>
+            <rect x="40" y="48" width="280" height="44" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="180" y="68" class="mem-mono" text-anchor="middle">512 = 2&#x2079;</text>
+            <text x="180" y="84" class="mem-mono" text-anchor="middle" fill="#2d8b55">&#x2713; power of two &#x2192; accepted</text>
+            <text x="540" y="28" class="mem-title" text-anchor="middle" fill="#c93b3b">Inner extent = 896</text>
+            <rect x="400" y="48" width="280" height="44" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="540" y="68" class="mem-mono" text-anchor="middle">896 = 2&#x2077; &#xb7; 7</text>
+            <text x="540" y="84" class="mem-mono" text-anchor="middle" fill="#c93b3b">&#x2717; not pow2 &#x2192; rejected</text>
+            <text x="360" y="135" class="mem-text" text-anchor="middle">When the inner extent isn't a power of two, the descriptor is invalid.</text>
+            <text x="360" y="158" class="mem-text" text-anchor="middle">The easy response is to gate the fast path off for those shapes &mdash; safe, but it leaves performance on the table.</text>
+            <rect x="160" y="182" width="400" height="40" rx="8" fill="#fff4e0" stroke="#d4a843" stroke-width="2"/>
+            <text x="360" y="207" class="mem-title" text-anchor="middle">The better answer: reshape the read so the extent <em>is</em> a power of two.</text>
+          </svg>
+          <div class="post-diagram-caption">A non-power-of-two inner extent fails validation. Gating off the fast path avoids the failure but forfeits the speed — this course shows the third option.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the running example -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Concrete Place This Bites: Attention</h2>
+        <p>A clean, real example is the query (Q) load inside a fused-attention kernel. The kernel tiles a block of query rows and loads them through a tensor descriptor whose inner extent is <code>(query heads per group) &times; (head dimension)</code>.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">&#x2713;</div>
+            <h4 class="pattern-title">When it's a power of two</h4>
+            <p class="pattern-desc">If both the head count per group and the head dimension are powers of two, the inner extent is too — the descriptor validates and the fast block load fires.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x2717;</div>
+            <h4 class="pattern-title">When it isn't</h4>
+            <p class="pattern-desc">A single non-power-of-two factor — say 7 query heads per group instead of 4 or 8 — makes the inner extent non-pow2 and knocks the whole Q load onto the slow pointer path.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3af;</div>
+          <div class="callout-content">
+            <strong class="callout-title">What this course teaches</strong>
+            <p>We use that attention Q load as the running example, but the technique is general: <strong>pad the awkward axis up to a power of two, read the wider block, and mask the slack.</strong> By the end you'll be able to apply it to any block-I/O constraint, not just this one.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block" data-correct="inner"
+               data-explanation-right="Correct. The constraint is on the descriptor's inner (contiguous) block extent — it must be a power of two for the hardware 2D-block transfer to validate."
+               data-explanation-wrong="Not quite. The hardware constraint is specifically on the descriptor's inner (contiguous) block extent: it must be a power of two. Batch size and total tensor size aren't what the validator checks.">
+            <p class="quiz-question">What must be a power of two for a block-I/O descriptor to validate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="batch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The batch size</span></button>
+              <button class="quiz-option" data-value="inner" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The inner (contiguous) block extent</span></button>
+              <button class="quiz-option" data-value="total" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The total number of elements in the tensor</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="padmask"
+               data-explanation-right="Right. Rather than gate off the fast path, this course pads the awkward dimension up to a power of two, reads the wider block, and masks the padding — keeping the fast path for shapes that naively failed the constraint."
+               data-explanation-wrong="Look again. The technique here is to pad the awkward axis to a power of two, read the wider block, and mask the slack — so the fast path stays available instead of falling back to the slow pointer gather.">
+            <p class="quiz-question">What is this course's strategy for a shape that fails the power-of-two constraint?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="gateoff" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Gate the fast path off for those shapes</span></button>
+              <button class="quiz-option" data-value="padmask" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pad the axis to a power of two, read wider, and mask the slack</span></button>
+              <button class="quiz-option" data-value="reshape" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Rewrite the model to use power-of-two shapes</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

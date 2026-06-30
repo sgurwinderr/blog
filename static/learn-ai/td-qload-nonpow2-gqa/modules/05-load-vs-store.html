@@ -1,0 +1,151 @@
+<section class="module" id="module-5" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">The Load/Store Asymmetry</h1>
+      <p class="module-subtitle">Why the TD <em>load</em> can pad but the TD <em>store</em> cannot — and the loop-bound bug the repacking would have introduced</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: why store can't pad -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Padded Read Is Safe. A Padded Write Is Not.</h2>
+        <p>The fix enables the TD path for the Q <em>load</em> on non-pow2 GQA — but deliberately keeps the O <em>store</em> on the pow2-only path. The asymmetry is fundamental, not an oversight.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-success)">
+            <div class="pattern-icon" style="background: var(--color-success)">&#x2b07;&#xfe0f;</div>
+            <h4 class="pattern-title">TD load — can pad</h4>
+            <p class="pattern-desc">Reading extra padding columns is harmless: the descriptor returns zeros, and the mask discards them downstream. Nothing in memory is touched. <strong>Non-pow2 GQA can use it.</strong></p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x2b06;&#xfe0f;</div>
+            <h4 class="pattern-title">TD store — cannot pad</h4>
+            <p class="pattern-desc">A padded <em>write</em> would emit <code>NQ_PADDED</code> heads' worth of columns — and the padding head would <strong>overwrite the adjacent KV group's output</strong>. There is no mask on a wide block store. <strong>Pow2 only.</strong></p>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The store would corrupt memory</strong>
+            <p>The TD store writes the real <code>nq</code> heads contiguously. If it wrote <code>NQ_PADDED</code> heads, slot 7's bytes would land on top of the next group's head 0. A masked read drops slack; a wide write <em>clobbers neighbors</em>. So the store stays pow2-only and non-pow2 falls back to the masked pointer store.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: USE_TD_STORE -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Splitting the Gate in Two</h2>
+        <p>The old code had a single <code>use_td_qo</code> flag controlling both Q load and O store. The fix splits it: a relaxed load gate plus a separate, stricter store gate.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE TWO GATES (AFTER)</span>
+            <pre><code><span class="code-line"><span class="code-comment"># host: load gate drops _is_pow2_nq</span></span>
+<span class="code-line">use_td_qo = use_td <span class="code-keyword">and</span> _is_pow2_hs</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># kernel: store stays pow2-nq only</span></span>
+<span class="code-line">USE_TD_STORE: tl.constexpr = \</span>
+<span class="code-line">  USE_TD_QO <span class="code-keyword">and</span> \</span>
+<span class="code-line">  (BLOCK_M <span class="code-keyword">//</span> BLOCK_Q == nq)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">HOW IT READS</span>
+            <div class="translation-lines">
+              <p class="tl"><code>use_td_qo</code> loses the <code>_is_pow2_nq</code> term — the TD Q load now fires whenever head size is pow2, regardless of head count.</p>
+              <p class="tl"><code>BLOCK_M // BLOCK_Q == nq</code> is true <em>iff</em> <code>NQ_PADDED == nq</code>, i.e. <code>nq</code> was already a power of two. That is the store's enabling condition.</p>
+              <p class="tl">Pow2 GQA: both gates fire — fast load <em>and</em> fast store, exactly as before. Non-pow2 GQA: fast load, masked pointer store. Strictly better than the old all-or-nothing.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="Decision matrix: load and store paths by GQA type">
+            <line x1="260" y1="40" x2="260" y2="180" stroke="#ccc" stroke-width="1"/>
+            <line x1="490" y1="40" x2="490" y2="180" stroke="#ccc" stroke-width="1"/>
+            <line x1="40" y1="80" x2="680" y2="80" stroke="#ccc" stroke-width="1"/>
+            <text x="150" y="65" class="mem-title" text-anchor="middle"></text>
+            <text x="375" y="65" class="mem-title" text-anchor="middle">Q load</text>
+            <text x="585" y="65" class="mem-title" text-anchor="middle">O store</text>
+            <text x="150" y="115" class="mem-title" text-anchor="middle" fill="#2d8b55">pow2 nq</text>
+            <text x="375" y="115" class="mem-mono" text-anchor="middle" fill="#2d8b55">TD &#x2713;</text>
+            <text x="585" y="115" class="mem-mono" text-anchor="middle" fill="#2d8b55">TD &#x2713;</text>
+            <text x="150" y="160" class="mem-title" text-anchor="middle" fill="#0071c5">non-pow2 nq</text>
+            <text x="375" y="160" class="mem-mono" text-anchor="middle" fill="#0071c5">TD &#x2713; (new)</text>
+            <text x="585" y="160" class="mem-mono" text-anchor="middle" fill="#d4a843">pointer store</text>
+          </svg>
+          <div class="post-diagram-caption">The matrix after the fix. Only one cell changed — the non-pow2 Q load went from pointer to TD — and that one cell is the speedup.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the loop-bounds bug -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Loop-Bound Bug Hiding in the Repack</h2>
+        <p>Repacking <code>BLOCK_M</code> quietly broke a helper that computed how far each Q-block reaches. The old expression assumed <code>BLOCK_M = BLOCK_Q &times; nq</code>; after padding, that overshoots.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">compute_tile_loop_bounds</span>
+            <pre><code><span class="code-line"><span class="code-comment"># largest in-block query offset</span></span>
+<span class="code-line"><span class="code-comment"># BEFORE:</span></span>
+<span class="code-line">- (BLOCK_M - <span class="code-number">1</span>) <span class="code-keyword">//</span> nq</span>
+<span class="code-line"><span class="code-comment"># AFTER:</span></span>
+<span class="code-line">+ (BLOCK_Q - <span class="code-number">1</span>)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE OVERSHOOT</span>
+            <div class="translation-lines">
+              <p class="tl">The largest in-block query-<em>position</em> offset is just <code>BLOCK_Q − 1</code>. The old form derived it as <code>(BLOCK_M − 1) // nq</code>.</p>
+              <p class="tl">With padding, <code>BLOCK_M = BLOCK_Q &times; NQ_PADDED &gt; BLOCK_Q &times; nq</code>, so <code>(BLOCK_M − 1) // nq</code> computes a position offset that is <strong>too large</strong> — over-counting the sequence prefix and the query-row span.</p>
+              <p class="tl">Computing it from <code>BLOCK_Q</code> directly is correct for <em>both</em> cases: for pow2 GQA the two expressions are identical, so again a clean no-op.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The lesson</strong>
+            <p>Any code that derived a query-<em>position</em> from <code>BLOCK_M</code> via <code>// nq</code> implicitly assumed dense packing. Once <code>BLOCK_M</code> carries padding slots, those derivations must use <code>BLOCK_Q</code> (positions) or <code>NQ_PADDED</code> (slots) — never the raw <code>nq</code>.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block" data-correct="overwrite"
+               data-explanation-right="Correct. A wide TD block store has no mask, so writing NQ_PADDED heads would emit the padding head's columns straight onto the adjacent KV group's output — memory corruption. So the store stays pow2-only."
+               data-explanation-wrong="Not quite. The store can't pad because a wide block write has no mask: the extra padding head would overwrite the neighboring KV group's output bytes. That's why USE_TD_STORE requires pow2 nq.">
+            <p class="quiz-question">Why does the TD <em>store</em> stay restricted to power-of-2 GQA?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A padded store is just slower</span></button>
+              <button class="quiz-option" data-value="overwrite" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A padded, unmasked write would overwrite the adjacent KV group's output</span></button>
+              <button class="quiz-option" data-value="hw" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The hardware can't store at all on non-pow2 shapes</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="blockq"
+               data-explanation-right="Right. The largest in-block query-position offset is BLOCK_Q - 1. Deriving it from (BLOCK_M - 1) // nq overshoots once BLOCK_M is padded, so the fix computes it from BLOCK_Q directly."
+               data-explanation-wrong="Look again. The correct quantity is BLOCK_Q - 1 — the largest query-position offset within the block. The old (BLOCK_M - 1) // nq form overshoots after BLOCK_M is padded.">
+            <p class="quiz-question">What is the correct largest in-block query-<em>position</em> offset after repacking?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="blockm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>(BLOCK_M - 1) // nq</code></span></button>
+              <button class="quiz-option" data-value="blockq" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>BLOCK_Q - 1</code></span></button>
+              <button class="quiz-option" data-value="nqpad" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>NQ_PADDED - 1</code></span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

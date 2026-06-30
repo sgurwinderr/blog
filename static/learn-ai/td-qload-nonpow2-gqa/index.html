@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tensor-Descriptor Q-Load for Non-Power-of-2 GQA</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #0071c5;
+      --color-accent-hover: #005a9d;
+      --color-accent-light: #e1f0fa;
+      --color-accent-muted: #4a9bd4;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">TD Q-Load for Non-Pow2 GQA</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="The Benchmark Flip" role="tab" aria-label="Module 1: The Benchmark Flip"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="GQA & the Pow2 Gate" role="tab" aria-label="Module 2: GQA and the Power-of-2 Gate"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Why TD Needs Pow2" role="tab" aria-label="Module 3: Why the TD Path Needs a Power of 2"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="The Fix: Pad & Mask" role="tab" aria-label="Module 4: The Fix — Pad and Mask"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Load vs Store" role="tab" aria-label="Module 5: The Load/Store Asymmetry"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Validation & Results" role="tab" aria-label="Module 6: Validation and Results"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">The Power-of-2 Wall</h1>
+      <p class="module-subtitle">Why GPU block-I/O hardware insists on power-of-two extents — and how a single awkward dimension can lock an entire kernel out of the fast path</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: two ways to move a tile -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Ways to Move a Tile</h2>
+        <p>Every tiled GPU kernel has to get a 2D block of data from memory into registers. On modern hardware there are two very different ways to do it, and the gap between them is large.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">&#x1f680;</div>
+            <h4 class="pattern-title">Block I/O (fast)</h4>
+            <p class="pattern-desc">A single <span class="term" data-definition="A small hardware structure describing a 2D region of memory — base, shape, strides, block size. One descriptor drives a wide hardware-accelerated block transfer.">tensor descriptor</span> drives a hardware 2D-block transfer — one wide, coalesced read of the whole tile. On Intel Xe this is the 2D-block load; CUDA calls the analogous idea TMA.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x1f40c;</div>
+            <h4 class="pattern-title">Pointer gather (slow)</h4>
+            <p class="pattern-desc">Compute a pointer per element (or per row), then load with explicit masks. Correct for <em>any</em> shape, but it leaves the block-transfer hardware idle and is often ~2&times; slower on memory-bound tiles.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4cd;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The whole course in one sentence</strong>
+            <p>The fast path is the one you want — but it comes with a hardware constraint. This course is about <em>satisfying</em> that constraint for a shape that naively fails it, instead of falling back to the slow path.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the constraint -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Constraint: Power-of-Two Inner Extent</h2>
+        <p>The catch with block I/O is that the descriptor's <strong>inner (contiguous) block extent must be a power of two</strong>. This isn't a software style rule — it falls out of how the descriptor is encoded and what the hardware's validator will accept.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" aria-label="Power-of-two inner extent: accepted vs rejected">
+            <text x="180" y="28" class="mem-title" text-anchor="middle" fill="#2d8b55">Inner extent = 512</text>
+            <rect x="40" y="48" width="280" height="44" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="180" y="68" class="mem-mono" text-anchor="middle">512 = 2&#x2079;</text>
+            <text x="180" y="84" class="mem-mono" text-anchor="middle" fill="#2d8b55">&#x2713; power of two &#x2192; accepted</text>
+            <text x="540" y="28" class="mem-title" text-anchor="middle" fill="#c93b3b">Inner extent = 896</text>
+            <rect x="400" y="48" width="280" height="44" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="540" y="68" class="mem-mono" text-anchor="middle">896 = 2&#x2077; &#xb7; 7</text>
+            <text x="540" y="84" class="mem-mono" text-anchor="middle" fill="#c93b3b">&#x2717; not pow2 &#x2192; rejected</text>
+            <text x="360" y="135" class="mem-text" text-anchor="middle">When the inner extent isn't a power of two, the descriptor is invalid.</text>
+            <text x="360" y="158" class="mem-text" text-anchor="middle">The easy response is to gate the fast path off for those shapes &mdash; safe, but it leaves performance on the table.</text>
+            <rect x="160" y="182" width="400" height="40" rx="8" fill="#fff4e0" stroke="#d4a843" stroke-width="2"/>
+            <text x="360" y="207" class="mem-title" text-anchor="middle">The better answer: reshape the read so the extent <em>is</em> a power of two.</text>
+          </svg>
+          <div class="post-diagram-caption">A non-power-of-two inner extent fails validation. Gating off the fast path avoids the failure but forfeits the speed — this course shows the third option.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the running example -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Concrete Place This Bites: Attention</h2>
+        <p>A clean, real example is the query (Q) load inside a fused-attention kernel. The kernel tiles a block of query rows and loads them through a tensor descriptor whose inner extent is <code>(query heads per group) &times; (head dimension)</code>.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">&#x2713;</div>
+            <h4 class="pattern-title">When it's a power of two</h4>
+            <p class="pattern-desc">If both the head count per group and the head dimension are powers of two, the inner extent is too — the descriptor validates and the fast block load fires.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x2717;</div>
+            <h4 class="pattern-title">When it isn't</h4>
+            <p class="pattern-desc">A single non-power-of-two factor — say 7 query heads per group instead of 4 or 8 — makes the inner extent non-pow2 and knocks the whole Q load onto the slow pointer path.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3af;</div>
+          <div class="callout-content">
+            <strong class="callout-title">What this course teaches</strong>
+            <p>We use that attention Q load as the running example, but the technique is general: <strong>pad the awkward axis up to a power of two, read the wider block, and mask the slack.</strong> By the end you'll be able to apply it to any block-I/O constraint, not just this one.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block" data-correct="inner"
+               data-explanation-right="Correct. The constraint is on the descriptor's inner (contiguous) block extent — it must be a power of two for the hardware 2D-block transfer to validate."
+               data-explanation-wrong="Not quite. The hardware constraint is specifically on the descriptor's inner (contiguous) block extent: it must be a power of two. Batch size and total tensor size aren't what the validator checks.">
+            <p class="quiz-question">What must be a power of two for a block-I/O descriptor to validate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="batch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The batch size</span></button>
+              <button class="quiz-option" data-value="inner" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The inner (contiguous) block extent</span></button>
+              <button class="quiz-option" data-value="total" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The total number of elements in the tensor</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="padmask"
+               data-explanation-right="Right. Rather than gate off the fast path, this course pads the awkward dimension up to a power of two, reads the wider block, and masks the padding — keeping the fast path for shapes that naively failed the constraint."
+               data-explanation-wrong="Look again. The technique here is to pad the awkward axis to a power of two, read the wider block, and mask the slack — so the fast path stays available instead of falling back to the slow pointer gather.">
+            <p class="quiz-question">What is this course's strategy for a shape that fails the power-of-two constraint?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="gateoff" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Gate the fast path off for those shapes</span></button>
+              <button class="quiz-option" data-value="padmask" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pad the axis to a power of two, read wider, and mask the slack</span></button>
+              <button class="quiz-option" data-value="reshape" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Rewrite the model to use power-of-two shapes</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">GQA and the Power-of-2 Gate</h1>
+      <p class="module-subtitle">How grouped-query attention packs query heads into a tile — and why a non-power-of-two group size gets locked out of the fast path</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: GQA basics -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">One KV Head, Many Query Heads</h2>
+        <p>In <span class="term" data-definition="Grouped-Query Attention: multiple query heads share a single key/value head, cutting KV-cache size. num_queries_per_kv = num_query_heads / num_kv_heads is the group size.">grouped-query attention (GQA)</span>, several query heads share one key/value head. The ratio that matters is <code>num_queries_per_kv = num_query_heads / num_kv_heads</code> — call it <code>nq</code>. It is the number of query rows that ride along with each KV head.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">4</div>
+            <h4 class="pattern-title">Power-of-two group size</h4>
+            <p class="pattern-desc">e.g. 32 query heads over 8 KV heads &rarr; <code>nq = 4</code>. A power of two. This is the common, well-trodden case the fast path was built for.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">7</div>
+            <h4 class="pattern-title">Non-power-of-two group size</h4>
+            <p class="pattern-desc">e.g. 28 query heads over 4 KV heads &rarr; <code>nq = 7</code>. <strong>Not</strong> a power of two. Some real models land here, and this single fact is what trips the gate.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: how the kernel packs rows -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">How the Kernel Tiles It</h2>
+        <p>The unified-attention kernel processes a tile of <code>BLOCK_M</code> rows at a time. Those rows are a 2D pack: <code>BLOCK_Q</code> query <em>positions</em> &times; <code>nq</code> query <em>heads</em> per KV group. Each row is one (position, head) pair sharing the tile's KV.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">ORIGINAL ROW PACKING</span>
+            <pre><code><span class="code-line"><span class="code-comment"># num_queries_per_kv heads per KV group</span></span>
+<span class="code-line">BLOCK_M = (<span class="code-number">16</span> <span class="code-keyword">if</span> nq &lt;= <span class="code-number">16</span></span>
+<span class="code-line">           <span class="code-keyword">else</span> next_pow2(nq))</span>
+<span class="code-line">BLOCK_Q = BLOCK_M <span class="code-keyword">//</span> nq</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># row r -&gt; which position, which head</span></span>
+<span class="code-line">query_pos      = base + r <span class="code-keyword">//</span> nq</span>
+<span class="code-line">head_in_group  = r % nq</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHAT IT MEANS</span>
+            <div class="translation-lines">
+              <p class="tl">A <code>BLOCK_M</code>-row tile is laid out as <code>BLOCK_Q</code> positions, each expanded into <code>nq</code> head rows.</p>
+              <p class="tl">For pow2 <code>nq</code>, <code>BLOCK_M / nq</code> divides cleanly and the packing is dense — every row is a real head.</p>
+              <p class="tl">The kernel recovers the position with <code>r // nq</code> and the head with <code>r % nq</code> to index into Q.</p>
+              <p class="tl">This is fine arithmetically for any <code>nq</code> — the trouble starts only when this tile must be loaded via a <em>tensor descriptor</em>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: two load paths -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Ways to Load Q</h2>
+        <p>Once the rows are addressed, the kernel must actually fetch Q from memory. There are two code paths, and the choice is gated.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">&#x1f680;</div>
+            <h4 class="pattern-title">TD path (fast)</h4>
+            <p class="pattern-desc">A <code>tl.make_tensor_descriptor</code> drives the Xe <strong>2D-block load</strong> hardware — one descriptor, one wide hardware-accelerated read of the whole tile.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x1f40c;</div>
+            <h4 class="pattern-title">Pointer path (slow)</h4>
+            <p class="pattern-desc">A gather over per-row pointers with explicit masks. Correct for any shape, but it leaves the 2D-block I/O hardware idle — the source of the ~2&times; penalty.</p>
+          </div>
+        </div>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE OLD GATE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># Q/O take the fast TD path only if</span></span>
+<span class="code-line"><span class="code-comment"># BOTH nq and head_size are pow2</span></span>
+<span class="code-line">_is_pow2_nq = (nq &amp; (nq - <span class="code-number">1</span>)) == <span class="code-number">0</span></span>
+<span class="code-line">_is_pow2_hs = head_size == \</span>
+<span class="code-line">              next_pow2(head_size)</span>
+<span class="code-line"></span>
+<span class="code-line">use_td_qo = use_td <span class="code-keyword">and</span> _is_pow2_nq \</span>
+<span class="code-line">            <span class="code-keyword">and</span> _is_pow2_hs</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE CONSEQUENCE</span>
+            <div class="translation-lines">
+              <p class="tl"><code>_is_pow2_nq</code> is the bit-trick test for "power of two": true for 1, 2, 4, 8, 16…</p>
+              <p class="tl">For <code>nq = 7</code> it is <strong>false</strong>, so <code>use_td_qo</code> is false.</p>
+              <p class="tl">Result: a non-pow2 group size silently falls back to the slow pointer path for <em>both</em> the Q load and the O store — even though the hardware is perfectly capable of the load.</p>
+              <p class="tl">The technique in this course removes <code>_is_pow2_nq</code> from this gate. But first: <em>why was it ever there?</em></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block" data-correct="seven"
+               data-explanation-right="Correct. With 28 query heads and 4 KV heads, num_queries_per_kv = 28/4 = 7 — not a power of two, which is exactly what the old gate rejected."
+               data-explanation-wrong="Not quite. 28 query heads over 4 KV heads gives num_queries_per_kv = 7. Seven is not a power of two, so the old _is_pow2_nq gate excluded it.">
+            <p class="quiz-question">For a model with 28 query heads and 4 KV heads, what is <code>num_queries_per_kv</code>?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="four" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4</span></button>
+              <button class="quiz-option" data-value="seven" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">7</span></button>
+              <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">8</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="pointer"
+               data-explanation-right="Right. With _is_pow2_nq false, use_td_qo was false, so a non-pow2 group size used the slow per-row pointer gather for Q and O instead of the hardware 2D-block path."
+               data-explanation-wrong="Look again. A false _is_pow2_nq disabled use_td_qo, dropping non-pow2 group sizes onto the slow pointer gather path — leaving the 2D-block I/O hardware unused.">
+            <p class="quiz-question">With the old gate, which path did a non-power-of-two group size take for its Q load?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="td" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The fast TD 2D-block path</span></button>
+              <button class="quiz-option" data-value="pointer" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The slow per-row pointer path</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-3" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Why the TD Path Demands a Power of 2</h1>
+      <p class="module-subtitle">The tensor-descriptor validator has a hard rule about the inner extent — and a flattened <code>nq &times; HEAD_SIZE</code> axis violates it for <code>nq = 7</code></p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: the flattened inner axis -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Descriptor Sees a Flattened Axis</h2>
+        <p>The TD Q load doesn't describe a 3D <code>(positions, heads, head_dim)</code> tensor. It flattens the head and head-dim axes into one contiguous inner extent and describes a 2D block: <code>(BLOCK_Q positions, nq &times; HEAD_SIZE columns)</code>.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE Q DESCRIPTOR (BEFORE)</span>
+            <pre><code><span class="code-line">q_desc = tl.make_tensor_descriptor(</span>
+<span class="code-line">  base=q_base,</span>
+<span class="code-line">  shape=(q_block_local_len,</span>
+<span class="code-line">         nq * HEAD_SIZE),</span>
+<span class="code-line">  strides=(query_stride_0, <span class="code-number">1</span>),</span>
+<span class="code-line">  block_shape=(BLOCK_Q,</span>
+<span class="code-line">    nq * HEAD_SIZE_PADDED),  <span class="code-comment"># &lt;-- inner</span></span>
+<span class="code-line">)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE INNER EXTENT</span>
+            <div class="translation-lines">
+              <p class="tl">The inner <code>block_shape</code> dimension is <code>nq &times; HEAD_SIZE_PADDED</code> — all the heads of a KV group laid end to end.</p>
+              <p class="tl"><code>HEAD_SIZE_PADDED</code> is already <code>next_pow2(head_size)</code>, so head-dim padding was a solved problem.</p>
+              <p class="tl">But the <em>head count</em> <code>nq</code> still multiplies in raw. For <code>nq = 4</code>, <code>4 &times; 128 = 512</code> — a power of two. For <code>nq = 7</code>, <code>7 &times; 128 = 896</code> — <strong>not</strong> a power of two.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the validator rule -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Validator's Rule</h2>
+        <p>The Xe 2D-block I/O lowering requires the flattened inner extent of a tensor descriptor's block to be a <strong>power of two</strong>. This isn't a Triton style preference — it's what the hardware descriptor encoding and its validator accept.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" aria-label="Inner extent power-of-two check, pow2 vs non-pow2">
+            <text x="180" y="28" class="mem-title" text-anchor="middle" fill="#2d8b55">nq = 4</text>
+            <rect x="40" y="48" width="280" height="44" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="180" y="68" class="mem-mono" text-anchor="middle">4 &times; 128 = 512 columns</text>
+            <text x="180" y="84" class="mem-mono" text-anchor="middle" fill="#2d8b55">512 = 2&#x2079; &#x2713; pow2 &#x2192; valid</text>
+            <text x="540" y="28" class="mem-title" text-anchor="middle" fill="#c93b3b">nq = 7</text>
+            <rect x="400" y="48" width="280" height="44" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="540" y="68" class="mem-mono" text-anchor="middle">7 &times; 128 = 896 columns</text>
+            <text x="540" y="84" class="mem-mono" text-anchor="middle" fill="#c93b3b">896 = 2&#x2077;&#xb7;7 &#x2717; not pow2 &#x2192; rejected</text>
+            <text x="360" y="135" class="mem-text" text-anchor="middle">The TD validator rejects an inner extent that isn't a power of two.</text>
+            <text x="360" y="158" class="mem-text" text-anchor="middle">The safe-but-blunt route is to gate the whole TD path off for non-pow2 nq.</text>
+            <rect x="160" y="185" width="400" height="44" rx="8" fill="#fff4e0" stroke="#d4a843" stroke-width="2"/>
+            <text x="360" y="206" class="mem-title" text-anchor="middle">_is_pow2_nq = false &#x2192; use_td_qo = false</text>
+            <text x="360" y="222" class="mem-mono" text-anchor="middle">non-pow2 nq falls to the slow pointer path</text>
+          </svg>
+          <div class="post-diagram-caption">The gate was correct but blunt: rather than reshape the descriptor, it disabled the fast path entirely for any non-pow2 head count.</div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The key realization</strong>
+            <p>The validator cares about the <em>extent the descriptor reads</em>, not how many heads are <em>real</em>. If we read a power-of-two number of head-slots and simply <em>ignore</em> the extras, the descriptor is valid — and the load is correct. That is the whole idea behind the fix.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: padding precedent -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">There's Already a Precedent</h2>
+        <p>The kernel already pads one axis for exactly this reason. <code>HEAD_SIZE_PADDED = next_pow2(head_size)</code> rounds an awkward head dimension (say 96 or 80) up to the next power of two, and the descriptor zero-pads the read past the real <code>HEAD_SIZE</code>. A <code>dim_mask</code> then drops the padding columns.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x2705;</div>
+            <div>
+              <strong>Head dim: already padded</strong>
+              <p>The inner <code>HEAD_SIZE</code> axis is rounded to <code>HEAD_SIZE_PADDED</code>; the descriptor reads zeros past the real extent and <code>dim_mask</code> masks them out. Proven, shipping behavior.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f4a1;</div>
+            <div>
+              <strong>Head count: do the same thing</strong>
+              <p>If padding the head <em>dim</em> to a power of two is safe and masked, then padding the head <em>count</em> <code>nq</code> to <code>next_pow2(nq)</code> — and masking the extra head-slots — is the same trick on a second axis.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block" data-correct="inner"
+               data-explanation-right="Correct. The Xe 2D-block lowering requires the flattened inner block extent (nq x HEAD_SIZE) to be a power of two. For nq=7 that extent is 896, which is not pow2, so the validator rejected it."
+               data-explanation-wrong="Not quite. The constraint is on the descriptor's flattened inner block extent (nq x HEAD_SIZE). It must be a power of two; 7 x 128 = 896 is not, which is why the validator rejects the descriptor for nq=7.">
+            <p class="quiz-question">What must be a power of two for the TD load to validate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="batch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The batch size</span></button>
+              <button class="quiz-option" data-value="inner" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The flattened inner block extent (<code>nq &times; HEAD_SIZE</code>)</span></button>
+              <button class="quiz-option" data-value="seqlen" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The sequence length</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="headdim"
+               data-explanation-right="Right. HEAD_SIZE_PADDED = next_pow2(head_size) already rounds the head dimension up and masks the padding via dim_mask — the exact pattern the fix reuses for the head count."
+               data-explanation-wrong="Look again. The existing precedent is HEAD_SIZE_PADDED, which rounds the head dimension up to a power of two and masks the padding. The fix applies that same pad-and-mask idea to the head count nq.">
+            <p class="quiz-question">What existing mechanism does the fix take as its precedent?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="headdim" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>HEAD_SIZE_PADDED</code> — padding the head dimension</span></button>
+              <button class="quiz-option" data-value="slm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Staging operands in SLM</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">There is no precedent — this is brand new</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">The Fix: Pad the Head Count, Mask the Slack</h1>
+      <p class="module-subtitle">Pack <code>BLOCK_M = BLOCK_Q &times; next_pow2(nq)</code>, read <code>NQ_PADDED</code> head-slots through the descriptor, then mask the padding rows in-kernel</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: NQ_PADDED -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Moves</h2>
+        <p>Conceptually the change is three coordinated moves that turn the non-pow2 head count into a padded, masked, power-of-two read — small in code, but each move has to line up with the others.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Repack <code>BLOCK_M</code> around <code>NQ_PADDED</code></strong><p>Define <code>NQ_PADDED = next_pow2(nq)</code>. Recompute <code>BLOCK_Q = max(BLOCK_M // NQ_PADDED, 1)</code> and <code>BLOCK_M = BLOCK_Q &times; NQ_PADDED</code>, so each query position now owns <code>NQ_PADDED</code> head-slots, not <code>nq</code>.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Widen the descriptor to <code>NQ_PADDED &times; HEAD_SIZE_PADDED</code></strong><p>The TD block's inner extent becomes a power of two. The descriptor zero-pads the read past the real <code>nq &times; HEAD_SIZE</code> — exactly like the head-dim padding already does.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Mask the padding head-slots</strong><p>Rows where <code>head_in_group &gt;= nq</code> are pure padding. Fold that into <code>query_mask_1</code> so they never contribute to softmax and never alias the next KV group.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: the repacking arithmetic -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The New Row Arithmetic</h2>
+        <p>Because each group now spans <code>NQ_PADDED</code> slots instead of <code>nq</code>, every index that used <code>nq</code> to split position from head switches to <code>NQ_PADDED</code>.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">IN-KERNEL (AFTER)</span>
+            <pre><code><span class="code-line"><span class="code-comment"># BLOCK_M = BLOCK_Q * NQ_PADDED</span></span>
+<span class="code-line">NQ_PADDED: tl.constexpr = \</span>
+<span class="code-line">  BLOCK_M <span class="code-keyword">//</span> BLOCK_Q</span>
+<span class="code-line"></span>
+<span class="code-line">head_in_group = offs_m % NQ_PADDED</span>
+<span class="code-line">query_pos = base + offs_m <span class="code-keyword">//</span> NQ_PADDED</span>
+<span class="code-line"></span>
+<span class="code-line">query_offset_1 = \</span>
+<span class="code-line">  kv_head_idx * nq + head_in_group</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHAT CHANGED</span>
+            <div class="translation-lines">
+              <p class="tl"><code>offs_m // nq</code> &rarr; <code>offs_m // NQ_PADDED</code> for the query position; <code>offs_m % nq</code> &rarr; <code>offs_m % NQ_PADDED</code> for the head slot.</p>
+              <p class="tl">For pow2 <code>nq</code>, <code>NQ_PADDED == nq</code>, so every line is bit-for-bit identical to before. <strong>A genuine no-op for any pow2 group size.</strong></p>
+              <p class="tl">For <code>nq = 7</code>, <code>NQ_PADDED = 8</code>: each group has 7 real head rows + 1 padding row that must be masked off so it doesn't bleed into the next KV group's output.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" aria-label="nq=7 group packed into 8 slots, slot 7 masked">
+            <text x="360" y="24" class="mem-title" text-anchor="middle">One KV group, nq = 7, NQ_PADDED = 8</text>
+            <g>
+              <rect x="40" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="75" y="80" class="mem-mono" text-anchor="middle">h0</text>
+              <rect x="112" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="147" y="80" class="mem-mono" text-anchor="middle">h1</text>
+              <rect x="184" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="219" y="80" class="mem-mono" text-anchor="middle">h2</text>
+              <rect x="256" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="291" y="80" class="mem-mono" text-anchor="middle">h3</text>
+              <rect x="328" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="363" y="80" class="mem-mono" text-anchor="middle">h4</text>
+              <rect x="400" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="435" y="80" class="mem-mono" text-anchor="middle">h5</text>
+              <rect x="472" y="50" width="70" height="50" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/><text x="507" y="80" class="mem-mono" text-anchor="middle">h6</text>
+              <rect x="544" y="50" width="70" height="50" fill="#fde0e0" stroke="#c93b3b" stroke-width="2" stroke-dasharray="5,3"/><text x="579" y="76" class="mem-mono" text-anchor="middle" fill="#c93b3b">pad</text><text x="579" y="92" class="mem-mono" text-anchor="middle" fill="#c93b3b">slot 7</text>
+            </g>
+            <text x="307" y="130" class="mem-mono" text-anchor="middle" fill="#0071c5">7 real heads &mdash; loaded &amp; computed</text>
+            <text x="579" y="130" class="mem-mono" text-anchor="middle" fill="#c93b3b">zero-read, masked</text>
+            <text x="360" y="170" class="mem-text" text-anchor="middle">Descriptor reads all 8 slots (8 &times; 128 = 1024 = 2&#x00b9;&#x2070;, a valid pow2 extent).</text>
+            <text x="360" y="192" class="mem-text" text-anchor="middle">query_mask_1 zeroes slot 7 so it never reaches softmax or the next group.</text>
+          </svg>
+          <div class="post-diagram-caption">Pad 7 heads up to 8, read the whole power-of-two block, then mask the one padding slot. The descriptor is happy; the math is unchanged.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the mask -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Mask That Makes It Safe</h2>
+        <p>The padding slots carry garbage-or-zero values. Two conditions must both hold for a row to count — the original out-of-range head check <em>and</em> the new padding check.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">query_mask_1 (AFTER)</span>
+            <pre><code><span class="code-line">query_mask_1 = tl.where(</span>
+<span class="code-line">  (query_offset_1 &lt; num_query_heads)</span>
+<span class="code-line">  &amp; (head_in_group &lt; nq),  <span class="code-comment"># NEW</span></span>
+<span class="code-line">  <span class="code-number">1</span>, <span class="code-number">0</span>,</span>
+<span class="code-line">).to(tl.int1)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHY BOTH CLAUSES</span>
+            <div class="translation-lines">
+              <p class="tl"><code>query_offset_1 &lt; num_query_heads</code> — the original guard against running off the end of the head axis.</p>
+              <p class="tl"><code>head_in_group &lt; nq</code> — the new guard. It kills the <code>NQ_PADDED − nq</code> padding slots per group (slot 7 when nq=7).</p>
+              <p class="tl">Without the second clause, slot 7's stale data would alias into <code>kv_head_idx + 1</code>'s rows and silently corrupt the output. The mask is the correctness linchpin.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: flow animation -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Watch One Group Flow Through</h2>
+        <p>Step through how a single non-pow2 KV group (nq = 7) is loaded, padded, and masked on the new path.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"A KV group has 7 real query heads (nq = 7) — not a power of two, so the old descriptor was rejected."},
+          {"highlight":"actor-2","label":"Pad the head count: NQ_PADDED = next_pow2(7) = 8. The group now occupies 8 row-slots."},
+          {"highlight":"actor-3","packet":true,"from":"actor-2","to":"actor-3","label":"The TD descriptor reads 8 x 128 = 1024 columns — a valid power-of-two extent. Slot 7 is zero-padded by the read."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"query_mask_1 masks slot 7 (head_in_group >= 7) so the padding never reaches softmax."},
+          {"highlight":"actor-1","label":"Result: 7 correct head outputs, hardware 2D-block load, zero aliasing into the next KV group."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">nq=7</div>
+              <span>Real Heads</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">&#x2192;8</div>
+              <span>Pad to NQ_PADDED</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">TD</div>
+              <span>2D-Block Load</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">&#x2717;7</div>
+              <span>Mask Slot</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 5: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block" data-correct="eight"
+               data-explanation-right="Correct. NQ_PADDED = next_pow2(7) = 8. Each KV group is packed into 8 row-slots: 7 real heads plus 1 padding slot, making the descriptor's inner extent (8 x 128) a power of two."
+               data-explanation-wrong="Not quite. NQ_PADDED is next_pow2(nq) = next_pow2(7) = 8 when nq = 7 — 7 real heads plus one padding slot per group.">
+            <p class="quiz-question">For <code>nq = 7</code>, what is <code>NQ_PADDED</code>?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="seven" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">7</span></button>
+              <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">8</span></button>
+              <button class="quiz-option" data-value="sixteen" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">16</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="alias"
+               data-explanation-right="Right. Without the head_in_group < nq clause, the stale padding-slot data would alias into the next KV group's query rows and corrupt the attention output. The mask is what keeps the padded read correct."
+               data-explanation-wrong="Look again. The danger is aliasing: an unmasked padding slot carries stale data that would bleed into the adjacent KV group's rows, corrupting the output. That's exactly what the head_in_group < nq clause prevents.">
+            <p class="quiz-question">What would happen if the padding head-slots were <em>not</em> masked?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The kernel would just run slower</span></button>
+              <button class="quiz-option" data-value="alias" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Stale padding data would alias into the next KV group and corrupt output</span></button>
+              <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Nothing — the zeros are harmless</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-5" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">The Load/Store Asymmetry</h1>
+      <p class="module-subtitle">Why the TD <em>load</em> can pad but the TD <em>store</em> cannot — and the loop-bound bug the repacking would have introduced</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: why store can't pad -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Padded Read Is Safe. A Padded Write Is Not.</h2>
+        <p>The fix enables the TD path for the Q <em>load</em> on non-pow2 GQA — but deliberately keeps the O <em>store</em> on the pow2-only path. The asymmetry is fundamental, not an oversight.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-success)">
+            <div class="pattern-icon" style="background: var(--color-success)">&#x2b07;&#xfe0f;</div>
+            <h4 class="pattern-title">TD load — can pad</h4>
+            <p class="pattern-desc">Reading extra padding columns is harmless: the descriptor returns zeros, and the mask discards them downstream. Nothing in memory is touched. <strong>Non-pow2 GQA can use it.</strong></p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">&#x2b06;&#xfe0f;</div>
+            <h4 class="pattern-title">TD store — cannot pad</h4>
+            <p class="pattern-desc">A padded <em>write</em> would emit <code>NQ_PADDED</code> heads' worth of columns — and the padding head would <strong>overwrite the adjacent KV group's output</strong>. There is no mask on a wide block store. <strong>Pow2 only.</strong></p>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The store would corrupt memory</strong>
+            <p>The TD store writes the real <code>nq</code> heads contiguously. If it wrote <code>NQ_PADDED</code> heads, slot 7's bytes would land on top of the next group's head 0. A masked read drops slack; a wide write <em>clobbers neighbors</em>. So the store stays pow2-only and non-pow2 falls back to the masked pointer store.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: USE_TD_STORE -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Splitting the Gate in Two</h2>
+        <p>The old code had a single <code>use_td_qo</code> flag controlling both Q load and O store. The fix splits it: a relaxed load gate plus a separate, stricter store gate.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE TWO GATES (AFTER)</span>
+            <pre><code><span class="code-line"><span class="code-comment"># host: load gate drops _is_pow2_nq</span></span>
+<span class="code-line">use_td_qo = use_td <span class="code-keyword">and</span> _is_pow2_hs</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># kernel: store stays pow2-nq only</span></span>
+<span class="code-line">USE_TD_STORE: tl.constexpr = \</span>
+<span class="code-line">  USE_TD_QO <span class="code-keyword">and</span> \</span>
+<span class="code-line">  (BLOCK_M <span class="code-keyword">//</span> BLOCK_Q == nq)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">HOW IT READS</span>
+            <div class="translation-lines">
+              <p class="tl"><code>use_td_qo</code> loses the <code>_is_pow2_nq</code> term — the TD Q load now fires whenever head size is pow2, regardless of head count.</p>
+              <p class="tl"><code>BLOCK_M // BLOCK_Q == nq</code> is true <em>iff</em> <code>NQ_PADDED == nq</code>, i.e. <code>nq</code> was already a power of two. That is the store's enabling condition.</p>
+              <p class="tl">Pow2 GQA: both gates fire — fast load <em>and</em> fast store, exactly as before. Non-pow2 GQA: fast load, masked pointer store. Strictly better than the old all-or-nothing.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="Decision matrix: load and store paths by GQA type">
+            <line x1="260" y1="40" x2="260" y2="180" stroke="#ccc" stroke-width="1"/>
+            <line x1="490" y1="40" x2="490" y2="180" stroke="#ccc" stroke-width="1"/>
+            <line x1="40" y1="80" x2="680" y2="80" stroke="#ccc" stroke-width="1"/>
+            <text x="150" y="65" class="mem-title" text-anchor="middle"></text>
+            <text x="375" y="65" class="mem-title" text-anchor="middle">Q load</text>
+            <text x="585" y="65" class="mem-title" text-anchor="middle">O store</text>
+            <text x="150" y="115" class="mem-title" text-anchor="middle" fill="#2d8b55">pow2 nq</text>
+            <text x="375" y="115" class="mem-mono" text-anchor="middle" fill="#2d8b55">TD &#x2713;</text>
+            <text x="585" y="115" class="mem-mono" text-anchor="middle" fill="#2d8b55">TD &#x2713;</text>
+            <text x="150" y="160" class="mem-title" text-anchor="middle" fill="#0071c5">non-pow2 nq</text>
+            <text x="375" y="160" class="mem-mono" text-anchor="middle" fill="#0071c5">TD &#x2713; (new)</text>
+            <text x="585" y="160" class="mem-mono" text-anchor="middle" fill="#d4a843">pointer store</text>
+          </svg>
+          <div class="post-diagram-caption">The matrix after the fix. Only one cell changed — the non-pow2 Q load went from pointer to TD — and that one cell is the speedup.</div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the loop-bounds bug -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Loop-Bound Bug Hiding in the Repack</h2>
+        <p>Repacking <code>BLOCK_M</code> quietly broke a helper that computed how far each Q-block reaches. The old expression assumed <code>BLOCK_M = BLOCK_Q &times; nq</code>; after padding, that overshoots.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">compute_tile_loop_bounds</span>
+            <pre><code><span class="code-line"><span class="code-comment"># largest in-block query offset</span></span>
+<span class="code-line"><span class="code-comment"># BEFORE:</span></span>
+<span class="code-line">- (BLOCK_M - <span class="code-number">1</span>) <span class="code-keyword">//</span> nq</span>
+<span class="code-line"><span class="code-comment"># AFTER:</span></span>
+<span class="code-line">+ (BLOCK_Q - <span class="code-number">1</span>)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE OVERSHOOT</span>
+            <div class="translation-lines">
+              <p class="tl">The largest in-block query-<em>position</em> offset is just <code>BLOCK_Q − 1</code>. The old form derived it as <code>(BLOCK_M − 1) // nq</code>.</p>
+              <p class="tl">With padding, <code>BLOCK_M = BLOCK_Q &times; NQ_PADDED &gt; BLOCK_Q &times; nq</code>, so <code>(BLOCK_M − 1) // nq</code> computes a position offset that is <strong>too large</strong> — over-counting the sequence prefix and the query-row span.</p>
+              <p class="tl">Computing it from <code>BLOCK_Q</code> directly is correct for <em>both</em> cases: for pow2 GQA the two expressions are identical, so again a clean no-op.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The lesson</strong>
+            <p>Any code that derived a query-<em>position</em> from <code>BLOCK_M</code> via <code>// nq</code> implicitly assumed dense packing. Once <code>BLOCK_M</code> carries padding slots, those derivations must use <code>BLOCK_Q</code> (positions) or <code>NQ_PADDED</code> (slots) — never the raw <code>nq</code>.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block" data-correct="overwrite"
+               data-explanation-right="Correct. A wide TD block store has no mask, so writing NQ_PADDED heads would emit the padding head's columns straight onto the adjacent KV group's output — memory corruption. So the store stays pow2-only."
+               data-explanation-wrong="Not quite. The store can't pad because a wide block write has no mask: the extra padding head would overwrite the neighboring KV group's output bytes. That's why USE_TD_STORE requires pow2 nq.">
+            <p class="quiz-question">Why does the TD <em>store</em> stay restricted to power-of-2 GQA?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A padded store is just slower</span></button>
+              <button class="quiz-option" data-value="overwrite" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A padded, unmasked write would overwrite the adjacent KV group's output</span></button>
+              <button class="quiz-option" data-value="hw" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The hardware can't store at all on non-pow2 shapes</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="blockq"
+               data-explanation-right="Right. The largest in-block query-position offset is BLOCK_Q - 1. Deriving it from (BLOCK_M - 1) // nq overshoots once BLOCK_M is padded, so the fix computes it from BLOCK_Q directly."
+               data-explanation-wrong="Look again. The correct quantity is BLOCK_Q - 1 — the largest query-position offset within the block. The old (BLOCK_M - 1) // nq form overshoots after BLOCK_M is padded.">
+            <p class="quiz-question">What is the correct largest in-block query-<em>position</em> offset after repacking?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="blockm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>(BLOCK_M - 1) // nq</code></span></button>
+              <button class="quiz-option" data-value="blockq" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>BLOCK_Q - 1</code></span></button>
+              <button class="quiz-option" data-value="nqpad" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label"><code>NQ_PADDED - 1</code></span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Validation &amp; The General Pattern</h1>
+      <p class="module-subtitle">How to prove a pad-and-mask change is correct, the ~2&times; it recovers, and why the same trick generalizes far beyond attention</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: the headline result -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Payoff: From Slow Path to Fast Path</h2>
+        <p>The whole point of the exercise is to move a non-pow2 shape off the slow pointer gather and onto the hardware block load. On a memory-bound prefill tile, that swap is worth roughly 2&times;.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" aria-label="Kernel time on the slow pointer path versus the fast TD path">
+            <text x="350" y="28" class="mem-title" text-anchor="middle">Non-pow2 GQA &mdash; prefill Q load</text>
+            <rect x="60" y="60" width="380" height="40" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="250" y="85" class="mem-title" text-anchor="middle" fill="#c93b3b">pointer gather path (before)</text>
+            <rect x="60" y="115" width="190" height="40" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="155" y="140" class="mem-title" text-anchor="middle" fill="#2d8b55">TD block-load path</text>
+            <text x="470" y="140" class="mem-title" text-anchor="start" fill="#0071c5" font-size="22">~2&times; faster</text>
+            <text x="350" y="185" class="mem-mono" text-anchor="middle">measured on an Intel Arc-class GPU vs a Torch reference</text>
+          </svg>
+          <div class="post-diagram-caption">The non-pow2 penalty is gone — the shape now lands on the same fast block load that every power-of-two shape already used.</div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f680;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why it's roughly 2&times;</strong>
+            <p>On a prefill-sized Q tile the load is memory-bound. The pointer path issues many narrow, partially-masked accesses; the descriptor path issues one wide, coalesced block transfer. Removing that inefficiency is the entire win — no math changed.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: correctness coverage -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Correctness: How to Trust a Mask</h2>
+        <p>A padding-and-masking change is exactly the kind of fix that produces subtly wrong numbers if the mask is off by one. The discipline that earns trust is to diff against a reference across the full matrix of shapes.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x2705;</div>
+            <div>
+              <strong>Sweep the shape matrix</strong>
+              <p>2D prefill, 3D decode, long-context, multi-sequence, mixed batches, sliding-window, and scattered block tables. Every case must match a trusted reference — the padding axis interacts with all of them.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f9ea;</div>
+            <div>
+              <strong>Run the target <em>and</em> a control</strong>
+              <p>Test the non-pow2 shape (the one you changed for) <em>and</em> a pow2 control side by side. Identical-to-baseline output on both confirms the mask drops exactly the padding slots and nothing else.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-bg-warm); color: var(--color-text-secondary)">&#x2696;&#xfe0f;</div>
+            <div>
+              <strong>Prove the no-op where it should be one</strong>
+              <p>Because <code>NQ_PADDED == nq</code> for power-of-two shapes, every rewritten line collapses to its original form. Verifying byte-identical output on pow2 shapes proves the change is a true no-op there.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the general pattern -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Pattern Generalizes</h2>
+        <p>Nothing about pad-and-mask is specific to attention. Any time a hardware fast path imposes a shape constraint you don't naturally satisfy, the same three-step recipe applies.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Pad the awkward axis</strong><p>Round the offending dimension up to whatever the hardware accepts — a power of two, a multiple of the tile width, an alignment boundary.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Read (never blindly write) the wider region</strong><p>A padded <em>read</em> is safe — the extra lanes come back as zeros. A padded <em>write</em> is only safe if it can't clobber a neighbor; otherwise keep the slow path for the write.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Mask the slack</strong><p>Make sure the padding lanes never influence a result and never alias real data. The mask is the correctness linchpin — get it right and the speedup is free.</p></div>
+          </div>
+        </div>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">TMA / cp.async</span>
+            <span class="badge-desc">CUDA bulk-copy engines have their own shape and alignment rules; padding a tile to a legal box and masking the overhang is the same move.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Tensor cores</span>
+            <span class="badge-desc">MMA fragments require fixed tile shapes (e.g. 16&times;16). Padding ragged GEMM dimensions up to the fragment size and masking is standard practice.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Vectorized loads</span>
+            <span class="badge-desc">A <code>float4</code> load needs a multiple-of-4, aligned extent. Pad the row, read vectorized, mask the tail — identical reasoning, smaller scale.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: final quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Final Check</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="memband"
+               data-explanation-right="Correct. On a prefill-sized tile the load is memory-bound; the descriptor path replaces many narrow masked accesses with one wide coalesced block transfer. That efficiency gain is the ~2x — the arithmetic is unchanged."
+               data-explanation-wrong="Look again. No math changed. The ~2x comes from replacing many narrow, partially-masked pointer accesses with a single wide, coalesced hardware block transfer on a memory-bound tile.">
+            <p class="quiz-question">Where does the ~2&times; speedup come from?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="fewerflops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Doing less arithmetic</span></button>
+              <button class="quiz-option" data-value="memband" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">One wide coalesced block transfer instead of many narrow masked accesses</span></button>
+              <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Lower-precision math</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="control"
+               data-explanation-right="Right. Running a pow2 control alongside the non-pow2 target and confirming both match baseline proves the mask drops exactly the padding slots — and that the change is a true no-op where it should be."
+               data-explanation-wrong="Not quite. The strongest signal is diffing against a reference across the shape matrix, including a pow2 control that must stay byte-identical — that's what proves the mask is exactly right.">
+            <p class="quiz-question">What best confirms the mask is correct?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The kernel got faster</span></button>
+              <button class="quiz-option" data-value="builds" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It compiles without errors</span></button>
+              <button class="quiz-option" data-value="control" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Target + pow2 control both match a reference across the shape matrix</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3c1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The takeaway</strong>
+            <p>A power-of-two hardware constraint doesn't have to gate off a whole shape. <strong>Pad the awkward axis, read the wider block, mask the slack</strong> — the same trick kernels already use on the head dimension, applied one axis over. Reach for it whenever a fast path's shape rule is the only thing standing between you and the hardware.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

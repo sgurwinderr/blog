@@ -1,0 +1,135 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">GQA and the Power-of-2 Gate</h1>
+      <p class="module-subtitle">How grouped-query attention packs query heads into a tile — and why a non-power-of-two group size gets locked out of the fast path</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: GQA basics -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">One KV Head, Many Query Heads</h2>
+        <p>In <span class="term" data-definition="Grouped-Query Attention: multiple query heads share a single key/value head, cutting KV-cache size. num_queries_per_kv = num_query_heads / num_kv_heads is the group size.">grouped-query attention (GQA)</span>, several query heads share one key/value head. The ratio that matters is <code>num_queries_per_kv = num_query_heads / num_kv_heads</code> — call it <code>nq</code>. It is the number of query rows that ride along with each KV head.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">4</div>
+            <h4 class="pattern-title">Power-of-two group size</h4>
+            <p class="pattern-desc">e.g. 32 query heads over 8 KV heads &rarr; <code>nq = 4</code>. A power of two. This is the common, well-trodden case the fast path was built for.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-danger)">
+            <div class="pattern-icon" style="background: var(--color-danger)">7</div>
+            <h4 class="pattern-title">Non-power-of-two group size</h4>
+            <p class="pattern-desc">e.g. 28 query heads over 4 KV heads &rarr; <code>nq = 7</code>. <strong>Not</strong> a power of two. Some real models land here, and this single fact is what trips the gate.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: how the kernel packs rows -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">How the Kernel Tiles It</h2>
+        <p>The unified-attention kernel processes a tile of <code>BLOCK_M</code> rows at a time. Those rows are a 2D pack: <code>BLOCK_Q</code> query <em>positions</em> &times; <code>nq</code> query <em>heads</em> per KV group. Each row is one (position, head) pair sharing the tile's KV.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">ORIGINAL ROW PACKING</span>
+            <pre><code><span class="code-line"><span class="code-comment"># num_queries_per_kv heads per KV group</span></span>
+<span class="code-line">BLOCK_M = (<span class="code-number">16</span> <span class="code-keyword">if</span> nq &lt;= <span class="code-number">16</span></span>
+<span class="code-line">           <span class="code-keyword">else</span> next_pow2(nq))</span>
+<span class="code-line">BLOCK_Q = BLOCK_M <span class="code-keyword">//</span> nq</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># row r -&gt; which position, which head</span></span>
+<span class="code-line">query_pos      = base + r <span class="code-keyword">//</span> nq</span>
+<span class="code-line">head_in_group  = r % nq</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">WHAT IT MEANS</span>
+            <div class="translation-lines">
+              <p class="tl">A <code>BLOCK_M</code>-row tile is laid out as <code>BLOCK_Q</code> positions, each expanded into <code>nq</code> head rows.</p>
+              <p class="tl">For pow2 <code>nq</code>, <code>BLOCK_M / nq</code> divides cleanly and the packing is dense — every row is a real head.</p>
+              <p class="tl">The kernel recovers the position with <code>r // nq</code> and the head with <code>r % nq</code> to index into Q.</p>
+              <p class="tl">This is fine arithmetically for any <code>nq</code> — the trouble starts only when this tile must be loaded via a <em>tensor descriptor</em>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: two load paths -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Ways to Load Q</h2>
+        <p>Once the rows are addressed, the kernel must actually fetch Q from memory. There are two code paths, and the choice is gated.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">&#x1f680;</div>
+            <h4 class="pattern-title">TD path (fast)</h4>
+            <p class="pattern-desc">A <code>tl.make_tensor_descriptor</code> drives the Xe <strong>2D-block load</strong> hardware — one descriptor, one wide hardware-accelerated read of the whole tile.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-warning)">
+            <div class="pattern-icon" style="background: var(--color-warning)">&#x1f40c;</div>
+            <h4 class="pattern-title">Pointer path (slow)</h4>
+            <p class="pattern-desc">A gather over per-row pointers with explicit masks. Correct for any shape, but it leaves the 2D-block I/O hardware idle — the source of the ~2&times; penalty.</p>
+          </div>
+        </div>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <span class="translation-label">THE OLD GATE</span>
+            <pre><code><span class="code-line"><span class="code-comment"># Q/O take the fast TD path only if</span></span>
+<span class="code-line"><span class="code-comment"># BOTH nq and head_size are pow2</span></span>
+<span class="code-line">_is_pow2_nq = (nq &amp; (nq - <span class="code-number">1</span>)) == <span class="code-number">0</span></span>
+<span class="code-line">_is_pow2_hs = head_size == \</span>
+<span class="code-line">              next_pow2(head_size)</span>
+<span class="code-line"></span>
+<span class="code-line">use_td_qo = use_td <span class="code-keyword">and</span> _is_pow2_nq \</span>
+<span class="code-line">            <span class="code-keyword">and</span> _is_pow2_hs</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">THE CONSEQUENCE</span>
+            <div class="translation-lines">
+              <p class="tl"><code>_is_pow2_nq</code> is the bit-trick test for "power of two": true for 1, 2, 4, 8, 16…</p>
+              <p class="tl">For <code>nq = 7</code> it is <strong>false</strong>, so <code>use_td_qo</code> is false.</p>
+              <p class="tl">Result: a non-pow2 group size silently falls back to the slow pointer path for <em>both</em> the Q load and the O store — even though the hardware is perfectly capable of the load.</p>
+              <p class="tl">The technique in this course removes <code>_is_pow2_nq</code> from this gate. But first: <em>why was it ever there?</em></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block" data-correct="seven"
+               data-explanation-right="Correct. With 28 query heads and 4 KV heads, num_queries_per_kv = 28/4 = 7 — not a power of two, which is exactly what the old gate rejected."
+               data-explanation-wrong="Not quite. 28 query heads over 4 KV heads gives num_queries_per_kv = 7. Seven is not a power of two, so the old _is_pow2_nq gate excluded it.">
+            <p class="quiz-question">For a model with 28 query heads and 4 KV heads, what is <code>num_queries_per_kv</code>?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="four" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4</span></button>
+              <button class="quiz-option" data-value="seven" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">7</span></button>
+              <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">8</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="pointer"
+               data-explanation-right="Right. With _is_pow2_nq false, use_td_qo was false, so a non-pow2 group size used the slow per-row pointer gather for Q and O instead of the hardware 2D-block path."
+               data-explanation-wrong="Look again. A false _is_pow2_nq disabled use_td_qo, dropping non-pow2 group sizes onto the slow pointer gather path — leaving the 2D-block I/O hardware unused.">
+            <p class="quiz-question">With the old gate, which path did a non-power-of-two group size take for its Q load?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="td" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The fast TD 2D-block path</span></button>
+              <button class="quiz-option" data-value="pointer" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The slow per-row pointer path</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

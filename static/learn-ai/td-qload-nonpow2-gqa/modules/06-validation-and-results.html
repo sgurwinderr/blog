@@ -1,0 +1,147 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Validation &amp; The General Pattern</h1>
+      <p class="module-subtitle">How to prove a pad-and-mask change is correct, the ~2&times; it recovers, and why the same trick generalizes far beyond attention</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- Screen 1: the headline result -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Payoff: From Slow Path to Fast Path</h2>
+        <p>The whole point of the exercise is to move a non-pow2 shape off the slow pointer gather and onto the hardware block load. On a memory-bound prefill tile, that swap is worth roughly 2&times;.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" aria-label="Kernel time on the slow pointer path versus the fast TD path">
+            <text x="350" y="28" class="mem-title" text-anchor="middle">Non-pow2 GQA &mdash; prefill Q load</text>
+            <rect x="60" y="60" width="380" height="40" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+            <text x="250" y="85" class="mem-title" text-anchor="middle" fill="#c93b3b">pointer gather path (before)</text>
+            <rect x="60" y="115" width="190" height="40" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+            <text x="155" y="140" class="mem-title" text-anchor="middle" fill="#2d8b55">TD block-load path</text>
+            <text x="470" y="140" class="mem-title" text-anchor="start" fill="#0071c5" font-size="22">~2&times; faster</text>
+            <text x="350" y="185" class="mem-mono" text-anchor="middle">measured on an Intel Arc-class GPU vs a Torch reference</text>
+          </svg>
+          <div class="post-diagram-caption">The non-pow2 penalty is gone — the shape now lands on the same fast block load that every power-of-two shape already used.</div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f680;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why it's roughly 2&times;</strong>
+            <p>On a prefill-sized Q tile the load is memory-bound. The pointer path issues many narrow, partially-masked accesses; the descriptor path issues one wide, coalesced block transfer. Removing that inefficiency is the entire win — no math changed.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 2: correctness coverage -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Correctness: How to Trust a Mask</h2>
+        <p>A padding-and-masking change is exactly the kind of fix that produces subtly wrong numbers if the mask is off by one. The discipline that earns trust is to diff against a reference across the full matrix of shapes.</p>
+
+        <div class="icon-rows">
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-success-light); color: var(--color-success)">&#x2705;</div>
+            <div>
+              <strong>Sweep the shape matrix</strong>
+              <p>2D prefill, 3D decode, long-context, multi-sequence, mixed batches, sliding-window, and scattered block tables. Every case must match a trusted reference — the padding axis interacts with all of them.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-accent-light); color: var(--color-accent)">&#x1f9ea;</div>
+            <div>
+              <strong>Run the target <em>and</em> a control</strong>
+              <p>Test the non-pow2 shape (the one you changed for) <em>and</em> a pow2 control side by side. Identical-to-baseline output on both confirms the mask drops exactly the padding slots and nothing else.</p>
+            </div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-circle" style="background: var(--color-bg-warm); color: var(--color-text-secondary)">&#x2696;&#xfe0f;</div>
+            <div>
+              <strong>Prove the no-op where it should be one</strong>
+              <p>Because <code>NQ_PADDED == nq</code> for power-of-two shapes, every rewritten line collapses to its original form. Verifying byte-identical output on pow2 shapes proves the change is a true no-op there.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: the general pattern -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Pattern Generalizes</h2>
+        <p>Nothing about pad-and-mask is specific to attention. Any time a hardware fast path imposes a shape constraint you don't naturally satisfy, the same three-step recipe applies.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Pad the awkward axis</strong><p>Round the offending dimension up to whatever the hardware accepts — a power of two, a multiple of the tile width, an alignment boundary.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Read (never blindly write) the wider region</strong><p>A padded <em>read</em> is safe — the extra lanes come back as zeros. A padded <em>write</em> is only safe if it can't clobber a neighbor; otherwise keep the slow path for the write.</p></div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Mask the slack</strong><p>Make sure the padding lanes never influence a result and never alias real data. The mask is the correctness linchpin — get it right and the speedup is free.</p></div>
+          </div>
+        </div>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">TMA / cp.async</span>
+            <span class="badge-desc">CUDA bulk-copy engines have their own shape and alignment rules; padding a tile to a legal box and masking the overhang is the same move.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Tensor cores</span>
+            <span class="badge-desc">MMA fragments require fixed tile shapes (e.g. 16&times;16). Padding ragged GEMM dimensions up to the fragment size and masking is standard practice.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Vectorized loads</span>
+            <span class="badge-desc">A <code>float4</code> load needs a multiple-of-4, aligned extent. Pad the row, read vectorized, mask the tail — identical reasoning, smaller scale.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: final quiz -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Final Check</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="memband"
+               data-explanation-right="Correct. On a prefill-sized tile the load is memory-bound; the descriptor path replaces many narrow masked accesses with one wide coalesced block transfer. That efficiency gain is the ~2x — the arithmetic is unchanged."
+               data-explanation-wrong="Look again. No math changed. The ~2x comes from replacing many narrow, partially-masked pointer accesses with a single wide, coalesced hardware block transfer on a memory-bound tile.">
+            <p class="quiz-question">Where does the ~2&times; speedup come from?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="fewerflops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Doing less arithmetic</span></button>
+              <button class="quiz-option" data-value="memband" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">One wide coalesced block transfer instead of many narrow masked accesses</span></button>
+              <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Lower-precision math</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="control"
+               data-explanation-right="Right. Running a pow2 control alongside the non-pow2 target and confirming both match baseline proves the mask drops exactly the padding slots — and that the change is a true no-op where it should be."
+               data-explanation-wrong="Not quite. The strongest signal is diffing against a reference across the shape matrix, including a pow2 control that must stay byte-identical — that's what proves the mask is exactly right.">
+            <p class="quiz-question">What best confirms the mask is correct?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The kernel got faster</span></button>
+              <button class="quiz-option" data-value="builds" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It compiles without errors</span></button>
+              <button class="quiz-option" data-value="control" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Target + pow2 control both match a reference across the shape matrix</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3c1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The takeaway</strong>
+            <p>A power-of-two hardware constraint doesn't have to gate off a whole shape. <strong>Pad the awkward axis, read the wider block, mask the slack</strong> — the same trick kernels already use on the head dimension, applied one axis over. Reach for it whenever a fast path's shape rule is the only thing standing between you and the hardware.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
