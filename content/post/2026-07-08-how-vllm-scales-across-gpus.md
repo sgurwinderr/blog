@@ -6,7 +6,7 @@ categories:
 date: '2026-07-08T00:00:00Z'
 slug: 'how-vllm-scales-across-gpus'
 featured: false
-draft: true
+draft: false
 image: assets/images/cudamapping.png
 imageAlt: 'GPU compute-and-memory mapping, illustrating the multi-GPU execution vLLM coordinates across tensor, pipeline, expert, and data parallelism'
 description: 'How vLLM V1 scales inference across GPUs — tensor/pipeline/expert/data parallelism, the custom all-reduce fast path, Wide EP, and disaggregated prefill — traced through the merged PRs that made each faster.'
