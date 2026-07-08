@@ -6,13 +6,17 @@ summaryLength = 25
 copyright = "Gurwinder - All rights reserved"
 enableEmoji = true
 
-# Disable RSS feeds — keep only HTML + JSON (search index) for home; sitemap
+# Disable RSS feeds — keep only HTML + JSON (search index) for home.
+# NOTE: do NOT list "Sitemap" on page kinds here. Hugo generates the
+# site-wide /sitemap.xml automatically from its own sitemap kind; adding
+# "Sitemap" to home/section/page instead renders the sitemap template
+# per-page over an empty page set, producing an empty <urlset>.
 [outputs]
-  home     = ["HTML", "JSON", "Sitemap"]
-  section  = ["HTML", "Sitemap"]
+  home     = ["HTML", "JSON"]
+  section  = ["HTML"]
   taxonomy = ["HTML"]
   term     = ["HTML"]
-  page     = ["HTML", "Sitemap"]
+  page     = ["HTML"]
 
 [permalinks]
   post = "/:slug/"
