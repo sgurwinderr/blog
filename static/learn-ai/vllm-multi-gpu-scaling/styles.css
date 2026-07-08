@@ -932,6 +932,23 @@ p:last-child { margin-bottom: 0; }
   font-weight: 700;
   margin-bottom: var(--space-2);
 }
+/* PR reference chip (in pattern titles) + auto-linked PR numbers */
+.pr-ref {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-accent);
+}
+.pr-link {
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--color-accent-muted);
+  white-space: nowrap;
+}
+.pr-link:hover { color: var(--color-accent-hover); border-bottom-style: solid; }
+.pr-code { border-bottom: none; }
+code > .pr-link { color: inherit; border-bottom: 1px dotted currentColor; }
 .pattern-desc {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);

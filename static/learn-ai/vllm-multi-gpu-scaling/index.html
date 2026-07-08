@@ -47,6 +47,67 @@
       if (window.hljs) document.querySelectorAll('pre code').forEach(function (b) { hljs.highlightElement(b); });
     });
   </script>
+
+  <!-- Auto-link vLLM PR references (#NNNN) to GitHub. Runs once after load;
+       walks text nodes only, so it never touches existing markup/attributes. -->
+  <script defer>
+    window.addEventListener('load', function () {
+      var RE = /#(\d{3,6})\b/;
+      var root = document.getElementById('main');
+      if (!root) return;
+      function prAnchor(num, cls) {
+        var a = document.createElement('a');
+        a.href = 'https://github.com/vllm-project/vllm/pull/' + num;
+        a.target = '_blank'; a.rel = 'noopener';
+        a.className = cls;
+        a.textContent = '#' + num;
+        return a;
+      }
+      // First: <code>#NNNN</code> that is ONLY a PR number → a linked code chip.
+      Array.prototype.forEach.call(root.querySelectorAll('code'), function (code) {
+        var m = /^#(\d{3,6})$/.exec(code.textContent.trim());
+        if (!m) return;
+        var a = prAnchor(m[1], 'pr-link');
+        a.className = 'pr-link pr-code';
+        code.textContent = '';
+        code.appendChild(a);
+      });
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          if (!RE.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+          // skip anything already inside a link, code, or pre block
+          var p = n.parentNode;
+          while (p && p !== root) {
+            var tag = p.nodeName;
+            if (tag === 'A' || tag === 'CODE' || tag === 'PRE') return NodeFilter.FILTER_REJECT;
+            p = p.parentNode;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var targets = [], n;
+      while ((n = walker.nextNode())) targets.push(n);
+      targets.forEach(function (node) {
+        var parts = node.nodeValue.split(/(#\d{3,6}\b)/);
+        if (parts.length < 2) return;
+        var frag = document.createDocumentFragment();
+        parts.forEach(function (part) {
+          var m = /^#(\d{3,6})$/.exec(part);
+          if (m) {
+            var a = document.createElement('a');
+            a.href = 'https://github.com/vllm-project/vllm/pull/' + m[1];
+            a.target = '_blank'; a.rel = 'noopener';
+            a.className = 'pr-link';
+            a.textContent = part;
+            frag.appendChild(a);
+          } else if (part) {
+            frag.appendChild(document.createTextNode(part));
+          }
+        });
+        node.parentNode.replaceChild(frag, node);
+      });
+    });
+  </script>
 </head>
 <body>
 
@@ -116,7 +177,7 @@
             <text x="360" y="244" class="mem-mono" text-anchor="middle">~32–64 GB/s · custom all-reduce disabled beyond 2 GPUs</text>
             <rect x="180" y="112" width="360" height="64" rx="8" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
             <text x="360" y="138" class="mem-title" text-anchor="middle">NVLink / XGMI (intra-node fabric)</text>
-            <text x="360" y="160" class="mem-mono" text-anchor="middle">~300–900 GB/s · the tensor-parallel comfort zone</text>
+            <text x="360" y="160" class="mem-mono" text-anchor="middle">~300–900 GB/s · TP comfort zone</text>
             <rect x="260" y="28" width="200" height="64" rx="8" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
             <text x="360" y="54" class="mem-title" text-anchor="middle">HBM (on-package)</text>
             <text x="360" y="76" class="mem-mono" text-anchor="middle">~2–8 TB/s · 1 GPU</text>
@@ -310,18 +371,18 @@
 
         <div class="pattern-cards">
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
-            <div class="pattern-icon" style="background: var(--color-actor-2)">#20759</div>
-            <h4 class="pattern-title">PyTorch symmetric memory</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-2)">AR</div>
+            <h4 class="pattern-title">PyTorch symmetric memory <span class="pr-ref">#20759</span></h4>
             <p class="pattern-desc">Two-shot for 2/4 GPUs, multimem for 6/8. Llama-70B: <strong>~7–10% lower TTFT at TP=8</strong> on B200. Later default-on (#24111).</p>
           </div>
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
-            <div class="pattern-icon" style="background: var(--color-actor-3)">#24532</div>
-            <h4 class="pattern-title">NCCL symmetric memory</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-3)">AR</div>
+            <h4 class="pattern-title">NCCL symmetric memory <span class="pr-ref">#24532</span></h4>
             <p class="pattern-desc">Registers buffers so NCCL dispatches symmetric kernels — <strong>~2.0× at 8 MB</strong> (micro-bench, TP=8). Wins at large messages.</p>
           </div>
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
-            <div class="pattern-icon" style="background: var(--color-actor-5)">#19744</div>
-            <h4 class="pattern-title">ROCm QuickReduce (quantized)</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-5)">QR</div>
+            <h4 class="pattern-title">ROCm QuickReduce (quantized) <span class="pr-ref">#19744</span></h4>
             <p class="pattern-desc">Quantizes to INT8/6/4 before reducing — fewer bytes on the wire. MI300 TP=4: <strong>TTFT ~2.2×</strong> with INT4.</p>
           </div>
         </div>
@@ -743,12 +804,12 @@
             <text x="600" y="94" class="mem-mono" text-anchor="middle">memory-bound</text>
             <text x="600" y="110" class="mem-mono" text-anchor="middle">tune for ITL</text>
 
-            <rect x="270" y="50" width="180" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
+            <rect x="248" y="50" width="224" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
             <text x="360" y="76" class="mem-title" text-anchor="middle">KV connector</text>
             <text x="360" y="96" class="mem-mono" text-anchor="middle">NIXL / LMCache / Mooncake</text>
 
-            <path d="M 210 80 L 270 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
-            <path d="M 450 80 L 510 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <path d="M 210 80 L 248 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <path d="M 472 80 L 510 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
             <text x="360" y="180" class="mem-text" text-anchor="middle">KV cache moves over the network exactly once per request</text>
             <defs>
               <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">

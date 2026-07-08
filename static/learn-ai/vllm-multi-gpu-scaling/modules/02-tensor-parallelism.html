@@ -80,18 +80,18 @@
 
         <div class="pattern-cards">
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
-            <div class="pattern-icon" style="background: var(--color-actor-2)">#20759</div>
-            <h4 class="pattern-title">PyTorch symmetric memory</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-2)">AR</div>
+            <h4 class="pattern-title">PyTorch symmetric memory <span class="pr-ref">#20759</span></h4>
             <p class="pattern-desc">Two-shot for 2/4 GPUs, multimem for 6/8. Llama-70B: <strong>~7–10% lower TTFT at TP=8</strong> on B200. Later default-on (#24111).</p>
           </div>
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
-            <div class="pattern-icon" style="background: var(--color-actor-3)">#24532</div>
-            <h4 class="pattern-title">NCCL symmetric memory</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-3)">AR</div>
+            <h4 class="pattern-title">NCCL symmetric memory <span class="pr-ref">#24532</span></h4>
             <p class="pattern-desc">Registers buffers so NCCL dispatches symmetric kernels — <strong>~2.0× at 8 MB</strong> (micro-bench, TP=8). Wins at large messages.</p>
           </div>
           <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
-            <div class="pattern-icon" style="background: var(--color-actor-5)">#19744</div>
-            <h4 class="pattern-title">ROCm QuickReduce (quantized)</h4>
+            <div class="pattern-icon" style="background: var(--color-actor-5)">QR</div>
+            <h4 class="pattern-title">ROCm QuickReduce (quantized) <span class="pr-ref">#19744</span></h4>
             <p class="pattern-desc">Quantizes to INT8/6/4 before reducing — fewer bytes on the wire. MI300 TP=4: <strong>TTFT ~2.2×</strong> with INT4.</p>
           </div>
         </div>
