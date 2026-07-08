@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How vLLM Scales Across GPUs</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #764ba2;
+      --color-accent-hover: #5f3d84;
+      --color-accent-light: #ece7f6;
+      --color-accent-muted: #9b7bc0;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/pr-walkthroughs/" class="back-link ml-auto"><span>All Walkthroughs</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">How vLLM Scales Across GPUs</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="A Communication Problem" role="tab" aria-label="Module 1: A Communication Problem"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Tensor Parallelism" role="tab" aria-label="Module 2: Tensor Parallelism"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Pipeline Parallelism" role="tab" aria-label="Module 3: Pipeline Parallelism"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Wide EP for MoE" role="tab" aria-label="Module 4: Wide Expert Parallelism"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Disaggregated Serving" role="tab" aria-label="Module 5: Disaggregated Prefill and KV Transfer"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="CUDA Graphs" role="tab" aria-label="Module 6: CUDA Graphs"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="torch.compile" role="tab" aria-label="Module 7: torch.compile and Fusion"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Choosing a Config" role="tab" aria-label="Module 8: Choosing a Configuration"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">Multi-GPU Is a Communication Problem</h1>
+      <p class="module-subtitle">Why splitting an LLM across GPUs is about the wires between them, not the FLOPs inside them</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The FLOPs Were Never the Hard Part</h2>
+        <p>A model that doesn't fit on one GPU forces you to split it. The matrix multiplies stay embarrassingly parallel — you can always buy more compute. What you <em>cannot</em> buy your way out of is the <strong>communication</strong> the instant the model spans devices.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The one idea this whole walkthrough turns on</strong>
+            <p>Every tensor-parallel layer ends in an all-reduce. Every pipeline stage hands activations to the next over a link. Every Mixture-of-Experts layer shuffles tokens to their experts and back. The GPUs spend a startling fraction of wall-clock time <em>waiting on each other</em>. vLLM's multi-GPU performance work is, overwhelmingly, communication engineering.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Interconnect Hierarchy</h2>
+        <p>Four tiers matter, and they span five orders of magnitude in bandwidth. The right parallelism strategy is a function of <em>which tier</em> your GPUs talk over.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" aria-label="Interconnect hierarchy for multi-GPU inference">
+            <rect x="20" y="280" width="680" height="64" rx="8" fill="#e8e0d0" stroke="#6b6560" stroke-width="2"/>
+            <text x="360" y="306" class="mem-title" text-anchor="middle">Cross-node network (Ethernet / InfiniBand / RDMA)</text>
+            <text x="360" y="328" class="mem-mono" text-anchor="middle">~25–400 Gb/s · pipeline &amp; disaggregation live here</text>
+            <rect x="80" y="196" width="560" height="64" rx="8" fill="#f0e6f6" stroke="#7b6daa" stroke-width="2"/>
+            <text x="360" y="222" class="mem-title" text-anchor="middle">PCIe (GPU ↔ GPU, no NVLink)</text>
+            <text x="360" y="244" class="mem-mono" text-anchor="middle">~32–64 GB/s · custom all-reduce disabled beyond 2 GPUs</text>
+            <rect x="180" y="112" width="360" height="64" rx="8" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="360" y="138" class="mem-title" text-anchor="middle">NVLink / XGMI (intra-node fabric)</text>
+            <text x="360" y="160" class="mem-mono" text-anchor="middle">~300–900 GB/s · the tensor-parallel comfort zone</text>
+            <rect x="260" y="28" width="200" height="64" rx="8" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="360" y="54" class="mem-title" text-anchor="middle">HBM (on-package)</text>
+            <text x="360" y="76" class="mem-mono" text-anchor="middle">~2–8 TB/s · 1 GPU</text>
+            <path d="M 360 92 L 360 112" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <path d="M 360 176 L 360 196" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <path d="M 360 260 L 360 280" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <defs>
+              <marker id="arrH" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b6560"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Each step down is ~10× slower. Keep the hottest, most frequent communication on the fastest tier — and match your parallelism strategy to the fabric you actually have.</div>
+        </div>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">TP</div>
+            <h4 class="pattern-title">Tensor → NVLink</h4>
+            <p class="pattern-desc">Hammers the fabric every layer. Belongs on the fastest tier.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">PP</div>
+            <h4 class="pattern-title">Pipeline → PCIe / network</h4>
+            <p class="pattern-desc">Communicates once per stage boundary. Tolerates slow links.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Expert → sparse all-to-all</h4>
+            <p class="pattern-desc">Trades a dense all-reduce for a token-sparse shuffle.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">P/D</div>
+            <h4 class="pattern-title">Disagg → network, once</h4>
+            <p class="pattern-desc">Moves the KV cache over the network exactly once per request.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The V1 Process Model</h2>
+        <p>vLLM V1 (re-architected core, January 2025) runs multiple GPUs as a small constellation of OS processes. The parallelism flags are really instructions for how many of each process to spawn.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>One worker per accelerator.</strong>
+              <p>Total GPU workers = <code>TP × PP × DP</code>. A <code>TP=2, PP=2</code> launch is 4 workers, one per GPU.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>One engine-core process per DP rank.</strong>
+              <p>It runs the scheduler and KV-cache manager, and owns the <code>TP × PP</code> workers beneath it.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>One DP Coordinator — only when DP is on.</strong>
+              <p>It keeps data-parallel ranks in lockstep. Turns out to be essential for MoE models (Module 04).</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Executor backends</strong>
+            <p>vLLM defaults to native Python <strong>multiprocessing</strong> single-node and <strong>Ray</strong> multi-node, overridable with <code>--distributed-executor-backend {mp,ray}</code>. Workers are stateful and symmetric — the scheduler ships only the per-step diff, keeping cross-process chatter small.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block" data-correct="comms"
+               data-explanation-right="Exactly. Compute is cheap and parallel; the tax is the collective communication between GPUs every layer. That framing drives every optimization in this walkthrough."
+               data-explanation-wrong="Re-read the opening. FLOPs are easy to add. The bottleneck once a model spans devices is the communication — all-reduces, stage handoffs, token shuffles — not the arithmetic.">
+            <p class="quiz-question">What is the dominant cost that appears the moment a model is split across GPUs?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Running out of raw compute (FLOPs)</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Inter-GPU communication (collectives, handoffs)</span></button>
+              <button class="quiz-option" data-value="hbm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">HBM capacity on a single GPU</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="tppdp"
+               data-explanation-right="Right. The total worker count is the product TP × PP × DP, one process per accelerator."
+               data-explanation-wrong="Not quite. vLLM spawns one worker per accelerator, and the total is the product of all three parallel dimensions: TP × PP × DP.">
+            <p class="quiz-question">How many GPU worker processes does V1 launch?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="tponly" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Just tensor-parallel size (TP)</span></button>
+              <button class="quiz-option" data-value="tppdp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">TP × PP × DP — one per accelerator</span></button>
+              <button class="quiz-option" data-value="one" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">One shared process for all GPUs</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Tensor Parallelism &amp; the All-Reduce</h1>
+      <p class="module-subtitle">Shard every layer, pay a collective twice per layer — then make it faster and make it overlap</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Megatron Sharding, and the Bill</h2>
+        <p>Tensor parallelism (<code>--tensor-parallel-size</code>) splits each weight matrix across GPUs. Every device computes a partial result; an <strong>all-reduce</strong> sums the partials back to a coherent activation. It's the default for splitting a model <em>within</em> a node — <code>TP=4</code> on a 4-GPU box.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f4b8;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Two all-reduces per layer, every step</strong>
+            <p>One after attention, one after the MLP — for every transformer layer, on every forward pass. On NVLink this is tolerable. On anything slower it dominates the step. So the whole TP optimization story is two moves: make the all-reduce <em>faster</em>, and make it <em>overlap</em> compute so it's partly free.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Custom All-Reduce Fast Path — and Its Gates</h2>
+        <p>vLLM ships a hand-written NVLink-optimized all-reduce that beats NCCL for the small-to-medium tensors typical of inference. But it is heavily gated. Reading the gates (from <code>custom_all_reduce.py</code>) tells you exactly when you get the fast path — and when you silently fall back to NCCL.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">world_size &#x2208; {2,4,6,8}</span>
+            <span class="badge-desc">Only these exact sizes. A single GPU skips it entirely.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">&gt;2 GPUs ⇒ full NVLink</span>
+            <span class="badge-desc">On more than two PCIe-only GPUs it disables itself with a warning.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">inp_bytes &lt; 8 MB</span>
+            <span class="badge-desc">Above the 8 MB (8192×1024) default cap, it falls back.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">inp_bytes % 16 == 0</span>
+            <span class="badge-desc">A per-call alignment check on the input size.</span>
+          </div>
+        </div>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">The dispatch condition, in one line</div>
+<pre><code><span class="code-line"><span class="code-keyword">use_custom_ar</span> = (</span>
+<span class="code-line">  world_size <span class="code-keyword">in</span> {<span class="code-number">2</span>,<span class="code-number">4</span>,<span class="code-number">6</span>,<span class="code-number">8</span>}</span>
+<span class="code-line">  <span class="code-keyword">and</span> (world_size == <span class="code-number">2</span> <span class="code-keyword">or</span> fully_connected)</span>
+<span class="code-line">  <span class="code-keyword">and</span> inp_bytes % <span class="code-number">16</span> == <span class="code-number">0</span></span>
+<span class="code-line">  <span class="code-keyword">and</span> inp_bytes &lt; <span class="code-number">8</span>*<span class="code-number">1024</span>*<span class="code-number">1024</span></span>
+<span class="code-line">)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">What it means for you</div>
+            <div class="translation-lines">
+              <div class="tl">Right shape of cluster (2/4/6/8 GPUs)…</div>
+              <div class="tl">…wired with full NVLink if more than two…</div>
+              <div class="tl">…and the tensor is aligned and small enough.</div>
+              <div class="tl">Miss any clause → NCCL handles it instead.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The PCIe cliff</strong>
+            <p>On a box with more than two PCIe-only GPUs, the fast path turns itself off. This is a concrete reason TP underperforms there — and a direct argument for pipeline parallelism instead (Module 03). The interconnect isn't a footnote; it's a gate condition in the source.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Making the All-Reduce Faster</h2>
+        <p>Beyond the built-in kernel, vLLM added pluggable high-performance backends. Each targets a different message-size regime.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">#20759</div>
+            <h4 class="pattern-title">PyTorch symmetric memory</h4>
+            <p class="pattern-desc">Two-shot for 2/4 GPUs, multimem for 6/8. Llama-70B: <strong>~7–10% lower TTFT at TP=8</strong> on B200. Later default-on (#24111).</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">#24532</div>
+            <h4 class="pattern-title">NCCL symmetric memory</h4>
+            <p class="pattern-desc">Registers buffers so NCCL dispatches symmetric kernels — <strong>~2.0× at 8 MB</strong> (micro-bench, TP=8). Wins at large messages.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">#19744</div>
+            <h4 class="pattern-title">ROCm QuickReduce (quantized)</h4>
+            <p class="pattern-desc">Quantizes to INT8/6/4 before reducing — fewer bytes on the wire. MI300 TP=4: <strong>TTFT ~2.2×</strong> with INT4.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the baselines</strong>
+            <p>#24532's headline 2× is a micro-benchmark at a favorable size; its end-to-end DeepSeek-R1 gain was ~3.5% req/s. #19744's ~2.2× is partly against a weak RCCL baseline above 16 MB — expected for a technique whose whole point is sending fewer bytes. The direction is right; the exact multiplier is regime-dependent.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Overlapping the All-Reduce with Compute</h2>
+        <p>The deeper move is to stop treating the all-reduce as a blocking barrier. Two compilation passes rewrite the graph so communication hides behind computation.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"A layer finishes its matmul. Normally it now blocks on a full all-reduce across all GPUs."},
+          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Sequence parallelism (#16155): split the all-reduce into reduce-scatter + all-gather."},
+          {"highlight":"actor-3","label":"RMSNorm runs on the smaller, sharded tensor between the two collectives — less work per rank."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Async TP (#17882): overlap the decomposed comm with the next matmul. The wire time is partly hidden."},
+          {"highlight":"actor-1","label":"Net effect: 4×H200 Llama-70B step 0.590s → 0.526s. Gain grows with GPUs and model size."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">GEMM</div>
+              <span>Matmul</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">RS</div>
+              <span>Reduce-Scatter</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">&#x1f9ee;</div>
+              <span>Sharded RMSNorm</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">AG</div>
+              <span>All-Gather</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Overlap is not free at every scale</strong>
+            <p>The async-TP PR is honest: on <strong>2×A100 with an 8B model it showed little to no gain</strong>. Overlap pays off as the collective gets big enough to hide real work behind it. A follow-up (#28672) even gates sequence parallelism by token count — SP wins at large token counts, fused all-reduce+RMSNorm+quant wins at small ones.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block" data-correct="pcie"
+               data-explanation-right="Correct. The gate requires full NVLink connectivity for more than two GPUs; on >2 PCIe-only GPUs the custom all-reduce disables itself and NCCL takes over."
+               data-explanation-wrong="Look at the gates again. Small aligned tensors on a 4-GPU NVLink box are exactly the fast-path case. The disqualifier is >2 GPUs connected only over PCIe.">
+            <p class="quiz-question">In which setup does the custom all-reduce fast path disable itself?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="nvlink4" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4 GPUs on full NVLink, 2 MB tensors</span></button>
+              <button class="quiz-option" data-value="pcie" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4 GPUs connected only over PCIe</span></button>
+              <button class="quiz-option" data-value="tp2" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">2 GPUs, 1 MB aligned tensors</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="rsag"
+               data-explanation-right="Right. Sequence parallelism replaces the all-reduce with reduce-scatter + all-gather, shrinking the RMSNorm in between and enabling async overlap."
+               data-explanation-wrong="Not quite. The overlap trick decomposes the single all-reduce into a reduce-scatter + all-gather pair, which is what lets communication overlap the surrounding matmul.">
+            <p class="quiz-question">How do the overlap passes restructure the TP all-reduce?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="rsag" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Into reduce-scatter + all-gather</span></button>
+              <button class="quiz-option" data-value="skip" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">They skip the collective entirely</span></button>
+              <button class="quiz-option" data-value="broadcast" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Into a single broadcast from rank 0</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Pipeline Parallelism: Layers Across the Network</h1>
+      <p class="module-subtitle">One handoff per stage instead of two all-reduces per layer — and a war against the bubble</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">When the Fabric Is Slow, Split by Layer</h2>
+        <p>Pipeline parallelism (<code>--pipeline-parallel-size</code>) splits the model along its <em>layers</em> and hands activations stage-to-stage over a point-to-point link. It supports uneven splits, and — crucially — it's the recommended choice when GPUs <strong>lack fast NVLink</strong> (e.g. L40S) or when spanning nodes.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f517;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why PP tolerates slow links</strong>
+            <p>It communicates far less than TP: <em>one</em> activation handoff per stage boundary, versus <em>two all-reduces per layer</em>. That maps it onto the PCIe/network tiers where TP would stall — recall the custom all-reduce disables itself on &gt;2 PCIe GPUs anyway.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Bubble</h2>
+        <p>Pipelining's classic weakness: while stage 0 works on microbatch <em>n</em>, the later stages sit idle unless you keep them fed. That idle time is the bubble, and vLLM's PP journey is a march against it.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" aria-label="Pipeline bubble before and after">
+            <text x="360" y="22" class="mem-title" text-anchor="middle" fill="#c93b3b">Naive PP — stages idle waiting for work (bubbles in grey)</text>
+            <!-- rows -->
+            <text x="40" y="58" class="mem-mono">Stage 0</text>
+            <text x="40" y="88" class="mem-mono">Stage 1</text>
+            <text x="40" y="118" class="mem-mono">Stage 2</text>
+            <rect x="110" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="110" y="74" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="110" y="104" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="185" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="185" y="74" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="185" y="104" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="260" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="260" y="74" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="260" y="104" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <text x="500" y="58" class="mem-mono" fill="#c93b3b">grey = wasted GPU time</text>
+
+            <text x="360" y="168" class="mem-title" text-anchor="middle" fill="#2d8b55">vLLM V1 — schedule ahead, overlap the token broadcast (bubbles shrink)</text>
+            <text x="40" y="204" class="mem-mono">Stage 0</text>
+            <text x="40" y="228" class="mem-mono">Stage 1</text>
+            <rect x="110" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="172" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="234" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="140" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="202" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="264" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <text x="520" y="218" class="mem-mono" fill="#2d8b55">stages stay busy</text>
+          </svg>
+          <div class="post-diagram-caption">Keep every stage fed by scheduling more steps ahead and moving the sampled-token broadcast off the critical path.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The PRs That Killed the Bubble</h2>
+        <p>The original PP support (<code>#4412</code>, 2024) established the shape — one scheduler per stage, blocking send/recv, last stage samples. The V1-era gains came from letting the scheduler run <em>ahead</em> of the pipeline.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Async scheduling + PP — #32618</strong>
+              <p>Only the last stage samples tokens, which blocked async scheduling. The fix broadcasts sampled tokens from the last PP rank to all others <em>directly on the GPU</em> (no CPU round-trip). Qwen3-30B pp=4: <strong>30.8% E2E throughput, 31.8% TPOT</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Avoid PP bubbles — #42187</strong>
+              <p>Decode scheduled every <code>pp_size</code> steps, prefill chunks pipelined, and the sampled-token broadcast moved onto a separate CUDA stream + process group so it overlaps the stage-to-stage P2P. GB200 PP=4: up to <strong>3.17× tok/s, 3.15× TTFT</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Fix stuck chunked PP — #38726</strong>
+              <p>Non-final chunked-prefill chunks discard the sampled token anyway, yet earlier ranks stalled waiting on the last. Skip the broadcast in that case. GLM-4.7 pp4tp2: 1392 → 4578 tok/s.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f4c8;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Those multipliers are best-case shapes</strong>
+            <p>#42187's 3.17× is the <code>128000/1</code> case (huge prefill, one output token) on a single GB200 node with prefix caching off; balanced shapes land at 1.24×–2.28×. #38726's ~3.3× uses <code>output-len=1</code>, a near-pure-prefill workload that flatters a prefill-side fix. Expect smaller gains once real decode is in the mix.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block" data-correct="less"
+               data-explanation-right="Correct. PP sends one activation per stage boundary versus TP's two all-reduces per layer, so it tolerates PCIe and cross-node links."
+               data-explanation-wrong="Reconsider. PP is preferred on slow fabrics precisely because it communicates less — one handoff per stage, not a collective every layer.">
+            <p class="quiz-question">Why is pipeline parallelism preferred when GPUs lack NVLink?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="less" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It communicates far less per step than TP</span></button>
+              <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Its matmuls are intrinsically faster</span></button>
+              <button class="quiz-option" data-value="nocomm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It needs no inter-GPU communication at all</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="stream"
+               data-explanation-right="Right. #42187 moves the last-stage sampled-token broadcast onto a separate CUDA stream and process group so it overlaps the stage-to-stage P2P instead of serializing behind it."
+               data-explanation-wrong="Not quite. The key idea in #42187 is overlap: put the sampled-token broadcast on its own CUDA stream/PG so it runs concurrently with the P2P activation handoff.">
+            <p class="quiz-question">How does #42187 stop the sampled-token broadcast from serializing the pipeline?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="stream" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Runs it on a separate CUDA stream + process group</span></button>
+              <button class="quiz-option" data-value="drop" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Drops the broadcast entirely</span></button>
+              <button class="quiz-option" data-value="cpu" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Routes it through the CPU</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Wide EP: Expert + Data Parallelism for MoE</h1>
+      <p class="module-subtitle">Trade a wasteful all-reduce for a token-sparse all-to-all — then pay an alignment tax</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why MoE Breaks the TP Assumption</h2>
+        <p>In a Mixture-of-Experts model only a handful of experts fire per token. Sharding <em>every</em> expert's weights across all GPUs (plain TP) wastes memory and bandwidth. vLLM's answer — <strong>Wide EP</strong> — pairs two ideas.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">DP</div>
+            <h4 class="pattern-title">Data-parallel attention</h4>
+            <p class="pattern-desc">Each DP rank owns its own attention, KV cache, and request stream. Attention weights are replicated (TP=1) or TP-sharded within each DP group (TP&gt;1).</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Expert-parallel MoE</h4>
+            <p class="pattern-desc">Experts shard across an expert-parallel group. Enable with <code>--enable-expert-parallel</code>. Each expert lives on some GPU; tokens route to their top-k experts.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The EP size is computed for you</strong>
+            <p>The expert-parallel group size is <code>EP_SIZE = TP_SIZE × DP_SIZE</code>, derived automatically. The routing pattern <em>changes character</em> mid-layer: attention is <strong>request-based</strong> (each rank handles its own sequences), the MoE block is <strong>expert-based</strong> (tokens scatter to expert owners and gather back).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Token's Journey Through a Wide-EP Layer</h2>
+        <p>Between attention and the experts sits a <strong>dispatch/combine</strong> all-to-all — a token permutation across GPUs. Step through it.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"Attention runs locally on each DP rank, over its own requests and KV cache."},
+          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Dispatch (all-to-all): each token is scattered to the GPU(s) that own its top-k experts."},
+          {"highlight":"actor-3","label":"Experts compute — only the GPUs holding a token’s experts do work for it. This is the sparsity win."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Combine (all-to-all): results gather back to the token’s original rank."},
+          {"highlight":"actor-1","label":"Every rank must step together — idle ranks run dummy passes so the collective always has a partner."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">ATT</div>
+              <span>DP Attention</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">&#x21c4;</div>
+              <span>Dispatch</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">EXP</div>
+              <span>Experts</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">&#x21c4;</div>
+              <span>Combine</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Alignment Tax &amp; Load Balancing</h2>
+        <p>The dispatch/combine collective needs every rank to participate. Two problems follow — and each has a mechanism.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f465;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Problem 1 — dummy forward passes</strong>
+            <p>When any DP rank has work, idle ranks must run <em>empty</em> forward passes, or the all-to-all has no partner and deadlocks. The <strong>DP Coordinator</strong> orchestrates this. It's a real cost of MoE serving — and why data parallelism, not raw replication, is the coordination unit.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Problem 2 — routing skew (EPLB)</strong>
+            <p>Real routing sends far more tokens to some experts than others, so GPUs holding hot experts become stragglers. The <strong>Expert Parallel Load Balancer</strong> (<code>--enable-eplb</code>) collects routing stats every forward pass and periodically rebalances placement, <em>replicating hot experts</em> across GPUs. Tunable via <code>--eplb-config</code> (<code>window_size</code> 1000, <code>step_interval</code> 3000).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Making Dispatch/Combine Faster</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>AllGather + ReduceScatter backend — #23964</strong>
+              <p>Replaces the naive all-to-all with allgather-for-dispatch, reduce-scatter-for-combine. 4-GPU DeepSeek-R1-FP4: <strong>~1.97× token throughput</strong>, TPOT 228 → 116 ms. CUDA-graph compatible.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>MoRI-EP (AMD) — #28664</strong>
+              <p>Quantizes to FP8 before dispatch. MI300X+CX7 DeepSeek-R1: EP=8 → 1.33×, <strong>EP=16 → 2.68×</strong>. The gain grows with scale because naive all-to-all degrades so badly at EP=16.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>EPLB zero-copy transfers — #41633</strong>
+              <p>One-sided RDMA READ moves expert weights during rebalancing with no staging buffers. DeepSeek-V3.2 EP=8: transfer 0.9 → 0.7s, <strong>staging memory 4.4 GiB → 0</strong>.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x23f1;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">A moving target</strong>
+            <p>The EP kernel landscape churns fast. The <strong>PPLX backend was removed in early 2026</strong> (#33724), and vLLM now carries several all-to-all backends (allgather_reducescatter, DeepEP, FlashInfer, NIXL, MoRI). Treat any "backend X beats Y" claim as version-stamped.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block" data-correct="a2a"
+               data-explanation-right="Correct. Wide EP replaces the dense per-layer all-reduce with a token-sparse dispatch/combine all-to-all — only the GPUs owning a token's experts do its work."
+               data-explanation-wrong="Reconsider. The whole point of expert parallelism is to swap the dense all-reduce for a sparse all-to-all that touches only the relevant expert GPUs.">
+            <p class="quiz-question">What collective does Wide EP use in the MoE block instead of TP's all-reduce?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a2a" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A token-sparse dispatch/combine all-to-all</span></button>
+              <button class="quiz-option" data-value="allreduce" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The same dense all-reduce</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">No collective — experts are independent</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="dummy"
+               data-explanation-right="Right. Because the all-to-all needs every rank, idle ranks run empty dummy forward passes (coordinated by the DP Coordinator) to keep the collective alive."
+               data-explanation-wrong="Not quite. Idle DP ranks can't just skip a step — the all-to-all would deadlock. They run dummy forward passes so every rank participates.">
+            <p class="quiz-question">What must idle DP ranks do when another rank has a live request?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="sleep" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Sleep until they get their own request</span></button>
+              <button class="quiz-option" data-value="dummy" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Run empty dummy forward passes to stay aligned</span></button>
+              <button class="quiz-option" data-value="steal" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Steal tokens from the busy rank</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Disaggregated Serving &amp; KV Transfer</h1>
+      <p class="module-subtitle">Split prefill from decode across instances — for goodput under an SLO, not raw throughput</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Phases, Two Machines</h2>
+        <p>Prefill is compute-bound; decode is memory-bound. <strong>Disaggregated prefill/decode (P/D)</strong> runs them on <em>different</em> vLLM instances, connected by a KV-cache transfer. The counterintuitive part comes straight from vLLM's docs:</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f9ed;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Disaggregation does NOT improve raw throughput</strong>
+            <p>What it buys is <em>independent control</em> of the two phases — tune TTFT without disturbing inter-token latency, and reliably bound tail ITL. That improves <strong>goodput under a latency SLO</strong>. If your only metric is tokens/sec on an unconstrained batch, this is not your tool. If you have a p99 contract, it is.</p>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="Disaggregated prefill and decode with KV transfer">
+            <rect x="30" y="60" width="180" height="80" rx="10" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="120" y="92" class="mem-title" text-anchor="middle">Prefill instance</text>
+            <text x="120" y="114" class="mem-mono" text-anchor="middle">compute-bound</text>
+            <text x="120" y="130" class="mem-mono" text-anchor="middle">tune for TTFT</text>
+
+            <rect x="510" y="60" width="180" height="80" rx="10" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="600" y="92" class="mem-title" text-anchor="middle">Decode instance</text>
+            <text x="600" y="114" class="mem-mono" text-anchor="middle">memory-bound</text>
+            <text x="600" y="130" class="mem-mono" text-anchor="middle">tune for ITL</text>
+
+            <rect x="270" y="70" width="180" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
+            <text x="360" y="96" class="mem-title" text-anchor="middle">KV connector</text>
+            <text x="360" y="116" class="mem-mono" text-anchor="middle">NIXL / LMCache / Mooncake</text>
+
+            <path d="M 210 100 L 270 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <path d="M 450 100 L 510 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <text x="360" y="155" class="mem-text" text-anchor="middle">KV cache moves over the network exactly once per request</text>
+            <defs>
+              <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#764ba2"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Prefill produces the KV cache; a connector ships it to the decode instance; decode streams tokens. Each side scales and tunes independently.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Abstractions, One Directory</h2>
+        <p>All the machinery lives under <code>vllm/distributed/kv_transfer</code>, built from three pieces. The connector is the pluggable part.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">Connector</span>
+            <span class="badge-desc">Scheduler-side (which KV to send / what's computed) + worker-side (store/load layer-by-layer).</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">LookupBuffer</span>
+            <span class="badge-desc">Insert / drop-select staging for KV blocks in flight.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Pipe</span>
+            <span class="badge-desc">A single-direction FIFO with <code>send_tensor</code> / <code>recv_tensor</code>.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Connector Ecosystem</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>KV Connector API V1 — #15960</strong>
+              <p>The foundation everything else plugs into. Per-process connectors, layer-wise async transfer, xPyD orchestration deliberately left to external infra. Mechanism, not benchmarks.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>NIXL integration — #17751</strong>
+              <p>The direct high-performance transport: fully async send/recv over NVIDIA's NIXL (UCX/GDS backends), a <code>MultiConnector</code> so several coexist. Supports xPyD and TP&gt;1.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>LMCache connector — #16625</strong>
+              <p>CPU KV offload + cross-instance KV pooling + P/D over NIXL. 2×H100, Llama-3.1-8B, 1P1D: <strong>~40% higher tok/s, ~8× better tail ITL</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>MooncakeStore XpYd — #12957</strong>
+              <p>A shared-object-store topology so any decode instance can fetch any prefill instance's KV via per-TP-rank key prefixes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the LMCache baseline</strong>
+            <p>The ~40% / ~8× figures are against a baseline of <em>"two separate vLLM instances"</em> rather than a tuned co-located deployment — an unusual comparison, at a single request rate. The direction (disaggregation helps tail ITL) matches the DistServe research framing; the exact multipliers are baseline-dependent.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block" data-correct="goodput"
+               data-explanation-right="Correct. Disaggregation's payoff is goodput under a latency SLO — independent TTFT/ITL control and bounded tail latency — not higher raw throughput."
+               data-explanation-wrong="Re-read the callout. vLLM's docs are explicit that disaggregation does NOT raise raw throughput; its value is latency-SLO goodput.">
+            <p class="quiz-question">What is disaggregated prefill/decode actually good for?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="throughput" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Maximizing raw tokens/sec on a big batch</span></button>
+              <button class="quiz-option" data-value="goodput" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Goodput under a latency SLO (TTFT / tail ITL control)</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Reducing total GPU memory used</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="nixl"
+               data-explanation-right="Right. NIXL is the direct async transport (and LMCache uses it underneath) for moving KV from prefill to decode workers."
+               data-explanation-wrong="Not quite. The direct high-performance KV transport is NIXL; LMCache and others build on top of it.">
+            <p class="quiz-question">Which is the direct async KV transport that other connectors build on?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="nixl" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">NIXL (#17751)</span></button>
+              <button class="quiz-option" data-value="ray" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Ray RPC</span></button>
+              <button class="quiz-option" data-value="nfs" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A shared NFS mount</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-6" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">CUDA Graphs: Killing Launch Overhead</h1>
+      <p class="module-subtitle">Once the collectives are fast, the Python between them becomes the bottleneck</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why a Per-Rank Trick Matters at Scale</h2>
+        <p>CUDA graphs capture a sequence of kernel launches once and replay them, eliminating per-step CPU launch cost. That's a single-GPU optimization on its face — so why is it in a multi-GPU walkthrough?</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f501;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Launch overhead compounds across ranks</strong>
+            <p>In a TP or PP deployment, CPU launch overhead on the critical path is paid by <em>every rank, every step</em> — and a slow rank makes every other rank wait at the next collective. Removing launch overhead is the difference between the fast collectives of the last four modules being the bottleneck (good) or Python dispatch being the bottleneck (waste).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Full vs Piecewise, Decoupled from Compile</h2>
+        <p>The V1 framework (<code>#20059</code>) decoupled graph capture from <code>torch.compile</code>'s piecewise compilation using a "nested wrapper" design, exposing a single <code>cudagraph_mode</code> flag.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">NONE</span>
+            <span class="badge-desc">No capture — eager launches every op.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">PIECEWISE</span>
+            <span class="badge-desc">Capture segments split around ops that can't be captured (e.g. attention).</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">FULL / FULL_DECODE_ONLY</span>
+            <span class="badge-desc">Capture the whole forward (or just decode) into one replayable graph.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">FULL_AND_PIECEWISE</span>
+            <span class="badge-desc">Both graph sets coexist; the dispatcher picks per batch.</span>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4c9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The number that shows why it matters</strong>
+            <p>On A100, #20059 measured CPU launch time of <strong>~56 ms flattened vs ~28 ms piecewise</strong>, FA2 output throughput ~5% up, and Triton ITL down up to 38%. Full-graph capture for Cutlass MLA (#22763) added ~6% E2E on DeepSeek-V2-Lite and roughly halved P99 TTFT (1818 → 1002 ms).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where the Gains Landed</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Full cudagraph, orthogonal to compile — #20059</strong>
+              <p>The framework: nested wrapper + <code>cudagraph_mode</code>, FA2 and FlashInfer support. Per-rank capture that compounds in TP/PP.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Full cudagraph for Cutlass MLA — #22763</strong>
+              <p>+6% E2E, P99 TTFT 1818 → 1002 ms on DeepSeek-V2-Lite (single-GPU decode path).</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Hybrid / Mamba defaults — #22594, #23035</strong>
+              <p>Full cudagraph by default for mamba/hybrid models: V1 went from ~2.4× slower than V0 to slightly faster (8.38 → 3.40 s). Removes per-step CPU dispatch that dominates small-batch decode.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="compound"
+               data-explanation-right="Correct. Launch overhead is paid per rank per step, and a lagging rank stalls everyone at the next collective — so removing it compounds across a multi-GPU deployment."
+               data-explanation-wrong="Reconsider. CUDA graphs are per-rank, but in TP/PP the launch overhead is paid by every rank and a slow rank blocks the collective — so the benefit compounds.">
+            <p class="quiz-question">Why does a per-rank CUDA-graph win matter in multi-GPU serving?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="compound" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Launch overhead is paid per rank and stalls collectives — it compounds</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It makes the all-reduce itself faster</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It frees KV-cache memory</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="launch"
+               data-explanation-right="Right. Capturing the launch sequence and replaying it removes per-step CPU kernel-launch overhead — the ~56ms→~28ms improvement."
+               data-explanation-wrong="Not quite. CUDA graphs don't change the math; they eliminate the CPU-side per-op launch overhead by replaying a captured launch sequence.">
+            <p class="quiz-question">What cost does a CUDA graph eliminate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="launch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Per-step CPU kernel-launch overhead</span></button>
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The arithmetic in the matmuls</span></button>
+              <button class="quiz-option" data-value="network" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Cross-node network latency</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">07</span>
+      <h1 class="module-title">torch.compile &amp; Collective Fusion</h1>
+      <p class="module-subtitle">The compiler is where communication and computation get fused into one kernel</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Piecewise Compilation, Attention as Boundary</h2>
+        <p>vLLM's <code>torch.compile</code> integration uses attention ops as graph-split boundaries so each segment captures cleanly as a cudagraph while attention runs eagerly between them. The compile levels landed in <code>#9715</code>; <code>#10528</code> made CUDA graphs default-on in V1.</p>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9f1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Much of the work is unglamorous cache correctness</strong>
+            <p><code>#10273</code> made custom Inductor passes picklable so the code cache actually works; <code>#11614</code> keyed the compile cache on traced source <em>including distributed ops</em>, so a change to communication code correctly invalidates compiled artifacts. Boring, essential, and multi-GPU-relevant because the traced set includes the collective code paths.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Payoff: Fusing the Collective Itself</h2>
+        <p>The compiler's most striking multi-GPU trick is folding a communication collective and its neighbors into one kernel. <code>#21069</code> detects the tensor-parallel <code>all-reduce → RMSNorm → quant</code> sequence in the FX graph and replaces it with a <em>single</em> FlashInfer op.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">Before — three kernels, three launches</div>
+<pre><code><span class="code-line">x = all_reduce(x)        <span class="code-comment"># collective</span></span>
+<span class="code-line">x = rms_norm(x, w)       <span class="code-comment"># elementwise</span></span>
+<span class="code-line">x = quant_fp8(x)         <span class="code-comment"># elementwise</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">After — one fused FlashInfer op</div>
+            <div class="translation-lines">
+              <div class="tl">A pattern-match pass spots the trio in the graph…</div>
+              <div class="tl">…and emits one fused allreduce+RMSNorm+quant kernel.</div>
+              <div class="tl">Fewer launches, less memory traffic on the TP path.</div>
+              <div class="tl">Supports FP8 and NVFP4 static quant patterns.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read this baseline especially carefully</strong>
+            <p>On B200 TP=2, #21069 shows ~7–8% TPOT for FP8 — but the gain is against <em>custom ops</em>. Against default <code>torch.compile</code>d ops, FP8 TTFT can actually <strong>regress up to 8%</strong>. NVFP4 fares better (5% TPOT/TTFT vs compiled). "Fusion is faster" is true only relative to the right baseline.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Chunked Prefill: The Scheduler-Level Multiplier</h2>
+        <p>Alongside the compiler sits a scheduler trick that makes mixed batching work at all. Chunked prefill splits long prefills so they interleave with decode and bound peak activation memory.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>SARATHI-style chunking — #3884</strong>
+              <p>Split long prefills by a token budget so up to two chunked prefills run at once, mixed with decode.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Auto-enable for long context — #6666</strong>
+              <p>Turned on by default above 32K tokens to bound peak activation memory during profiling.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>First-class in the V1 scheduler — #15419</strong>
+              <p><code>long_prefill_token_threshold</code> lets multiple long prefills batch concurrently. This mixed batching is exactly what the PP bubble-removal work (Module 03) exploits.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Indirect, but load-bearing</strong>
+            <p>Chunked prefill's multi-GPU relevance is indirect — it shapes batch composition and memory pressure, not cross-device comms. But it's the reason mixed prefill/decode batching works, which the pipeline scheduler depends on.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module7">
+          <div class="quiz-question-block" data-correct="fuse"
+               data-explanation-right="Correct. #21069 pattern-matches all-reduce → RMSNorm → quant and emits one fused FlashInfer op, cutting launches and memory traffic on the TP path."
+               data-explanation-wrong="Reconsider. The fusion pass collapses the all-reduce and its neighboring RMSNorm + quantization into a single FlashInfer kernel.">
+            <p class="quiz-question">What does the collective-fusion pass (#21069) fuse together?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="fuse" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">all-reduce + RMSNorm + quant → one FlashInfer op</span></button>
+              <button class="quiz-option" data-value="attn" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Two attention layers into one</span></button>
+              <button class="quiz-option" data-value="gemm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">All matmuls into a single GEMM</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="mixed"
+               data-explanation-right="Right. Chunked prefill enables mixed prefill/decode batching, which is precisely what the pipeline-parallel bubble-removal scheduling exploits."
+               data-explanation-wrong="Not quite. Chunked prefill's contribution here is enabling mixed prefill/decode batching — the substrate the PP scheduler uses to keep stages fed.">
+            <p class="quiz-question">Why does chunked prefill matter to the pipeline-parallel work in Module 03?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="mixed" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It enables the mixed prefill/decode batching PP exploits</span></button>
+              <button class="quiz-option" data-value="allreduce" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It replaces the all-reduce</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It has no connection to PP</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module7')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-8" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">08</span>
+      <h1 class="module-title">Choosing a Configuration</h1>
+      <p class="module-subtitle">The decision is a function of your interconnect and your workload</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Decision Table</h2>
+        <p>Everything in this walkthrough collapses into a handful of choices, driven — as Module 01 promised — by the fabric you have and the metric you're optimizing.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">TP</div>
+            <h4 class="pattern-title">Single node, fast NVLink, dense model</h4>
+            <p class="pattern-desc"><strong>Tensor parallelism</strong> (<code>TP</code> = GPUs/node). All-reduce is cheap on NVLink; simplest scaling.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">PP</div>
+            <h4 class="pattern-title">No NVLink, or spanning nodes</h4>
+            <p class="pattern-desc"><strong>Pipeline parallelism</strong> (add <code>PP</code> = #nodes). One handoff per stage beats two all-reduces per layer.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Large MoE model</h4>
+            <p class="pattern-desc"><strong>Wide EP</strong> (<code>--enable-expert-parallel</code> + <code>--enable-eplb</code>). Sparse all-to-all + hot-expert rebalancing.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">P/D</div>
+            <h4 class="pattern-title">A p99 latency / TTFT SLO</h4>
+            <p class="pattern-desc"><strong>Disaggregated P/D</strong> (NIXL or LMCache). Tune phases independently; control tail ITL. Won't raise raw throughput.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">&#x26a1;</div>
+            <h4 class="pattern-title">Any of the above</h4>
+            <p class="pattern-desc"><strong>CUDA graphs + torch.compile</strong> (default-on in V1). Per-rank launch-overhead removal compounds across ranks.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">They Compose</h2>
+        <p>A production DeepSeek-scale deployment might run every dimension at once — each targeting a different tier of the Module 01 hierarchy.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">One realistic launch</div>
+<pre><code><span class="code-line">vllm serve deepseek-ai/DeepSeek-V3 \</span>
+<span class="code-line">  --tensor-parallel-size <span class="code-number">8</span> \      <span class="code-comment"># TP within a node (NVLink)</span></span>
+<span class="code-line">  --pipeline-parallel-size <span class="code-number">2</span> \    <span class="code-comment"># PP across nodes (network)</span></span>
+<span class="code-line">  --enable-expert-parallel \    <span class="code-comment"># EP for the MoE layers</span></span>
+<span class="code-line">  --enable-eplb \               <span class="code-comment"># rebalance hot experts</span></span>
+<span class="code-line">  --kv-transfer-config ...      <span class="code-comment"># NIXL connector for disagg</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">Each flag targets a tier</div>
+            <div class="translation-lines">
+              <div class="tl">TP → the NVLink fabric inside each node.</div>
+              <div class="tl">PP → the slower network between nodes.</div>
+              <div class="tl">EP → a sparse all-to-all for the experts.</div>
+              <div class="tl">Disagg → the KV cache, moved once per request.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3af;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The throughline</strong>
+            <p>vLLM's multi-GPU performance work is overwhelmingly <em>communication engineering</em>: faster collectives, cheaper topologies, moving the KV cache exactly once, and clearing the Python and launch overhead that sits between the collectives. The FLOPs were never the hard part.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Final Check</h2>
+        <div class="quiz-container" id="quiz-module8">
+          <div class="quiz-question-block" data-correct="pp"
+               data-explanation-right="Correct. Without NVLink the custom all-reduce disables itself and TP stalls; pipeline parallelism communicates once per stage and tolerates the slow fabric."
+               data-explanation-wrong="Reconsider. On PCIe-only or cross-node fabrics, TP's per-layer all-reduce is the wrong tool — reach for pipeline parallelism, which communicates far less.">
+            <p class="quiz-question">Your 4 GPUs are PCIe-only (no NVLink). First reach for…?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="tp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Tensor parallelism, TP=4</span></button>
+              <button class="quiz-option" data-value="pp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pipeline parallelism</span></button>
+              <button class="quiz-option" data-value="dp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pure data-parallel replication</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="disagg"
+               data-explanation-right="Right. A tail-latency SLO is exactly the disaggregation use case — tune prefill and decode independently and bound tail ITL. It won't raise raw throughput, and that's fine here."
+               data-explanation-wrong="Not quite. When the binding constraint is a p99 latency SLO, disaggregated prefill/decode is the tool — it controls tail ITL, which raw-throughput techniques don't.">
+            <p class="quiz-question">Your binding constraint is a strict p99 inter-token-latency SLO. Which technique targets it directly?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="ep" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Expert parallelism</span></button>
+              <button class="quiz-option" data-value="disagg" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Disaggregated prefill/decode</span></button>
+              <button class="quiz-option" data-value="cudagraph" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Bigger batches</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="comms"
+               data-explanation-right="Correct — and it's the whole point. From the custom all-reduce to Wide EP to disaggregation to CUDA graphs, the target is communication and the overhead around it, not the arithmetic."
+               data-explanation-wrong="Look back at the throughline. Nearly every optimization attacked communication or the launch/dispatch overhead around it — not the raw math.">
+            <p class="quiz-question">In one phrase, what is vLLM's multi-GPU performance work mostly about?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Squeezing more FLOPs out of the matmuls</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Communication engineering (and the overhead around it)</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Shrinking model weights</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module8')">Reset</button>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Keep Going</h2>
+        <p>This walkthrough is the companion to the full write-up, which grounds every mechanism in the merged PR that implemented it — with the complete 38-PR catalog and the caveats on each benchmark.</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d6;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the deep dive</strong>
+            <p><a href="/how-vllm-scales-across-gpus/">How vLLM Scales Across GPUs: Parallelism, Collectives, and the PRs Behind Them</a> — the full post, with the all-reduce gating math, the Wide-EP alignment tax, and the verified PR table.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,132 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">Pipeline Parallelism: Layers Across the Network</h1>
+      <p class="module-subtitle">One handoff per stage instead of two all-reduces per layer — and a war against the bubble</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">When the Fabric Is Slow, Split by Layer</h2>
+        <p>Pipeline parallelism (<code>--pipeline-parallel-size</code>) splits the model along its <em>layers</em> and hands activations stage-to-stage over a point-to-point link. It supports uneven splits, and — crucially — it's the recommended choice when GPUs <strong>lack fast NVLink</strong> (e.g. L40S) or when spanning nodes.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f517;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why PP tolerates slow links</strong>
+            <p>It communicates far less than TP: <em>one</em> activation handoff per stage boundary, versus <em>two all-reduces per layer</em>. That maps it onto the PCIe/network tiers where TP would stall — recall the custom all-reduce disables itself on &gt;2 PCIe GPUs anyway.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Bubble</h2>
+        <p>Pipelining's classic weakness: while stage 0 works on microbatch <em>n</em>, the later stages sit idle unless you keep them fed. That idle time is the bubble, and vLLM's PP journey is a march against it.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" aria-label="Pipeline bubble before and after">
+            <text x="360" y="22" class="mem-title" text-anchor="middle" fill="#c93b3b">Naive PP — stages idle waiting for work (bubbles in grey)</text>
+            <!-- rows -->
+            <text x="40" y="58" class="mem-mono">Stage 0</text>
+            <text x="40" y="88" class="mem-mono">Stage 1</text>
+            <text x="40" y="118" class="mem-mono">Stage 2</text>
+            <rect x="110" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="110" y="74" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="110" y="104" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="185" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="185" y="74" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="185" y="104" width="70" height="20" rx="3" fill="#d8d2c8" stroke="#9e9790"/>
+            <rect x="260" y="44" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="260" y="74" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="260" y="104" width="70" height="20" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <text x="500" y="58" class="mem-mono" fill="#c93b3b">grey = wasted GPU time</text>
+
+            <text x="360" y="168" class="mem-title" text-anchor="middle" fill="#2d8b55">vLLM V1 — schedule ahead, overlap the token broadcast (bubbles shrink)</text>
+            <text x="40" y="204" class="mem-mono">Stage 0</text>
+            <text x="40" y="228" class="mem-mono">Stage 1</text>
+            <rect x="110" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="172" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="234" y="190" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="140" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="202" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <rect x="264" y="214" width="60" height="18" rx="3" fill="#8fbf9f" stroke="#2d8b55"/>
+            <text x="520" y="218" class="mem-mono" fill="#2d8b55">stages stay busy</text>
+          </svg>
+          <div class="post-diagram-caption">Keep every stage fed by scheduling more steps ahead and moving the sampled-token broadcast off the critical path.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The PRs That Killed the Bubble</h2>
+        <p>The original PP support (<code>#4412</code>, 2024) established the shape — one scheduler per stage, blocking send/recv, last stage samples. The V1-era gains came from letting the scheduler run <em>ahead</em> of the pipeline.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Async scheduling + PP — #32618</strong>
+              <p>Only the last stage samples tokens, which blocked async scheduling. The fix broadcasts sampled tokens from the last PP rank to all others <em>directly on the GPU</em> (no CPU round-trip). Qwen3-30B pp=4: <strong>30.8% E2E throughput, 31.8% TPOT</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Avoid PP bubbles — #42187</strong>
+              <p>Decode scheduled every <code>pp_size</code> steps, prefill chunks pipelined, and the sampled-token broadcast moved onto a separate CUDA stream + process group so it overlaps the stage-to-stage P2P. GB200 PP=4: up to <strong>3.17× tok/s, 3.15× TTFT</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Fix stuck chunked PP — #38726</strong>
+              <p>Non-final chunked-prefill chunks discard the sampled token anyway, yet earlier ranks stalled waiting on the last. Skip the broadcast in that case. GLM-4.7 pp4tp2: 1392 → 4578 tok/s.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f4c8;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Those multipliers are best-case shapes</strong>
+            <p>#42187's 3.17× is the <code>128000/1</code> case (huge prefill, one output token) on a single GB200 node with prefix caching off; balanced shapes land at 1.24×–2.28×. #38726's ~3.3× uses <code>output-len=1</code>, a near-pure-prefill workload that flatters a prefill-side fix. Expect smaller gains once real decode is in the mix.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module3">
+          <div class="quiz-question-block" data-correct="less"
+               data-explanation-right="Correct. PP sends one activation per stage boundary versus TP's two all-reduces per layer, so it tolerates PCIe and cross-node links."
+               data-explanation-wrong="Reconsider. PP is preferred on slow fabrics precisely because it communicates less — one handoff per stage, not a collective every layer.">
+            <p class="quiz-question">Why is pipeline parallelism preferred when GPUs lack NVLink?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="less" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It communicates far less per step than TP</span></button>
+              <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Its matmuls are intrinsically faster</span></button>
+              <button class="quiz-option" data-value="nocomm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It needs no inter-GPU communication at all</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="stream"
+               data-explanation-right="Right. #42187 moves the last-stage sampled-token broadcast onto a separate CUDA stream and process group so it overlaps the stage-to-stage P2P instead of serializing behind it."
+               data-explanation-wrong="Not quite. The key idea in #42187 is overlap: put the sampled-token broadcast on its own CUDA stream/PG so it runs concurrently with the P2P activation handoff.">
+            <p class="quiz-question">How does #42187 stop the sampled-token broadcast from serializing the pipeline?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="stream" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Runs it on a separate CUDA stream + process group</span></button>
+              <button class="quiz-option" data-value="drop" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Drops the broadcast entirely</span></button>
+              <button class="quiz-option" data-value="cpu" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Routes it through the CPU</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

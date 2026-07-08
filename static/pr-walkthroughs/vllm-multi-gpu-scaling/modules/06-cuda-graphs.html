@@ -1,0 +1,117 @@
+<section class="module" id="module-6" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">CUDA Graphs: Killing Launch Overhead</h1>
+      <p class="module-subtitle">Once the collectives are fast, the Python between them becomes the bottleneck</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why a Per-Rank Trick Matters at Scale</h2>
+        <p>CUDA graphs capture a sequence of kernel launches once and replay them, eliminating per-step CPU launch cost. That's a single-GPU optimization on its face — so why is it in a multi-GPU walkthrough?</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f501;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Launch overhead compounds across ranks</strong>
+            <p>In a TP or PP deployment, CPU launch overhead on the critical path is paid by <em>every rank, every step</em> — and a slow rank makes every other rank wait at the next collective. Removing launch overhead is the difference between the fast collectives of the last four modules being the bottleneck (good) or Python dispatch being the bottleneck (waste).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Full vs Piecewise, Decoupled from Compile</h2>
+        <p>The V1 framework (<code>#20059</code>) decoupled graph capture from <code>torch.compile</code>'s piecewise compilation using a "nested wrapper" design, exposing a single <code>cudagraph_mode</code> flag.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">NONE</span>
+            <span class="badge-desc">No capture — eager launches every op.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">PIECEWISE</span>
+            <span class="badge-desc">Capture segments split around ops that can't be captured (e.g. attention).</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">FULL / FULL_DECODE_ONLY</span>
+            <span class="badge-desc">Capture the whole forward (or just decode) into one replayable graph.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">FULL_AND_PIECEWISE</span>
+            <span class="badge-desc">Both graph sets coexist; the dispatcher picks per batch.</span>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4c9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The number that shows why it matters</strong>
+            <p>On A100, #20059 measured CPU launch time of <strong>~56 ms flattened vs ~28 ms piecewise</strong>, FA2 output throughput ~5% up, and Triton ITL down up to 38%. Full-graph capture for Cutlass MLA (#22763) added ~6% E2E on DeepSeek-V2-Lite and roughly halved P99 TTFT (1818 → 1002 ms).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where the Gains Landed</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Full cudagraph, orthogonal to compile — #20059</strong>
+              <p>The framework: nested wrapper + <code>cudagraph_mode</code>, FA2 and FlashInfer support. Per-rank capture that compounds in TP/PP.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Full cudagraph for Cutlass MLA — #22763</strong>
+              <p>+6% E2E, P99 TTFT 1818 → 1002 ms on DeepSeek-V2-Lite (single-GPU decode path).</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Hybrid / Mamba defaults — #22594, #23035</strong>
+              <p>Full cudagraph by default for mamba/hybrid models: V1 went from ~2.4× slower than V0 to slightly faster (8.38 → 3.40 s). Removes per-step CPU dispatch that dominates small-batch decode.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module6">
+          <div class="quiz-question-block" data-correct="compound"
+               data-explanation-right="Correct. Launch overhead is paid per rank per step, and a lagging rank stalls everyone at the next collective — so removing it compounds across a multi-GPU deployment."
+               data-explanation-wrong="Reconsider. CUDA graphs are per-rank, but in TP/PP the launch overhead is paid by every rank and a slow rank blocks the collective — so the benefit compounds.">
+            <p class="quiz-question">Why does a per-rank CUDA-graph win matter in multi-GPU serving?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="compound" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Launch overhead is paid per rank and stalls collectives — it compounds</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It makes the all-reduce itself faster</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It frees KV-cache memory</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="launch"
+               data-explanation-right="Right. Capturing the launch sequence and replaying it removes per-step CPU kernel-launch overhead — the ~56ms→~28ms improvement."
+               data-explanation-wrong="Not quite. CUDA graphs don't change the math; they eliminate the CPU-side per-op launch overhead by replaying a captured launch sequence.">
+            <p class="quiz-question">What cost does a CUDA graph eliminate?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="launch" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Per-step CPU kernel-launch overhead</span></button>
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The arithmetic in the matmuls</span></button>
+              <button class="quiz-option" data-value="network" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Cross-node network latency</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

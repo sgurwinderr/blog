@@ -1,0 +1,189 @@
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Tensor Parallelism &amp; the All-Reduce</h1>
+      <p class="module-subtitle">Shard every layer, pay a collective twice per layer — then make it faster and make it overlap</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Megatron Sharding, and the Bill</h2>
+        <p>Tensor parallelism (<code>--tensor-parallel-size</code>) splits each weight matrix across GPUs. Every device computes a partial result; an <strong>all-reduce</strong> sums the partials back to a coherent activation. It's the default for splitting a model <em>within</em> a node — <code>TP=4</code> on a 4-GPU box.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f4b8;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Two all-reduces per layer, every step</strong>
+            <p>One after attention, one after the MLP — for every transformer layer, on every forward pass. On NVLink this is tolerable. On anything slower it dominates the step. So the whole TP optimization story is two moves: make the all-reduce <em>faster</em>, and make it <em>overlap</em> compute so it's partly free.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Custom All-Reduce Fast Path — and Its Gates</h2>
+        <p>vLLM ships a hand-written NVLink-optimized all-reduce that beats NCCL for the small-to-medium tensors typical of inference. But it is heavily gated. Reading the gates (from <code>custom_all_reduce.py</code>) tells you exactly when you get the fast path — and when you silently fall back to NCCL.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">world_size &#x2208; {2,4,6,8}</span>
+            <span class="badge-desc">Only these exact sizes. A single GPU skips it entirely.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">&gt;2 GPUs ⇒ full NVLink</span>
+            <span class="badge-desc">On more than two PCIe-only GPUs it disables itself with a warning.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">inp_bytes &lt; 8 MB</span>
+            <span class="badge-desc">Above the 8 MB (8192×1024) default cap, it falls back.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">inp_bytes % 16 == 0</span>
+            <span class="badge-desc">A per-call alignment check on the input size.</span>
+          </div>
+        </div>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">The dispatch condition, in one line</div>
+<pre><code><span class="code-line"><span class="code-keyword">use_custom_ar</span> = (</span>
+<span class="code-line">  world_size <span class="code-keyword">in</span> {<span class="code-number">2</span>,<span class="code-number">4</span>,<span class="code-number">6</span>,<span class="code-number">8</span>}</span>
+<span class="code-line">  <span class="code-keyword">and</span> (world_size == <span class="code-number">2</span> <span class="code-keyword">or</span> fully_connected)</span>
+<span class="code-line">  <span class="code-keyword">and</span> inp_bytes % <span class="code-number">16</span> == <span class="code-number">0</span></span>
+<span class="code-line">  <span class="code-keyword">and</span> inp_bytes &lt; <span class="code-number">8</span>*<span class="code-number">1024</span>*<span class="code-number">1024</span></span>
+<span class="code-line">)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">What it means for you</div>
+            <div class="translation-lines">
+              <div class="tl">Right shape of cluster (2/4/6/8 GPUs)…</div>
+              <div class="tl">…wired with full NVLink if more than two…</div>
+              <div class="tl">…and the tensor is aligned and small enough.</div>
+              <div class="tl">Miss any clause → NCCL handles it instead.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The PCIe cliff</strong>
+            <p>On a box with more than two PCIe-only GPUs, the fast path turns itself off. This is a concrete reason TP underperforms there — and a direct argument for pipeline parallelism instead (Module 03). The interconnect isn't a footnote; it's a gate condition in the source.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Making the All-Reduce Faster</h2>
+        <p>Beyond the built-in kernel, vLLM added pluggable high-performance backends. Each targets a different message-size regime.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">#20759</div>
+            <h4 class="pattern-title">PyTorch symmetric memory</h4>
+            <p class="pattern-desc">Two-shot for 2/4 GPUs, multimem for 6/8. Llama-70B: <strong>~7–10% lower TTFT at TP=8</strong> on B200. Later default-on (#24111).</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">#24532</div>
+            <h4 class="pattern-title">NCCL symmetric memory</h4>
+            <p class="pattern-desc">Registers buffers so NCCL dispatches symmetric kernels — <strong>~2.0× at 8 MB</strong> (micro-bench, TP=8). Wins at large messages.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">#19744</div>
+            <h4 class="pattern-title">ROCm QuickReduce (quantized)</h4>
+            <p class="pattern-desc">Quantizes to INT8/6/4 before reducing — fewer bytes on the wire. MI300 TP=4: <strong>TTFT ~2.2×</strong> with INT4.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the baselines</strong>
+            <p>#24532's headline 2× is a micro-benchmark at a favorable size; its end-to-end DeepSeek-R1 gain was ~3.5% req/s. #19744's ~2.2× is partly against a weak RCCL baseline above 16 MB — expected for a technique whose whole point is sending fewer bytes. The direction is right; the exact multiplier is regime-dependent.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Overlapping the All-Reduce with Compute</h2>
+        <p>The deeper move is to stop treating the all-reduce as a blocking barrier. Two compilation passes rewrite the graph so communication hides behind computation.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"A layer finishes its matmul. Normally it now blocks on a full all-reduce across all GPUs."},
+          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Sequence parallelism (#16155): split the all-reduce into reduce-scatter + all-gather."},
+          {"highlight":"actor-3","label":"RMSNorm runs on the smaller, sharded tensor between the two collectives — less work per rank."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Async TP (#17882): overlap the decomposed comm with the next matmul. The wire time is partly hidden."},
+          {"highlight":"actor-1","label":"Net effect: 4×H200 Llama-70B step 0.590s → 0.526s. Gain grows with GPUs and model size."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">GEMM</div>
+              <span>Matmul</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">RS</div>
+              <span>Reduce-Scatter</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">&#x1f9ee;</div>
+              <span>Sharded RMSNorm</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">AG</div>
+              <span>All-Gather</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Overlap is not free at every scale</strong>
+            <p>The async-TP PR is honest: on <strong>2×A100 with an 8B model it showed little to no gain</strong>. Overlap pays off as the collective gets big enough to hide real work behind it. A follow-up (#28672) even gates sequence parallelism by token count — SP wins at large token counts, fused all-reduce+RMSNorm+quant wins at small ones.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module2">
+          <div class="quiz-question-block" data-correct="pcie"
+               data-explanation-right="Correct. The gate requires full NVLink connectivity for more than two GPUs; on >2 PCIe-only GPUs the custom all-reduce disables itself and NCCL takes over."
+               data-explanation-wrong="Look at the gates again. Small aligned tensors on a 4-GPU NVLink box are exactly the fast-path case. The disqualifier is >2 GPUs connected only over PCIe.">
+            <p class="quiz-question">In which setup does the custom all-reduce fast path disable itself?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="nvlink4" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4 GPUs on full NVLink, 2 MB tensors</span></button>
+              <button class="quiz-option" data-value="pcie" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">4 GPUs connected only over PCIe</span></button>
+              <button class="quiz-option" data-value="tp2" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">2 GPUs, 1 MB aligned tensors</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="rsag"
+               data-explanation-right="Right. Sequence parallelism replaces the all-reduce with reduce-scatter + all-gather, shrinking the RMSNorm in between and enabling async overlap."
+               data-explanation-wrong="Not quite. The overlap trick decomposes the single all-reduce into a reduce-scatter + all-gather pair, which is what lets communication overlap the surrounding matmul.">
+            <p class="quiz-question">How do the overlap passes restructure the TP all-reduce?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="rsag" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Into reduce-scatter + all-gather</span></button>
+              <button class="quiz-option" data-value="skip" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">They skip the collective entirely</span></button>
+              <button class="quiz-option" data-value="broadcast" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Into a single broadcast from rank 0</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

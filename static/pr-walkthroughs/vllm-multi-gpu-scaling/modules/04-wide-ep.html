@@ -1,0 +1,166 @@
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Wide EP: Expert + Data Parallelism for MoE</h1>
+      <p class="module-subtitle">Trade a wasteful all-reduce for a token-sparse all-to-all — then pay an alignment tax</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why MoE Breaks the TP Assumption</h2>
+        <p>In a Mixture-of-Experts model only a handful of experts fire per token. Sharding <em>every</em> expert's weights across all GPUs (plain TP) wastes memory and bandwidth. vLLM's answer — <strong>Wide EP</strong> — pairs two ideas.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">DP</div>
+            <h4 class="pattern-title">Data-parallel attention</h4>
+            <p class="pattern-desc">Each DP rank owns its own attention, KV cache, and request stream. Attention weights are replicated (TP=1) or TP-sharded within each DP group (TP&gt;1).</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Expert-parallel MoE</h4>
+            <p class="pattern-desc">Experts shard across an expert-parallel group. Enable with <code>--enable-expert-parallel</code>. Each expert lives on some GPU; tokens route to their top-k experts.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The EP size is computed for you</strong>
+            <p>The expert-parallel group size is <code>EP_SIZE = TP_SIZE × DP_SIZE</code>, derived automatically. The routing pattern <em>changes character</em> mid-layer: attention is <strong>request-based</strong> (each rank handles its own sequences), the MoE block is <strong>expert-based</strong> (tokens scatter to expert owners and gather back).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Token's Journey Through a Wide-EP Layer</h2>
+        <p>Between attention and the experts sits a <strong>dispatch/combine</strong> all-to-all — a token permutation across GPUs. Step through it.</p>
+
+        <div class="flow-animation" data-steps='[
+          {"highlight":"actor-1","label":"Attention runs locally on each DP rank, over its own requests and KV cache."},
+          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Dispatch (all-to-all): each token is scattered to the GPU(s) that own its top-k experts."},
+          {"highlight":"actor-3","label":"Experts compute — only the GPUs holding a token’s experts do work for it. This is the sparsity win."},
+          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Combine (all-to-all): results gather back to the token’s original rank."},
+          {"highlight":"actor-1","label":"Every rank must step together — idle ranks run dummy passes so the collective always has a partner."}
+        ]'>
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">ATT</div>
+              <span>DP Attention</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">&#x21c4;</div>
+              <span>Dispatch</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">EXP</div>
+              <span>Experts</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">&#x21c4;</div>
+              <span>Combine</span>
+            </div>
+          </div>
+          <div class="flow-packet"></div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="flow-next-btn">Next Step</button>
+            <button class="flow-reset-btn">Reset</button>
+            <span class="flow-progress">Step 0 / 5</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Alignment Tax &amp; Load Balancing</h2>
+        <p>The dispatch/combine collective needs every rank to participate. Two problems follow — and each has a mechanism.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f465;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Problem 1 — dummy forward passes</strong>
+            <p>When any DP rank has work, idle ranks must run <em>empty</em> forward passes, or the all-to-all has no partner and deadlocks. The <strong>DP Coordinator</strong> orchestrates this. It's a real cost of MoE serving — and why data parallelism, not raw replication, is the coordination unit.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Problem 2 — routing skew (EPLB)</strong>
+            <p>Real routing sends far more tokens to some experts than others, so GPUs holding hot experts become stragglers. The <strong>Expert Parallel Load Balancer</strong> (<code>--enable-eplb</code>) collects routing stats every forward pass and periodically rebalances placement, <em>replicating hot experts</em> across GPUs. Tunable via <code>--eplb-config</code> (<code>window_size</code> 1000, <code>step_interval</code> 3000).</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Making Dispatch/Combine Faster</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>AllGather + ReduceScatter backend — #23964</strong>
+              <p>Replaces the naive all-to-all with allgather-for-dispatch, reduce-scatter-for-combine. 4-GPU DeepSeek-R1-FP4: <strong>~1.97× token throughput</strong>, TPOT 228 → 116 ms. CUDA-graph compatible.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>MoRI-EP (AMD) — #28664</strong>
+              <p>Quantizes to FP8 before dispatch. MI300X+CX7 DeepSeek-R1: EP=8 → 1.33×, <strong>EP=16 → 2.68×</strong>. The gain grows with scale because naive all-to-all degrades so badly at EP=16.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>EPLB zero-copy transfers — #41633</strong>
+              <p>One-sided RDMA READ moves expert weights during rebalancing with no staging buffers. DeepSeek-V3.2 EP=8: transfer 0.9 → 0.7s, <strong>staging memory 4.4 GiB → 0</strong>.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x23f1;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">A moving target</strong>
+            <p>The EP kernel landscape churns fast. The <strong>PPLX backend was removed in early 2026</strong> (#33724), and vLLM now carries several all-to-all backends (allgather_reducescatter, DeepEP, FlashInfer, NIXL, MoRI). Treat any "backend X beats Y" claim as version-stamped.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module4">
+          <div class="quiz-question-block" data-correct="a2a"
+               data-explanation-right="Correct. Wide EP replaces the dense per-layer all-reduce with a token-sparse dispatch/combine all-to-all — only the GPUs owning a token's experts do its work."
+               data-explanation-wrong="Reconsider. The whole point of expert parallelism is to swap the dense all-reduce for a sparse all-to-all that touches only the relevant expert GPUs.">
+            <p class="quiz-question">What collective does Wide EP use in the MoE block instead of TP's all-reduce?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a2a" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A token-sparse dispatch/combine all-to-all</span></button>
+              <button class="quiz-option" data-value="allreduce" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">The same dense all-reduce</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">No collective — experts are independent</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="dummy"
+               data-explanation-right="Right. Because the all-to-all needs every rank, idle ranks run empty dummy forward passes (coordinated by the DP Coordinator) to keep the collective alive."
+               data-explanation-wrong="Not quite. Idle DP ranks can't just skip a step — the all-to-all would deadlock. They run dummy forward passes so every rank participates.">
+            <p class="quiz-question">What must idle DP ranks do when another rank has a live request?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="sleep" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Sleep until they get their own request</span></button>
+              <button class="quiz-option" data-value="dummy" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Run empty dummy forward passes to stay aligned</span></button>
+              <button class="quiz-option" data-value="steal" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Steal tokens from the busy rank</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

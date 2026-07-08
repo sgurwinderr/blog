@@ -1,0 +1,149 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">Multi-GPU Is a Communication Problem</h1>
+      <p class="module-subtitle">Why splitting an LLM across GPUs is about the wires between them, not the FLOPs inside them</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The FLOPs Were Never the Hard Part</h2>
+        <p>A model that doesn't fit on one GPU forces you to split it. The matrix multiplies stay embarrassingly parallel — you can always buy more compute. What you <em>cannot</em> buy your way out of is the <strong>communication</strong> the instant the model spans devices.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The one idea this whole walkthrough turns on</strong>
+            <p>Every tensor-parallel layer ends in an all-reduce. Every pipeline stage hands activations to the next over a link. Every Mixture-of-Experts layer shuffles tokens to their experts and back. The GPUs spend a startling fraction of wall-clock time <em>waiting on each other</em>. vLLM's multi-GPU performance work is, overwhelmingly, communication engineering.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Interconnect Hierarchy</h2>
+        <p>Four tiers matter, and they span five orders of magnitude in bandwidth. The right parallelism strategy is a function of <em>which tier</em> your GPUs talk over.</p>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" aria-label="Interconnect hierarchy for multi-GPU inference">
+            <rect x="20" y="280" width="680" height="64" rx="8" fill="#e8e0d0" stroke="#6b6560" stroke-width="2"/>
+            <text x="360" y="306" class="mem-title" text-anchor="middle">Cross-node network (Ethernet / InfiniBand / RDMA)</text>
+            <text x="360" y="328" class="mem-mono" text-anchor="middle">~25–400 Gb/s · pipeline &amp; disaggregation live here</text>
+            <rect x="80" y="196" width="560" height="64" rx="8" fill="#f0e6f6" stroke="#7b6daa" stroke-width="2"/>
+            <text x="360" y="222" class="mem-title" text-anchor="middle">PCIe (GPU ↔ GPU, no NVLink)</text>
+            <text x="360" y="244" class="mem-mono" text-anchor="middle">~32–64 GB/s · custom all-reduce disabled beyond 2 GPUs</text>
+            <rect x="180" y="112" width="360" height="64" rx="8" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="360" y="138" class="mem-title" text-anchor="middle">NVLink / XGMI (intra-node fabric)</text>
+            <text x="360" y="160" class="mem-mono" text-anchor="middle">~300–900 GB/s · the tensor-parallel comfort zone</text>
+            <rect x="260" y="28" width="200" height="64" rx="8" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="360" y="54" class="mem-title" text-anchor="middle">HBM (on-package)</text>
+            <text x="360" y="76" class="mem-mono" text-anchor="middle">~2–8 TB/s · 1 GPU</text>
+            <path d="M 360 92 L 360 112" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <path d="M 360 176 L 360 196" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <path d="M 360 260 L 360 280" stroke="#6b6560" stroke-width="2" fill="none" marker-end="url(#arrH)"/>
+            <defs>
+              <marker id="arrH" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b6560"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Each step down is ~10× slower. Keep the hottest, most frequent communication on the fastest tier — and match your parallelism strategy to the fabric you actually have.</div>
+        </div>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">TP</div>
+            <h4 class="pattern-title">Tensor → NVLink</h4>
+            <p class="pattern-desc">Hammers the fabric every layer. Belongs on the fastest tier.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">PP</div>
+            <h4 class="pattern-title">Pipeline → PCIe / network</h4>
+            <p class="pattern-desc">Communicates once per stage boundary. Tolerates slow links.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Expert → sparse all-to-all</h4>
+            <p class="pattern-desc">Trades a dense all-reduce for a token-sparse shuffle.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">P/D</div>
+            <h4 class="pattern-title">Disagg → network, once</h4>
+            <p class="pattern-desc">Moves the KV cache over the network exactly once per request.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The V1 Process Model</h2>
+        <p>vLLM V1 (re-architected core, January 2025) runs multiple GPUs as a small constellation of OS processes. The parallelism flags are really instructions for how many of each process to spawn.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>One worker per accelerator.</strong>
+              <p>Total GPU workers = <code>TP × PP × DP</code>. A <code>TP=2, PP=2</code> launch is 4 workers, one per GPU.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>One engine-core process per DP rank.</strong>
+              <p>It runs the scheduler and KV-cache manager, and owns the <code>TP × PP</code> workers beneath it.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>One DP Coordinator — only when DP is on.</strong>
+              <p>It keeps data-parallel ranks in lockstep. Turns out to be essential for MoE models (Module 04).</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Executor backends</strong>
+            <p>vLLM defaults to native Python <strong>multiprocessing</strong> single-node and <strong>Ray</strong> multi-node, overridable with <code>--distributed-executor-backend {mp,ray}</code>. Workers are stateful and symmetric — the scheduler ships only the per-step diff, keeping cross-process chatter small.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module1">
+          <div class="quiz-question-block" data-correct="comms"
+               data-explanation-right="Exactly. Compute is cheap and parallel; the tax is the collective communication between GPUs every layer. That framing drives every optimization in this walkthrough."
+               data-explanation-wrong="Re-read the opening. FLOPs are easy to add. The bottleneck once a model spans devices is the communication — all-reduces, stage handoffs, token shuffles — not the arithmetic.">
+            <p class="quiz-question">What is the dominant cost that appears the moment a model is split across GPUs?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Running out of raw compute (FLOPs)</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Inter-GPU communication (collectives, handoffs)</span></button>
+              <button class="quiz-option" data-value="hbm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">HBM capacity on a single GPU</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="tppdp"
+               data-explanation-right="Right. The total worker count is the product TP × PP × DP, one process per accelerator."
+               data-explanation-wrong="Not quite. vLLM spawns one worker per accelerator, and the total is the product of all three parallel dimensions: TP × PP × DP.">
+            <p class="quiz-question">How many GPU worker processes does V1 launch?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="tponly" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Just tensor-parallel size (TP)</span></button>
+              <button class="quiz-option" data-value="tppdp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">TP × PP × DP — one per accelerator</span></button>
+              <button class="quiz-option" data-value="one" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">One shared process for all GPUs</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

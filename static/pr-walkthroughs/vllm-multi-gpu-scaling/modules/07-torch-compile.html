@@ -1,0 +1,126 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">07</span>
+      <h1 class="module-title">torch.compile &amp; Collective Fusion</h1>
+      <p class="module-subtitle">The compiler is where communication and computation get fused into one kernel</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Piecewise Compilation, Attention as Boundary</h2>
+        <p>vLLM's <code>torch.compile</code> integration uses attention ops as graph-split boundaries so each segment captures cleanly as a cudagraph while attention runs eagerly between them. The compile levels landed in <code>#9715</code>; <code>#10528</code> made CUDA graphs default-on in V1.</p>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9f1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Much of the work is unglamorous cache correctness</strong>
+            <p><code>#10273</code> made custom Inductor passes picklable so the code cache actually works; <code>#11614</code> keyed the compile cache on traced source <em>including distributed ops</em>, so a change to communication code correctly invalidates compiled artifacts. Boring, essential, and multi-GPU-relevant because the traced set includes the collective code paths.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Payoff: Fusing the Collective Itself</h2>
+        <p>The compiler's most striking multi-GPU trick is folding a communication collective and its neighbors into one kernel. <code>#21069</code> detects the tensor-parallel <code>all-reduce → RMSNorm → quant</code> sequence in the FX graph and replaces it with a <em>single</em> FlashInfer op.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">Before — three kernels, three launches</div>
+<pre><code><span class="code-line">x = all_reduce(x)        <span class="code-comment"># collective</span></span>
+<span class="code-line">x = rms_norm(x, w)       <span class="code-comment"># elementwise</span></span>
+<span class="code-line">x = quant_fp8(x)         <span class="code-comment"># elementwise</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">After — one fused FlashInfer op</div>
+            <div class="translation-lines">
+              <div class="tl">A pattern-match pass spots the trio in the graph…</div>
+              <div class="tl">…and emits one fused allreduce+RMSNorm+quant kernel.</div>
+              <div class="tl">Fewer launches, less memory traffic on the TP path.</div>
+              <div class="tl">Supports FP8 and NVFP4 static quant patterns.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read this baseline especially carefully</strong>
+            <p>On B200 TP=2, #21069 shows ~7–8% TPOT for FP8 — but the gain is against <em>custom ops</em>. Against default <code>torch.compile</code>d ops, FP8 TTFT can actually <strong>regress up to 8%</strong>. NVFP4 fares better (5% TPOT/TTFT vs compiled). "Fusion is faster" is true only relative to the right baseline.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Chunked Prefill: The Scheduler-Level Multiplier</h2>
+        <p>Alongside the compiler sits a scheduler trick that makes mixed batching work at all. Chunked prefill splits long prefills so they interleave with decode and bound peak activation memory.</p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>SARATHI-style chunking — #3884</strong>
+              <p>Split long prefills by a token budget so up to two chunked prefills run at once, mixed with decode.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Auto-enable for long context — #6666</strong>
+              <p>Turned on by default above 32K tokens to bound peak activation memory during profiling.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>First-class in the V1 scheduler — #15419</strong>
+              <p><code>long_prefill_token_threshold</code> lets multiple long prefills batch concurrently. This mixed batching is exactly what the PP bubble-removal work (Module 03) exploits.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f9e9;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Indirect, but load-bearing</strong>
+            <p>Chunked prefill's multi-GPU relevance is indirect — it shapes batch composition and memory pressure, not cross-device comms. But it's the reason mixed prefill/decode batching works, which the pipeline scheduler depends on.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module7">
+          <div class="quiz-question-block" data-correct="fuse"
+               data-explanation-right="Correct. #21069 pattern-matches all-reduce → RMSNorm → quant and emits one fused FlashInfer op, cutting launches and memory traffic on the TP path."
+               data-explanation-wrong="Reconsider. The fusion pass collapses the all-reduce and its neighboring RMSNorm + quantization into a single FlashInfer kernel.">
+            <p class="quiz-question">What does the collective-fusion pass (#21069) fuse together?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="fuse" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">all-reduce + RMSNorm + quant → one FlashInfer op</span></button>
+              <button class="quiz-option" data-value="attn" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Two attention layers into one</span></button>
+              <button class="quiz-option" data-value="gemm" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">All matmuls into a single GEMM</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="mixed"
+               data-explanation-right="Right. Chunked prefill enables mixed prefill/decode batching, which is precisely what the pipeline-parallel bubble-removal scheduling exploits."
+               data-explanation-wrong="Not quite. Chunked prefill's contribution here is enabling mixed prefill/decode batching — the substrate the PP scheduler uses to keep stages fed.">
+            <p class="quiz-question">Why does chunked prefill matter to the pipeline-parallel work in Module 03?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="mixed" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It enables the mixed prefill/decode batching PP exploits</span></button>
+              <button class="quiz-option" data-value="allreduce" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It replaces the all-reduce</span></button>
+              <button class="quiz-option" data-value="none" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">It has no connection to PP</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module7')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

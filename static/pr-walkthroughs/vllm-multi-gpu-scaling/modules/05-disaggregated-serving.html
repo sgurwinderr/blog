@@ -1,0 +1,148 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Disaggregated Serving &amp; KV Transfer</h1>
+      <p class="module-subtitle">Split prefill from decode across instances — for goodput under an SLO, not raw throughput</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Two Phases, Two Machines</h2>
+        <p>Prefill is compute-bound; decode is memory-bound. <strong>Disaggregated prefill/decode (P/D)</strong> runs them on <em>different</em> vLLM instances, connected by a KV-cache transfer. The counterintuitive part comes straight from vLLM's docs:</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f9ed;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Disaggregation does NOT improve raw throughput</strong>
+            <p>What it buys is <em>independent control</em> of the two phases — tune TTFT without disturbing inter-token latency, and reliably bound tail ITL. That improves <strong>goodput under a latency SLO</strong>. If your only metric is tokens/sec on an unconstrained batch, this is not your tool. If you have a p99 contract, it is.</p>
+          </div>
+        </div>
+
+        <div class="post-diagram">
+          <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="Disaggregated prefill and decode with KV transfer">
+            <rect x="30" y="60" width="180" height="80" rx="10" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="120" y="92" class="mem-title" text-anchor="middle">Prefill instance</text>
+            <text x="120" y="114" class="mem-mono" text-anchor="middle">compute-bound</text>
+            <text x="120" y="130" class="mem-mono" text-anchor="middle">tune for TTFT</text>
+
+            <rect x="510" y="60" width="180" height="80" rx="10" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="600" y="92" class="mem-title" text-anchor="middle">Decode instance</text>
+            <text x="600" y="114" class="mem-mono" text-anchor="middle">memory-bound</text>
+            <text x="600" y="130" class="mem-mono" text-anchor="middle">tune for ITL</text>
+
+            <rect x="270" y="70" width="180" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
+            <text x="360" y="96" class="mem-title" text-anchor="middle">KV connector</text>
+            <text x="360" y="116" class="mem-mono" text-anchor="middle">NIXL / LMCache / Mooncake</text>
+
+            <path d="M 210 100 L 270 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <path d="M 450 100 L 510 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <text x="360" y="155" class="mem-text" text-anchor="middle">KV cache moves over the network exactly once per request</text>
+            <defs>
+              <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#764ba2"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="post-diagram-caption">Prefill produces the KV cache; a connector ships it to the decode instance; decode streams tokens. Each side scales and tunes independently.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Abstractions, One Directory</h2>
+        <p>All the machinery lives under <code>vllm/distributed/kv_transfer</code>, built from three pieces. The connector is the pluggable part.</p>
+
+        <div class="badge-list">
+          <div class="badge-item">
+            <span class="badge-code">Connector</span>
+            <span class="badge-desc">Scheduler-side (which KV to send / what's computed) + worker-side (store/load layer-by-layer).</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">LookupBuffer</span>
+            <span class="badge-desc">Insert / drop-select staging for KV blocks in flight.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">Pipe</span>
+            <span class="badge-desc">A single-direction FIFO with <code>send_tensor</code> / <code>recv_tensor</code>.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Connector Ecosystem</h2>
+        <div class="step-cards stagger-children">
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>KV Connector API V1 — #15960</strong>
+              <p>The foundation everything else plugs into. Per-process connectors, layer-wise async transfer, xPyD orchestration deliberately left to external infra. Mechanism, not benchmarks.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>NIXL integration — #17751</strong>
+              <p>The direct high-performance transport: fully async send/recv over NVIDIA's NIXL (UCX/GDS backends), a <code>MultiConnector</code> so several coexist. Supports xPyD and TP&gt;1.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>LMCache connector — #16625</strong>
+              <p>CPU KV offload + cross-instance KV pooling + P/D over NIXL. 2×H100, Llama-3.1-8B, 1P1D: <strong>~40% higher tok/s, ~8× better tail ITL</strong>.</p>
+            </div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>MooncakeStore XpYd — #12957</strong>
+              <p>A shared-object-store topology so any decode instance can fetch any prefill instance's KV via per-TP-rank key prefixes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x1f50e;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the LMCache baseline</strong>
+            <p>The ~40% / ~8× figures are against a baseline of <em>"two separate vLLM instances"</em> rather than a tuned co-located deployment — an unusual comparison, at a single request rate. The direction (disaggregation helps tail ITL) matches the DistServe research framing; the exact multipliers are baseline-dependent.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <div class="quiz-container" id="quiz-module5">
+          <div class="quiz-question-block" data-correct="goodput"
+               data-explanation-right="Correct. Disaggregation's payoff is goodput under a latency SLO — independent TTFT/ITL control and bounded tail latency — not higher raw throughput."
+               data-explanation-wrong="Re-read the callout. vLLM's docs are explicit that disaggregation does NOT raise raw throughput; its value is latency-SLO goodput.">
+            <p class="quiz-question">What is disaggregated prefill/decode actually good for?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="throughput" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Maximizing raw tokens/sec on a big batch</span></button>
+              <button class="quiz-option" data-value="goodput" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Goodput under a latency SLO (TTFT / tail ITL control)</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Reducing total GPU memory used</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="nixl"
+               data-explanation-right="Right. NIXL is the direct async transport (and LMCache uses it underneath) for moving KV from prefill to decode workers."
+               data-explanation-wrong="Not quite. The direct high-performance KV transport is NIXL; LMCache and others build on top of it.">
+            <p class="quiz-question">Which is the direct async KV transport that other connectors build on?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="nixl" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">NIXL (#17751)</span></button>
+              <button class="quiz-option" data-value="ray" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Ray RPC</span></button>
+              <button class="quiz-option" data-value="nfs" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">A shared NFS mount</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module5')">Reset</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

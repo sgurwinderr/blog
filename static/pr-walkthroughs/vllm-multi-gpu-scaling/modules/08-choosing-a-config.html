@@ -1,0 +1,136 @@
+<section class="module" id="module-8" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">08</span>
+      <h1 class="module-title">Choosing a Configuration</h1>
+      <p class="module-subtitle">The decision is a function of your interconnect and your workload</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Decision Table</h2>
+        <p>Everything in this walkthrough collapses into a handful of choices, driven — as Module 01 promised — by the fabric you have and the metric you're optimizing.</p>
+
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1)">
+            <div class="pattern-icon" style="background: var(--color-actor-1)">TP</div>
+            <h4 class="pattern-title">Single node, fast NVLink, dense model</h4>
+            <p class="pattern-desc"><strong>Tensor parallelism</strong> (<code>TP</code> = GPUs/node). All-reduce is cheap on NVLink; simplest scaling.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">PP</div>
+            <h4 class="pattern-title">No NVLink, or spanning nodes</h4>
+            <p class="pattern-desc"><strong>Pipeline parallelism</strong> (add <code>PP</code> = #nodes). One handoff per stage beats two all-reduces per layer.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">EP</div>
+            <h4 class="pattern-title">Large MoE model</h4>
+            <p class="pattern-desc"><strong>Wide EP</strong> (<code>--enable-expert-parallel</code> + <code>--enable-eplb</code>). Sparse all-to-all + hot-expert rebalancing.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">P/D</div>
+            <h4 class="pattern-title">A p99 latency / TTFT SLO</h4>
+            <p class="pattern-desc"><strong>Disaggregated P/D</strong> (NIXL or LMCache). Tune phases independently; control tail ITL. Won't raise raw throughput.</p>
+          </div>
+          <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background: var(--color-actor-5)">&#x26a1;</div>
+            <h4 class="pattern-title">Any of the above</h4>
+            <p class="pattern-desc"><strong>CUDA graphs + torch.compile</strong> (default-on in V1). Per-rank launch-overhead removal compounds across ranks.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">They Compose</h2>
+        <p>A production DeepSeek-scale deployment might run every dimension at once — each targeting a different tier of the Module 01 hierarchy.</p>
+
+        <div class="translation-block">
+          <div class="translation-code">
+            <div class="translation-label">One realistic launch</div>
+<pre><code><span class="code-line">vllm serve deepseek-ai/DeepSeek-V3 \</span>
+<span class="code-line">  --tensor-parallel-size <span class="code-number">8</span> \      <span class="code-comment"># TP within a node (NVLink)</span></span>
+<span class="code-line">  --pipeline-parallel-size <span class="code-number">2</span> \    <span class="code-comment"># PP across nodes (network)</span></span>
+<span class="code-line">  --enable-expert-parallel \    <span class="code-comment"># EP for the MoE layers</span></span>
+<span class="code-line">  --enable-eplb \               <span class="code-comment"># rebalance hot experts</span></span>
+<span class="code-line">  --kv-transfer-config ...      <span class="code-comment"># NIXL connector for disagg</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <div class="translation-label">Each flag targets a tier</div>
+            <div class="translation-lines">
+              <div class="tl">TP → the NVLink fabric inside each node.</div>
+              <div class="tl">PP → the slower network between nodes.</div>
+              <div class="tl">EP → a sparse all-to-all for the experts.</div>
+              <div class="tl">Disagg → the KV cache, moved once per request.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3af;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The throughline</strong>
+            <p>vLLM's multi-GPU performance work is overwhelmingly <em>communication engineering</em>: faster collectives, cheaper topologies, moving the KV cache exactly once, and clearing the Python and launch overhead that sits between the collectives. The FLOPs were never the hard part.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Final Check</h2>
+        <div class="quiz-container" id="quiz-module8">
+          <div class="quiz-question-block" data-correct="pp"
+               data-explanation-right="Correct. Without NVLink the custom all-reduce disables itself and TP stalls; pipeline parallelism communicates once per stage and tolerates the slow fabric."
+               data-explanation-wrong="Reconsider. On PCIe-only or cross-node fabrics, TP's per-layer all-reduce is the wrong tool — reach for pipeline parallelism, which communicates far less.">
+            <p class="quiz-question">Your 4 GPUs are PCIe-only (no NVLink). First reach for…?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="tp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Tensor parallelism, TP=4</span></button>
+              <button class="quiz-option" data-value="pp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pipeline parallelism</span></button>
+              <button class="quiz-option" data-value="dp" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Pure data-parallel replication</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="disagg"
+               data-explanation-right="Right. A tail-latency SLO is exactly the disaggregation use case — tune prefill and decode independently and bound tail ITL. It won't raise raw throughput, and that's fine here."
+               data-explanation-wrong="Not quite. When the binding constraint is a p99 latency SLO, disaggregated prefill/decode is the tool — it controls tail ITL, which raw-throughput techniques don't.">
+            <p class="quiz-question">Your binding constraint is a strict p99 inter-token-latency SLO. Which technique targets it directly?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="ep" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Expert parallelism</span></button>
+              <button class="quiz-option" data-value="disagg" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Disaggregated prefill/decode</span></button>
+              <button class="quiz-option" data-value="cudagraph" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Bigger batches</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-question-block" data-correct="comms"
+               data-explanation-right="Correct — and it's the whole point. From the custom all-reduce to Wide EP to disaggregation to CUDA graphs, the target is communication and the overhead around it, not the arithmetic."
+               data-explanation-wrong="Look back at the throughline. Nearly every optimization attacked communication or the launch/dispatch overhead around it — not the raw math.">
+            <p class="quiz-question">In one phrase, what is vLLM's multi-GPU performance work mostly about?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Squeezing more FLOPs out of the matmuls</span></button>
+              <button class="quiz-option" data-value="comms" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Communication engineering (and the overhead around it)</span></button>
+              <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><div class="quiz-option-radio"></div><span class="quiz-option-label">Shrinking model weights</span></button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-module8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module8')">Reset</button>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Keep Going</h2>
+        <p>This walkthrough is the companion to the full write-up, which grounds every mechanism in the merged PR that implemented it — with the complete 38-PR catalog and the caveats on each benchmark.</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d6;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Read the deep dive</strong>
+            <p><a href="/how-vllm-scales-across-gpus/">How vLLM Scales Across GPUs: Parallelism, Collectives, and the PRs Behind Them</a> — the full post, with the all-reduce gating math, the Wide-EP alignment tax, and the verified PR table.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

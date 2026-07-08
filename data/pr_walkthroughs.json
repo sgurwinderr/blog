@@ -1,0 +1,57 @@
+[
+  {
+    "title": "How vLLM Scales Across GPUs",
+    "url": "/pr-walkthroughs/vllm-multi-gpu-scaling/",
+    "category": "GPU · Distributed Inference",
+    "summary": "The four parallelism dimensions of vLLM V1 — tensor, pipeline, Wide EP, and disaggregated serving — traced through the merged PRs behind each.",
+    "gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    "icon": "vLLM",
+    "iconType": "text",
+    "modules": "8 Modules",
+    "duration": "1-2 Hours"
+  },
+  {
+    "title": "Staging Large FMA Dots via SLM",
+    "url": "/pr-walkthroughs/stage-large-fma-dots-slm/",
+    "category": "Triton · Intel XPU",
+    "summary": "Fix the PTSS overflow cliff on non-DPAS Intel iGPUs by staging tt.dot operands in SLM and tiling K.",
+    "gradient": "linear-gradient(135deg, #0071c5 0%, #003d6b 100%)",
+    "icon": "SLM",
+    "iconType": "text",
+    "modules": "6 Modules",
+    "duration": "1-2 Hours"
+  },
+  {
+    "title": "TD Q-Load for Non-Power-of-2 GQA",
+    "url": "/pr-walkthroughs/td-qload-nonpow2-gqa/",
+    "category": "Triton · Intel XPU",
+    "summary": "When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack — taught through attention's Q load and prefill tile sizing.",
+    "gradient": "linear-gradient(135deg, #0071c5 0%, #2A7B9B 100%)",
+    "icon": "GQA",
+    "iconType": "text",
+    "modules": "7 Modules",
+    "duration": "1-2 Hours"
+  },
+  {
+    "title": "GPU Optimization: 10 vLLM PRs",
+    "url": "/pr-walkthroughs/gpu-optimization-prs/",
+    "category": "GPU Optimization",
+    "summary": "Learn optimization techniques from actual merged vLLM PRs with verified performance numbers.",
+    "gradient": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    "icon": "⚡",
+    "iconType": "emoji",
+    "modules": "10 Modules",
+    "duration": "2-3 Hours"
+  },
+  {
+    "title": "PyTorch Optimization: 10 PRs",
+    "url": "/pr-walkthroughs/pytorch-optimization-prs/",
+    "category": "PyTorch Optimization",
+    "summary": "Learn optimization techniques from actual merged PyTorch PRs with verified performance numbers.",
+    "gradient": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+    "icon": "🔥",
+    "iconType": "emoji",
+    "modules": "10 Modules",
+    "duration": "2-3 Hours"
+  }
+]
