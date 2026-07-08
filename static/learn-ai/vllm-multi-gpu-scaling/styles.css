@@ -1308,6 +1308,11 @@ body {
 }
 .scene-caption strong { color: var(--color-text); }
 .scene-caption .scene-eq { color: var(--color-accent); font-family: var(--font-mono); }
+/* Step list inside a scene caption — one step per line, not run together */
+.scene-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.scene-steps li { padding-left: 0; line-height: 1.5; }
+.scene-steps li strong { display: inline-block; min-width: 3.6rem; color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-xs); }
+.scene-hint { margin-top: var(--space-3); font-style: italic; color: var(--color-text-muted); }
 
 .scene-controls {
   display: flex; align-items: center; gap: var(--space-2);

@@ -21,24 +21,24 @@
         </div>
 
         <div class="post-diagram">
-          <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="Disaggregated prefill and decode with KV transfer">
-            <rect x="30" y="60" width="180" height="80" rx="10" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
-            <text x="120" y="92" class="mem-title" text-anchor="middle">Prefill instance</text>
-            <text x="120" y="114" class="mem-mono" text-anchor="middle">compute-bound</text>
-            <text x="120" y="130" class="mem-mono" text-anchor="middle">tune for TTFT</text>
+          <svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg" aria-label="Disaggregated prefill and decode with KV transfer">
+            <rect x="30" y="40" width="180" height="80" rx="10" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
+            <text x="120" y="72" class="mem-title" text-anchor="middle">Prefill instance</text>
+            <text x="120" y="94" class="mem-mono" text-anchor="middle">compute-bound</text>
+            <text x="120" y="110" class="mem-mono" text-anchor="middle">tune for TTFT</text>
 
-            <rect x="510" y="60" width="180" height="80" rx="10" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
-            <text x="600" y="92" class="mem-title" text-anchor="middle">Decode instance</text>
-            <text x="600" y="114" class="mem-mono" text-anchor="middle">memory-bound</text>
-            <text x="600" y="130" class="mem-mono" text-anchor="middle">tune for ITL</text>
+            <rect x="510" y="40" width="180" height="80" rx="10" fill="#d6eaf8" stroke="#0071c5" stroke-width="2"/>
+            <text x="600" y="72" class="mem-title" text-anchor="middle">Decode instance</text>
+            <text x="600" y="94" class="mem-mono" text-anchor="middle">memory-bound</text>
+            <text x="600" y="110" class="mem-mono" text-anchor="middle">tune for ITL</text>
 
-            <rect x="270" y="70" width="180" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
-            <text x="360" y="96" class="mem-title" text-anchor="middle">KV connector</text>
-            <text x="360" y="116" class="mem-mono" text-anchor="middle">NIXL / LMCache / Mooncake</text>
+            <rect x="270" y="50" width="180" height="60" rx="10" fill="#ece7f6" stroke="#764ba2" stroke-width="2"/>
+            <text x="360" y="76" class="mem-title" text-anchor="middle">KV connector</text>
+            <text x="360" y="96" class="mem-mono" text-anchor="middle">NIXL / LMCache / Mooncake</text>
 
-            <path d="M 210 100 L 270 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
-            <path d="M 450 100 L 510 100" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
-            <text x="360" y="155" class="mem-text" text-anchor="middle">KV cache moves over the network exactly once per request</text>
+            <path d="M 210 80 L 270 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <path d="M 450 80 L 510 80" stroke="#764ba2" stroke-width="2.5" marker-end="url(#arrD)"/>
+            <text x="360" y="180" class="mem-text" text-anchor="middle">KV cache moves over the network exactly once per request</text>
             <defs>
               <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#764ba2"/>
@@ -62,7 +62,13 @@
             <span class="scene-progress"></span>
           </div>
           <div class="scene-caption">
-            <strong>Step 1</strong> two instances, two roles · <strong>Step 2</strong> prefill builds the KV cache (tuned for TTFT) · <strong>Step 3</strong> the connector ships it once, prefill→decode · <strong>Step 4</strong> decode streams tokens (tuned for ITL). Use <em>Next step</em>; drag to orbit.
+            <ul class="scene-steps">
+              <li><strong>Step 1</strong> two instances, two roles</li>
+              <li><strong>Step 2</strong> prefill builds the KV cache (tuned for TTFT)</li>
+              <li><strong>Step 3</strong> the connector ships it once, prefill→decode</li>
+              <li><strong>Step 4</strong> decode streams tokens (tuned for ITL)</li>
+            </ul>
+            <p class="scene-hint">Use <em>Next step</em>; drag to orbit.</p>
           </div>
         </div>
       </section>

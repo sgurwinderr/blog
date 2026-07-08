@@ -119,7 +119,13 @@
             <span class="scene-progress"></span>
           </div>
           <div class="scene-caption">
-            <strong>Step 1</strong> four GPUs, four partial sums (2, −1, 3, 1) · <strong>Step 2</strong> all-reduce combines them to Σ=5 and broadcasts back · <strong>Step 3</strong> the overlap trick splits it into reduce-scatter + all-gather · <strong>Step 4</strong> async TP overlaps the comm with the next matmul. Use <em>Next step</em>; drag to orbit.
+            <ul class="scene-steps">
+              <li><strong>Step 1</strong> four GPUs, four partial sums (2, −1, 3, 1)</li>
+              <li><strong>Step 2</strong> all-reduce combines them to Σ=5 and broadcasts back</li>
+              <li><strong>Step 3</strong> the overlap trick splits it into reduce-scatter + all-gather</li>
+              <li><strong>Step 4</strong> async TP overlaps the comm with the next matmul</li>
+            </ul>
+            <p class="scene-hint">Use <em>Next step</em>; drag to orbit.</p>
           </div>
         </div>
 

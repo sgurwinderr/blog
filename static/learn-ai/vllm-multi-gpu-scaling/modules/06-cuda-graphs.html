@@ -66,7 +66,11 @@
             <span class="scene-progress"></span>
           </div>
           <div class="scene-caption">
-            <strong>Step 1</strong> eight separate CPU launches, each with overhead, fired sequentially (~56 ms) · <strong>Step 2</strong> captured once and replayed as a single op (~28 ms). In TP/PP this compounds across every rank. Toggle; drag to orbit.
+            <ul class="scene-steps">
+              <li><strong>Step 1</strong> eight separate CPU launches, each with overhead, fired sequentially (~56 ms)</li>
+              <li><strong>Step 2</strong> captured once and replayed as a single op (~28 ms) — in TP/PP this compounds across every rank</li>
+            </ul>
+            <p class="scene-hint">Toggle; drag to orbit.</p>
           </div>
         </div>
       </section>
