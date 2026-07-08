@@ -43,6 +43,20 @@
           </div>
         </div>
 
+        <div class="scene-stage" data-scene="fusion">
+          <canvas class="scene-canvas" aria-label="3D scene: three separate kernel blocks — all-reduce, RMSNorm, quant — slide together and merge into a single green fused FlashInfer op"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Fuse</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> three kernels run back-to-back on the TP path · <strong>Step 2</strong> the compile pass fuses them into one FlashInfer op — fewer launches, less memory traffic. Toggle; drag to orbit.
+          </div>
+        </div>
+
         <div class="callout callout-warning">
           <div class="callout-icon">&#x1f50e;</div>
           <div class="callout-content">

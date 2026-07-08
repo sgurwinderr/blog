@@ -50,6 +50,24 @@
       </section>
 
       <section class="screen animate-in">
+        <h2 class="screen-heading">Watch the KV Cache Move</h2>
+        <p>Step through a disaggregated request: prefill builds the KV blocks, the connector ships them once, decode streams tokens. Two machines, tuned independently.</p>
+        <div class="scene-stage" data-scene="disagg">
+          <canvas class="scene-canvas" aria-label="3D scene: a prefill GPU builds up green KV-cache blocks, which then travel across a NIXL connector to the decode GPU, which streams tokens"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> two instances, two roles · <strong>Step 2</strong> prefill builds the KV cache (tuned for TTFT) · <strong>Step 3</strong> the connector ships it once, prefill→decode · <strong>Step 4</strong> decode streams tokens (tuned for ITL). Use <em>Next step</em>; drag to orbit.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
         <h2 class="screen-heading">Three Abstractions, One Directory</h2>
         <p>All the machinery lives under <code>vllm/distributed/kv_transfer</code>, built from three pieces. The connector is the pluggable part.</p>
 

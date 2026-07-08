@@ -59,6 +59,24 @@
       </section>
 
       <section class="screen animate-in">
+        <h2 class="screen-heading">Watch the Bubble Shrink</h2>
+        <p>This is the stages-versus-time grid. Coloured cells are microbatches being worked; grey cells are idle "bubble". Step between the naive schedule and vLLM's packed one and watch the utilization number move.</p>
+        <div class="scene-stage" data-scene="pipeline">
+          <canvas class="scene-canvas" aria-label="3D scene: a grid of pipeline stages over time; in the naive schedule many cells are grey idle bubbles, and in vLLM's schedule the cells pack together and utilization rises"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Toggle schedule</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> naive pipeline — diagonal fill, large grey bubbles, low utilization · <strong>Step 2</strong> vLLM V1 schedules ahead and overlaps the token broadcast, packing the grid and lifting utilization. Toggle to compare; drag to orbit.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
         <h2 class="screen-heading">The PRs That Killed the Bubble</h2>
         <p>The original PP support (<code>#4412</code>, 2024) established the shape — one scheduler per stage, blocking send/recv, last stage samples. The V1-era gains came from letting the scheduler run <em>ahead</em> of the pipeline.</p>
 

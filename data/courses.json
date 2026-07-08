@@ -1,5 +1,16 @@
 [
   {
+    "title": "How vLLM Scales Across GPUs",
+    "url": "/learn-ai/vllm-multi-gpu-scaling/",
+    "category": "Distributed Inference",
+    "summary": "A WebGL walkthrough of vLLM V1's four parallelism dimensions — tensor, pipeline, Wide EP, and disaggregated serving — with animated all-reduce, pipeline bubbles, expert dispatch, and KV transfer, each grounded in the merged PRs behind it.",
+    "gradient": "linear-gradient(135deg, #f093fb 0%, #764ba2 100%)",
+    "icon": "GPU",
+    "iconType": "text",
+    "modules": "8 Modules",
+    "duration": "1-2 Hours"
+  },
+  {
     "title": "vLLM Optimization Deep Dive",
     "url": "/learn-ai/vllm-triton-optimization/",
     "category": "Triton Kernels",
@@ -8,28 +19,6 @@
     "icon": "vLLM",
     "iconType": "text",
     "modules": "6 Modules",
-    "duration": "2-3 Hours"
-  },
-  {
-    "title": "GPU Optimization: 10 vLLM PRs",
-    "url": "/learn-ai/gpu-optimization-prs/",
-    "category": "GPU Optimization",
-    "summary": "Learn optimization techniques from actual merged vLLM PRs with verified performance numbers.",
-    "gradient": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-    "icon": "⚡",
-    "iconType": "emoji",
-    "modules": "10 Modules",
-    "duration": "2-3 Hours"
-  },
-  {
-    "title": "PyTorch Optimization: 10 PRs",
-    "url": "/learn-ai/pytorch-optimization-prs/",
-    "category": "PyTorch Optimization",
-    "summary": "Learn optimization techniques from actual merged PyTorch PRs with verified performance numbers.",
-    "gradient": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
-    "icon": "🔥",
-    "iconType": "emoji",
-    "modules": "10 Modules",
     "duration": "2-3 Hours"
   },
   {
@@ -44,25 +33,14 @@
     "duration": "3-4 Hours"
   },
   {
-    "title": "Staging Large FMA Dots via SLM",
-    "url": "/learn-ai/stage-large-fma-dots-slm/",
-    "category": "Triton Kernels",
-    "summary": "Fix the PTSS overflow cliff on non-DPAS Intel iGPUs by staging tt.dot operands in SLM and tiling K.",
-    "gradient": "linear-gradient(135deg, #0071c5 0%, #003d6b 100%)",
-    "icon": "SLM",
-    "iconType": "text",
-    "modules": "6 Modules",
-    "duration": "1-2 Hours"
-  },
-  {
-    "title": "TD Q-Load for Non-Power-of-2 GQA",
-    "url": "/learn-ai/td-qload-nonpow2-gqa/",
-    "category": "Triton Kernels",
-    "summary": "When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack — a general technique, taught through attention's Q load and prefill tile sizing.",
-    "gradient": "linear-gradient(135deg, #0071c5 0%, #2A7B9B 100%)",
-    "icon": "GQA",
-    "iconType": "text",
-    "modules": "7 Modules",
-    "duration": "1-2 Hours"
+    "title": "The Attention Family: A Visual Guide",
+    "url": "/learn-ai/transformers-attention-family/",
+    "category": "Visual Guide",
+    "summary": "A 3Blue1Brown-style WebGL journey through attention and its variants — from Q/K/V and the T×T score matrix to MQA, GQA, MLA, sparse, linear, and FlashAttention, each animated to show how it beats the O(T²) cost.",
+    "gradient": "linear-gradient(135deg, #6d28d9 0%, #2563eb 100%)",
+    "icon": "✨",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "2-3 Hours"
   }
 ]

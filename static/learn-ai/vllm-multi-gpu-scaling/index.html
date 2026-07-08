@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
   <style>
     :root {
@@ -21,7 +22,31 @@
     }
   </style>
 
+  <!-- MathJax for the all-reduce gating / EP_SIZE math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <!-- highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+
+  <!-- Three.js r128 core + OrbitControls (classic globals, no ES modules) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" defer></script>
+
+  <!-- Shared course engine + WebGL scenes -->
   <script src="main.js" defer></script>
+  <script src="scenes.js?v=1" defer></script>
+
+  <script defer>
+    window.addEventListener('load', function () {
+      if (window.hljs) document.querySelectorAll('pre code').forEach(function (b) { hljs.highlightElement(b); });
+    });
+  </script>
 </head>
 <body>
 
@@ -32,7 +57,7 @@
       </svg>
       <span>Back to Blog</span>
     </a>
-    <a href="/pr-walkthroughs/" class="back-link ml-auto"><span>All Walkthroughs</span></a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
   </div>
 
   <nav class="nav" id="nav">
@@ -314,37 +339,17 @@
         <h2 class="screen-heading">Overlapping the All-Reduce with Compute</h2>
         <p>The deeper move is to stop treating the all-reduce as a blocking barrier. Two compilation passes rewrite the graph so communication hides behind computation.</p>
 
-        <div class="flow-animation" data-steps='[
-          {"highlight":"actor-1","label":"A layer finishes its matmul. Normally it now blocks on a full all-reduce across all GPUs."},
-          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Sequence parallelism (#16155): split the all-reduce into reduce-scatter + all-gather."},
-          {"highlight":"actor-3","label":"RMSNorm runs on the smaller, sharded tensor between the two collectives — less work per rank."},
-          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Async TP (#17882): overlap the decomposed comm with the next matmul. The wire time is partly hidden."},
-          {"highlight":"actor-1","label":"Net effect: 4×H200 Llama-70B step 0.590s → 0.526s. Gain grows with GPUs and model size."}
-        ]'>
-          <div class="flow-actors">
-            <div class="flow-actor" id="flow-actor-1">
-              <div class="flow-actor-icon">GEMM</div>
-              <span>Matmul</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-2">
-              <div class="flow-actor-icon">RS</div>
-              <span>Reduce-Scatter</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-3">
-              <div class="flow-actor-icon">&#x1f9ee;</div>
-              <span>Sharded RMSNorm</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-4">
-              <div class="flow-actor-icon">AG</div>
-              <span>All-Gather</span>
-            </div>
+        <div class="scene-stage" data-scene="allreduce">
+          <canvas class="scene-canvas" aria-label="3D scene: four GPUs each holding a partial sum; packets fly to the centre and combine into one value, then the reduce-scatter and all-gather decomposition circulates the ring"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
           </div>
-          <div class="flow-packet"></div>
-          <div class="flow-step-label">Click "Next Step" to begin</div>
-          <div class="flow-controls">
-            <button class="flow-next-btn">Next Step</button>
-            <button class="flow-reset-btn">Reset</button>
-            <span class="flow-progress">Step 0 / 5</span>
+          <div class="scene-caption">
+            <strong>Step 1</strong> four GPUs, four partial sums (2, −1, 3, 1) · <strong>Step 2</strong> all-reduce combines them to Σ=5 and broadcasts back · <strong>Step 3</strong> the overlap trick splits it into reduce-scatter + all-gather · <strong>Step 4</strong> async TP overlaps the comm with the next matmul. Use <em>Next step</em>; drag to orbit.
           </div>
         </div>
 
@@ -449,6 +454,24 @@
             <text x="520" y="218" class="mem-mono" fill="#2d8b55">stages stay busy</text>
           </svg>
           <div class="post-diagram-caption">Keep every stage fed by scheduling more steps ahead and moving the sampled-token broadcast off the critical path.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Watch the Bubble Shrink</h2>
+        <p>This is the stages-versus-time grid. Coloured cells are microbatches being worked; grey cells are idle "bubble". Step between the naive schedule and vLLM's packed one and watch the utilization number move.</p>
+        <div class="scene-stage" data-scene="pipeline">
+          <canvas class="scene-canvas" aria-label="3D scene: a grid of pipeline stages over time; in the naive schedule many cells are grey idle bubbles, and in vLLM's schedule the cells pack together and utilization rises"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Toggle schedule</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> naive pipeline — diagonal fill, large grey bubbles, low utilization · <strong>Step 2</strong> vLLM V1 schedules ahead and overlaps the token broadcast, packing the grid and lifting utilization. Toggle to compare; drag to orbit.
+          </div>
         </div>
       </section>
 
@@ -564,37 +587,17 @@
         <h2 class="screen-heading">A Token's Journey Through a Wide-EP Layer</h2>
         <p>Between attention and the experts sits a <strong>dispatch/combine</strong> all-to-all — a token permutation across GPUs. Step through it.</p>
 
-        <div class="flow-animation" data-steps='[
-          {"highlight":"actor-1","label":"Attention runs locally on each DP rank, over its own requests and KV cache."},
-          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Dispatch (all-to-all): each token is scattered to the GPU(s) that own its top-k experts."},
-          {"highlight":"actor-3","label":"Experts compute — only the GPUs holding a token’s experts do work for it. This is the sparsity win."},
-          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Combine (all-to-all): results gather back to the token’s original rank."},
-          {"highlight":"actor-1","label":"Every rank must step together — idle ranks run dummy passes so the collective always has a partner."}
-        ]'>
-          <div class="flow-actors">
-            <div class="flow-actor" id="flow-actor-1">
-              <div class="flow-actor-icon">ATT</div>
-              <span>DP Attention</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-2">
-              <div class="flow-actor-icon">&#x21c4;</div>
-              <span>Dispatch</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-3">
-              <div class="flow-actor-icon">EXP</div>
-              <span>Experts</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-4">
-              <div class="flow-actor-icon">&#x21c4;</div>
-              <span>Combine</span>
-            </div>
+        <div class="scene-stage" data-scene="expert">
+          <canvas class="scene-canvas" aria-label="3D scene: tokens from four DP ranks fly up to the expert GPUs that own them; expert E2 receives three tokens (a hot expert) while E3 gets none, then results combine back to their home ranks"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
           </div>
-          <div class="flow-packet"></div>
-          <div class="flow-step-label">Click "Next Step" to begin</div>
-          <div class="flow-controls">
-            <button class="flow-next-btn">Next Step</button>
-            <button class="flow-reset-btn">Reset</button>
-            <span class="flow-progress">Step 0 / 5</span>
+          <div class="scene-caption">
+            <strong>Step 1</strong> each rank holds its own tokens · <strong>Step 2</strong> dispatch all-to-all routes each token to its expert — E2 gets 3, E3 gets 0 · <strong>Step 3</strong> the skew (hot expert) that EPLB rebalances · <strong>Step 4</strong> combine gathers results home. Use <em>Next step</em>; drag to orbit.
           </div>
         </div>
       </section>
@@ -738,6 +741,24 @@
             </defs>
           </svg>
           <div class="post-diagram-caption">Prefill produces the KV cache; a connector ships it to the decode instance; decode streams tokens. Each side scales and tunes independently.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Watch the KV Cache Move</h2>
+        <p>Step through a disaggregated request: prefill builds the KV blocks, the connector ships them once, decode streams tokens. Two machines, tuned independently.</p>
+        <div class="scene-stage" data-scene="disagg">
+          <canvas class="scene-canvas" aria-label="3D scene: a prefill GPU builds up green KV-cache blocks, which then travel across a NIXL connector to the decode GPU, which streams tokens"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> two instances, two roles · <strong>Step 2</strong> prefill builds the KV cache (tuned for TTFT) · <strong>Step 3</strong> the connector ships it once, prefill→decode · <strong>Step 4</strong> decode streams tokens (tuned for ITL). Use <em>Next step</em>; drag to orbit.
+          </div>
         </div>
       </section>
 
@@ -894,6 +915,24 @@
       </section>
 
       <section class="screen animate-in">
+        <h2 class="screen-heading">Eight Launches → One Replay</h2>
+        <p>The orange blocks are individual CPU kernel launches, fired one by one every step. Step forward to capture them into a single CUDA graph and replay the whole sequence at once.</p>
+        <div class="scene-stage" data-scene="cudagraph">
+          <canvas class="scene-canvas" aria-label="3D scene: eight orange per-op CPU launch blocks pulse in sequence, then collapse into a single green graph-replay block roughly half the width"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Capture &amp; replay</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> eight separate CPU launches, each with overhead, fired sequentially (~56 ms) · <strong>Step 2</strong> captured once and replayed as a single op (~28 ms). In TP/PP this compounds across every rank. Toggle; drag to orbit.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
         <h2 class="screen-heading">Where the Gains Landed</h2>
         <div class="step-cards stagger-children">
           <div class="step-card">
@@ -997,6 +1036,20 @@
               <div class="tl">Fewer launches, less memory traffic on the TP path.</div>
               <div class="tl">Supports FP8 and NVFP4 static quant patterns.</div>
             </div>
+          </div>
+        </div>
+
+        <div class="scene-stage" data-scene="fusion">
+          <canvas class="scene-canvas" aria-label="3D scene: three separate kernel blocks — all-reduce, RMSNorm, quant — slide together and merge into a single green fused FlashInfer op"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Fuse</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> three kernels run back-to-back on the TP path · <strong>Step 2</strong> the compile pass fuses them into one FlashInfer op — fewer launches, less memory traffic. Toggle; drag to orbit.
           </div>
         </div>
 
@@ -1204,12 +1257,12 @@
 
       <section class="screen animate-in">
         <h2 class="screen-heading">Keep Going</h2>
-        <p>This walkthrough is the companion to the full write-up, which grounds every mechanism in the merged PR that implemented it — with the complete 38-PR catalog and the caveats on each benchmark.</p>
+        <p>Every mechanism in this course is grounded in a real merged <code>vllm-project/vllm</code> pull request — with measured speedups and honest caveats on each benchmark. The PR numbers cited throughout (all-reduce backends #20759/#24532, overlap #16155/#17882, pipeline #32618/#42187, expert-parallel #23964/#28664, KV connectors #15960/#17751/#16625, CUDA graphs #20059/#22763, fusion #21069) are the primary sources.</p>
         <div class="callout callout-info">
           <div class="callout-icon">&#x1f4d6;</div>
           <div class="callout-content">
-            <strong class="callout-title">Read the deep dive</strong>
-            <p><a href="/how-vllm-scales-across-gpus/">How vLLM Scales Across GPUs: Parallelism, Collectives, and the PRs Behind Them</a> — the full post, with the all-reduce gating math, the Wide-EP alignment tax, and the verified PR table.</p>
+            <strong class="callout-title">Explore further</strong>
+            <p>Browse the merged PRs directly on <a href="https://github.com/vllm-project/vllm/pulls?q=is%3Apr+is%3Amerged" target="_blank" rel="noopener">the vLLM repository</a>, and pair this with the <a href="/learn-ai/">other Learn AI courses</a> on attention and GPU kernels.</p>
           </div>
         </div>
       </section>

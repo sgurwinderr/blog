@@ -23,11 +23,11 @@
   --color-surface:        #FFFFFF;
   --color-surface-warm:   #FDF9F3;
 
-  /* ACCENT — overridden per course in _base.html */
-  --color-accent:         #D94F30;
-  --color-accent-hover:   #C4432A;
-  --color-accent-light:   #FDEEE9;
-  --color-accent-muted:   #E8836C;
+  /* ACCENT — GPU Optimization course (pink/magenta) */
+  --color-accent:         #f5576c;
+  --color-accent-hover:   #e04857;
+  --color-accent-light:   #ffe8eb;
+  --color-accent-muted:   #ff8895;
 
   /* SEMANTIC */
   --color-success:        #2D8B55;
@@ -264,8 +264,8 @@ pre::-webkit-scrollbar { display: none; }
   font-family: var(--font-display);
   font-size: var(--text-6xl);
   font-weight: 800;
-  color: var(--color-text);
-  opacity: 0.8;
+  color: var(--color-accent);
+  opacity: 0.15;
   line-height: 1;
   margin-bottom: var(--space-2);
 }
@@ -700,7 +700,7 @@ p:last-child { margin-bottom: 0; }
 .flow-actor.active .flow-actor-icon {
   border-color: var(--color-accent);
   background: var(--color-accent-light);
-  box-shadow: 0 0 0 3px var(--color-accent-light), 0 0 20px rgba(0,113,197,0.18);
+  box-shadow: 0 0 0 3px var(--color-accent-light), 0 0 20px rgba(217,79,48,0.15);
   transform: scale(1.1);
 }
 
@@ -711,7 +711,7 @@ p:last-child { margin-bottom: 0; }
   position: absolute;
   pointer-events: none;
   display: none;
-  box-shadow: 0 0 8px rgba(0,113,197,0.55);
+  box-shadow: 0 0 8px rgba(217,79,48,0.5);
 }
 
 .flow-step-label {
@@ -1245,37 +1245,147 @@ body {
   padding-top: 50px;
 }
 
-/* ── SVG VISUALIZATION DIAGRAMS ─────────────────────────────── */
-.post-diagram {
-  background: #fff;
-  border-radius: var(--radius-md);
-  padding: var(--space-6);
-  box-shadow: var(--shadow-md);
+/* =============================================================
+   Transformers & Attention on Multi-GPU — light course theme
+   (matches the other Learn AI courses; only accent + scene styles)
+   ============================================================= */
+:root {
+  /* Accent — indigo→blue, matching the catalog gradient */
+  --color-accent:       #6d28d9;
+  --color-accent-hover: #5b21b6;
+  --color-accent-light: #ede9fe;
+  --color-accent-muted: #a78bfa;
+}
+
+/* Standard module-number visibility fix (dark text on light bg) */
+.module-number { color: var(--color-text); opacity: 0.8; }
+
+/* =============================================================
+   WEBGL SCENE STAGE — a framed figure inside the light page.
+   The 3D canvas itself is a dark stage (reads like a diagram/video);
+   its frame, caption and controls match the light course chrome.
+   ============================================================= */
+.scene-stage {
+  position: relative;
   margin: var(--space-8) 0;
-  overflow-x: auto;
-  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
 }
-.post-diagram svg {
+.scene-canvas {
   display: block;
-  margin: 0 auto;
-  max-width: 100%;
-  height: auto;
+  width: 100%;
+  height: 440px;
+  background: #0d1017;   /* dark 3D stage */
+  cursor: grab;
 }
-.post-diagram-caption {
-  text-align: center;
+.scene-canvas:active { cursor: grabbing; }
+@media (max-width: 640px) { .scene-canvas { height: 320px; } }
+
+.scene-loading {
+  position: absolute; top: 0; left: 0; right: 0; height: 440px;
+  display: flex; align-items: center; justify-content: center;
+  color: #9aa4bf;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: linear-gradient(90deg, #0d1017 0%, #161b28 50%, #0d1017 100%);
+  background-size: 200% 100%;
+  animation: sceneShimmer 1.4s ease-in-out infinite;
+}
+@media (max-width: 640px) { .scene-loading { height: 320px; } }
+@keyframes sceneShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+.scene-stage.ready .scene-loading { display: none; }
+
+.scene-caption {
+  padding: var(--space-4) var(--space-5);
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
-  font-style: italic;
-  margin-top: var(--space-4);
+  background: var(--color-surface-warm);
+  border-top: 1px solid var(--color-border-light);
 }
-.mem-text  { font-family: var(--font-body);    font-size: 13px; fill: #2c2a28; }
-.mem-mono  { font-family: var(--font-mono);     font-size: 11px; fill: #6b6560; }
-.mem-title { font-family: var(--font-display);  font-size: 14px; font-weight: 700; fill: #2c2a28; }
+.scene-caption strong { color: var(--color-text); }
+.scene-caption .scene-eq { color: var(--color-accent); font-family: var(--font-mono); }
 
-/* Smooth, GPU-friendly transitions for SVG diagram elements */
-.post-diagram svg rect,
-.post-diagram svg path,
-.post-diagram svg line {
-  transition: opacity var(--duration-normal) var(--ease-out);
+.scene-controls {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-light);
 }
+.scene-btn {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.scene-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.scene-btn.primary { background: var(--color-accent); color: #fff; border-color: var(--color-accent); font-weight: 600; }
+.scene-btn.primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); color: #fff; }
+.scene-progress { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
 
+/* Live read-out panel some scenes draw into (numbers that change as it animates) */
+.scene-readout {
+  padding: var(--space-3) var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-surface-warm);
+  border-top: 1px solid var(--color-border-light);
+  min-height: 1.5em;
+}
+.scene-readout .rk { color: var(--color-text-muted); }
+
+/* =============================================================
+   TABLES (.post-bench) — the course design system had no table
+   style; define a clean, non-overlapping one for module tables.
+   ============================================================= */
+.module-body table, .post-bench {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-8) 0;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  table-layout: auto;
+}
+.post-bench thead th {
+  background: var(--color-bg-warm);
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+.post-bench tbody td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+  vertical-align: top;
+  line-height: var(--leading-snug);
+}
+.post-bench tbody tr:last-child td { border-bottom: none; }
+.post-bench tbody tr:nth-child(even) td { background: var(--color-surface-warm); }
+.post-bench tbody td:first-child {
+  color: var(--color-text);
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .post-bench { display: block; overflow-x: auto; white-space: nowrap; }
+}

@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
   <style>
     :root {
@@ -21,7 +22,31 @@
     }
   </style>
 
+  <!-- MathJax for the all-reduce gating / EP_SIZE math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <!-- highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+
+  <!-- Three.js r128 core + OrbitControls (classic globals, no ES modules) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" defer></script>
+
+  <!-- Shared course engine + WebGL scenes -->
   <script src="main.js" defer></script>
+  <script src="scenes.js?v=1" defer></script>
+
+  <script defer>
+    window.addEventListener('load', function () {
+      if (window.hljs) document.querySelectorAll('pre code').forEach(function (b) { hljs.highlightElement(b); });
+    });
+  </script>
 </head>
 <body>
 
@@ -32,7 +57,7 @@
       </svg>
       <span>Back to Blog</span>
     </a>
-    <a href="/pr-walkthroughs/" class="back-link ml-auto"><span>All Walkthroughs</span></a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
   </div>
 
   <nav class="nav" id="nav">

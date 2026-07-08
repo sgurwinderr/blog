@@ -38,37 +38,17 @@
         <h2 class="screen-heading">A Token's Journey Through a Wide-EP Layer</h2>
         <p>Between attention and the experts sits a <strong>dispatch/combine</strong> all-to-all — a token permutation across GPUs. Step through it.</p>
 
-        <div class="flow-animation" data-steps='[
-          {"highlight":"actor-1","label":"Attention runs locally on each DP rank, over its own requests and KV cache."},
-          {"highlight":"actor-2","packet":true,"from":"actor-1","to":"actor-2","label":"Dispatch (all-to-all): each token is scattered to the GPU(s) that own its top-k experts."},
-          {"highlight":"actor-3","label":"Experts compute — only the GPUs holding a token’s experts do work for it. This is the sparsity win."},
-          {"highlight":"actor-4","packet":true,"from":"actor-3","to":"actor-4","label":"Combine (all-to-all): results gather back to the token’s original rank."},
-          {"highlight":"actor-1","label":"Every rank must step together — idle ranks run dummy passes so the collective always has a partner."}
-        ]'>
-          <div class="flow-actors">
-            <div class="flow-actor" id="flow-actor-1">
-              <div class="flow-actor-icon">ATT</div>
-              <span>DP Attention</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-2">
-              <div class="flow-actor-icon">&#x21c4;</div>
-              <span>Dispatch</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-3">
-              <div class="flow-actor-icon">EXP</div>
-              <span>Experts</span>
-            </div>
-            <div class="flow-actor" id="flow-actor-4">
-              <div class="flow-actor-icon">&#x21c4;</div>
-              <span>Combine</span>
-            </div>
+        <div class="scene-stage" data-scene="expert">
+          <canvas class="scene-canvas" aria-label="3D scene: tokens from four DP ranks fly up to the expert GPUs that own them; expert E2 receives three tokens (a hot expert) while E3 gets none, then results combine back to their home ranks"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
           </div>
-          <div class="flow-packet"></div>
-          <div class="flow-step-label">Click "Next Step" to begin</div>
-          <div class="flow-controls">
-            <button class="flow-next-btn">Next Step</button>
-            <button class="flow-reset-btn">Reset</button>
-            <span class="flow-progress">Step 0 / 5</span>
+          <div class="scene-caption">
+            <strong>Step 1</strong> each rank holds its own tokens · <strong>Step 2</strong> dispatch all-to-all routes each token to its expert — E2 gets 3, E3 gets 0 · <strong>Step 3</strong> the skew (hot expert) that EPLB rebalances · <strong>Step 4</strong> combine gathers results home. Use <em>Next step</em>; drag to orbit.
           </div>
         </div>
       </section>

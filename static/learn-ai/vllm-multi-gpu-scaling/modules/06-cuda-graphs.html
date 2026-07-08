@@ -54,6 +54,24 @@
       </section>
 
       <section class="screen animate-in">
+        <h2 class="screen-heading">Eight Launches → One Replay</h2>
+        <p>The orange blocks are individual CPU kernel launches, fired one by one every step. Step forward to capture them into a single CUDA graph and replay the whole sequence at once.</p>
+        <div class="scene-stage" data-scene="cudagraph">
+          <canvas class="scene-canvas" aria-label="3D scene: eight orange per-op CPU launch blocks pulse in sequence, then collapse into a single green graph-replay block roughly half the width"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Capture &amp; replay</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> eight separate CPU launches, each with overhead, fired sequentially (~56 ms) · <strong>Step 2</strong> captured once and replayed as a single op (~28 ms). In TP/PP this compounds across every rank. Toggle; drag to orbit.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
         <h2 class="screen-heading">Where the Gains Landed</h2>
         <div class="step-cards stagger-children">
           <div class="step-card">

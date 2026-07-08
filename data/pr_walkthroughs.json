@@ -1,16 +1,5 @@
 [
   {
-    "title": "How vLLM Scales Across GPUs",
-    "url": "/pr-walkthroughs/vllm-multi-gpu-scaling/",
-    "category": "GPU · Distributed Inference",
-    "summary": "The four parallelism dimensions of vLLM V1 — tensor, pipeline, Wide EP, and disaggregated serving — traced through the merged PRs behind each.",
-    "gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    "icon": "vLLM",
-    "iconType": "text",
-    "modules": "8 Modules",
-    "duration": "1-2 Hours"
-  },
-  {
     "title": "Staging Large FMA Dots via SLM",
     "url": "/pr-walkthroughs/stage-large-fma-dots-slm/",
     "category": "Triton · Intel XPU",
