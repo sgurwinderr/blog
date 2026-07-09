@@ -103,6 +103,7 @@ Augmented Reality tool to help students visualize linear algebra and trigonometr
 
 **Mano-Aid — AI Medical Device** *(Grant: INR 250k)*  
 AI-driven VR system to monitor physiological signals (heart rate, EDA, hand tremors) for real-time health assessment in neurological conditions.
+
 ---
 
 ## Let's Connect
