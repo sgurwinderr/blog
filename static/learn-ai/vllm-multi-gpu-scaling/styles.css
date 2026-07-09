@@ -931,6 +931,7 @@ p:last-child { margin-bottom: 0; }
   font-size: var(--text-base);
   font-weight: 700;
   margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;   /* let long titles wrap before the PR chip pushes out */
 }
 /* PR reference chip (in pattern titles) + auto-linked PR numbers */
 .pr-ref {
@@ -1410,4 +1411,26 @@ body {
 }
 @media (max-width: 640px) {
   .post-bench { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+/* =============================================================
+   SVG DIAGRAM TEXT — these classes were used in module SVGs but
+   never defined, so labels rendered at the 16px browser default
+   and overflowed their boxes. Size them to the box designs.
+   ============================================================= */
+.mem-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--color-text);
+}
+.mem-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--color-text-secondary);
+}
+.mem-text {
+  font-family: var(--font-body);
+  font-size: 12px;
+  fill: var(--color-text);
 }

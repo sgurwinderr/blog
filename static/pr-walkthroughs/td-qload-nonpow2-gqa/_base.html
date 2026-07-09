@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tensor-Descriptor Q-Load for Non-Power-of-2 GQA</title>
+  <meta name="description" content="When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack &#8212; taught through attention's Q load and prefill tile sizing.">
+  <link rel="canonical" href="https://sgurwinderr.com/pr-walkthroughs/td-qload-nonpow2-gqa/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="TD Q-Load for Non-Power-of-2 GQA">
+  <meta property="og:description" content="When a GPU block-I/O fast path demands power-of-2 extents, pad the awkward axis, read wider, and mask the slack &#8212; taught through attention's Q load and prefill tile sizing.">
+  <meta property="og:url" content="https://sgurwinderr.com/pr-walkthroughs/td-qload-nonpow2-gqa/">
 
   <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">

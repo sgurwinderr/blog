@@ -4,13 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>vLLM Triton Kernel Optimization</title>
+  <meta name="description" content="Master vLLM&#x27;s optimization internals through Triton kernel implementations.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/vllm-triton-optimization/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="vLLM Optimization Deep Dive">
+  <meta property="og:description" content="Master vLLM&#x27;s optimization internals through Triton kernel implementations.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/vllm-triton-optimization/">
 
   <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css">
 
   <style>
     :root {
@@ -24,19 +30,6 @@
   <script src="main.js" defer></script>
 </head>
 <body>
-
-  <!-- Back Navigation -->
-  <div class="back-to-blog">
-    <a href="/learn-ai/" class="back-link">
-      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-      </svg>
-      <span>Back to Learn AI</span>
-    </a>
-    <a href="/" class="back-link ml-auto">
-      <span>Home</span>
-    </a>
-  </div>
 
   <nav class="nav" id="nav">
     <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>

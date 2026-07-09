@@ -4,13 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>How vLLM Scales Across GPUs</title>
+  <meta name="description" content="A WebGL walkthrough of vLLM V1's four parallelism dimensions — tensor, pipeline, Wide EP, and disaggregated serving — with animated all-reduce, pipeline bubbles, expert dispatch, and KV transfer, grounded in the merged PRs behind each.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/vllm-multi-gpu-scaling/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="How vLLM Scales Across GPUs">
+  <meta property="og:description" content="A WebGL walkthrough of vLLM V1's four parallelism dimensions, grounded in the merged PRs behind each.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/vllm-multi-gpu-scaling/">
 
   <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=2">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
   <style>
