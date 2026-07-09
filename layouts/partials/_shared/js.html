@@ -6,3 +6,7 @@
 <!-- Dark mode toggle -->
 {{ $darkJS := resources.Get "js/darkmode.js" | resources.Minify | resources.Fingerprint }}
 <script src="{{ $darkJS.RelPermalink }}" integrity="{{ $darkJS.Data.Integrity }}" crossorigin="anonymous" defer></script>
+
+<!-- Homepage catalog sliders -->
+{{ $sliderJS := resources.Get "js/slider.js" | resources.Minify | resources.Fingerprint }}
+<script src="{{ $sliderJS.RelPermalink }}" integrity="{{ $sliderJS.Data.Integrity }}" crossorigin="anonymous" defer></script>

@@ -14,14 +14,8 @@
     line-height: 1.6;
 }
 
-.course-thumb {
-    border-radius: 0;
-    transition: transform 0.3s ease;
-}
-
-.card:hover .course-thumb {
-    transform: scale(1.05);
-}
+/* .course-thumb sizing/zoom is handled by the shared card rules in
+   custom.css (.card-group .maxthumb .course-thumb). Nothing needed here. */
 
 .course-meta .badge {
     margin-right: 0.5rem;

@@ -13,41 +13,52 @@
         {{ $post_paginator := $.Paginate $regular 6 }}
         {{ if eq $post_paginator.PageNumber 1 }}
         <section class="learn-ai-home mb-5">
-            <div class="section-title">
+            <div class="section-title section-title--slider">
                 <h2><span>Learn AI</span></h2>
+                <a class="section-title-all" href="/learn-ai/">View all &rarr;</a>
             </div>
-            <div class="row">
-                {{ range first 3 site.Data.courses }}
-                <div class="col-12 col-md-4 mb-4">
-                    <div class="featured-card">
-                        <a href="{{ .url }}" class="featured-card-img-wrap">
-                            <div style="background: {{ .gradient | safeCSS }}; height: 280px; display: flex; align-items: center; justify-content: center; color: white; font-size: 72px; {{ if eq .iconType "text" }}font-weight: bold;{{ end }}">
-                                {{ .icon }}
-                            </div>
-                        </a>
-                        <div class="featured-card-body">
-                            <div class="featured-card-cat">
-                                <a href="/learn-ai/">{{ .category }}</a>
-                            </div>
-                            <h2 class="featured-card-title">
-                                <a href="{{ .url }}">{{ .title }}</a>
-                            </h2>
-                            <p class="featured-card-summary">{{ .summary }}</p>
-                            <div class="post-card-meta">
-                                {{ if isset $.Site.Params.author "thumbnail" }}
-                                <img class="author-thumb" src="{{ $.Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ $.Site.Params.author.name }}">
-                                {{ end }}
-                                <div class="post-card-meta-text">
-                                    {{ if isset $.Site.Params.author "name" }}
-                                    <span class="post-name">{{ $.Site.Params.author.name }}</span>
-                                    {{ end }}
-                                    <span class="post-date">May 2026 &middot; {{ .modules }} &middot; {{ .duration }}</span>
+            <div class="catalog-slider" data-slider="courses" data-visible="3">
+                <button class="slider-btn slider-prev" type="button" aria-label="Previous courses">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <div class="slider-viewport">
+                    <div class="slider-track">
+                        {{ range site.Data.courses }}
+                        <div class="slider-slide">
+                            <div class="featured-card">
+                                <a href="{{ .url }}" class="featured-card-img-wrap">
+                                    <div class="featured-card-thumb" style="background: {{ .gradient | safeCSS }}; {{ if eq .iconType "text" }}font-weight: bold;{{ end }}">
+                                        {{ .icon }}
+                                    </div>
+                                </a>
+                                <div class="featured-card-body">
+                                    <div class="featured-card-cat">
+                                        <a href="/learn-ai/">{{ .category }}</a>
+                                    </div>
+                                    <h2 class="featured-card-title">
+                                        <a href="{{ .url }}">{{ .title }}</a>
+                                    </h2>
+                                    <p class="featured-card-summary">{{ .summary }}</p>
+                                    <div class="post-card-meta">
+                                        {{ if isset $.Site.Params.author "thumbnail" }}
+                                        <img class="author-thumb" src="{{ $.Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ $.Site.Params.author.name }}">
+                                        {{ end }}
+                                        <div class="post-card-meta-text">
+                                            {{ if isset $.Site.Params.author "name" }}
+                                            <span class="post-name">{{ $.Site.Params.author.name }}</span>
+                                            {{ end }}
+                                            <span class="post-date">May 2026 &middot; {{ .modules }} &middot; {{ .duration }}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        {{ end }}
                     </div>
                 </div>
-                {{ end }}
+                <button class="slider-btn slider-next" type="button" aria-label="Next courses">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
             </div>
         </section>
         {{ end }}
@@ -55,41 +66,52 @@
         <!-- PR Walkthroughs Section (first page only) -->
         {{ if eq $post_paginator.PageNumber 1 }}
         <section class="learn-ai-home mb-5">
-            <div class="section-title">
+            <div class="section-title section-title--slider">
                 <h2><span>PR Walkthroughs</span></h2>
+                <a class="section-title-all" href="/pr-walkthroughs/">View all &rarr;</a>
             </div>
-            <div class="row">
-                {{ range first 3 site.Data.pr_walkthroughs }}
-                <div class="col-12 col-md-4 mb-4">
-                    <div class="featured-card">
-                        <a href="{{ .url }}" class="featured-card-img-wrap">
-                            <div style="background: {{ .gradient | safeCSS }}; height: 280px; display: flex; align-items: center; justify-content: center; color: white; font-size: 72px; {{ if eq .iconType "text" }}font-weight: bold;{{ end }}">
-                                {{ .icon }}
-                            </div>
-                        </a>
-                        <div class="featured-card-body">
-                            <div class="featured-card-cat">
-                                <a href="/pr-walkthroughs/">{{ .category }}</a>
-                            </div>
-                            <h2 class="featured-card-title">
-                                <a href="{{ .url }}">{{ .title }}</a>
-                            </h2>
-                            <p class="featured-card-summary">{{ .summary }}</p>
-                            <div class="post-card-meta">
-                                {{ if isset $.Site.Params.author "thumbnail" }}
-                                <img class="author-thumb" src="{{ $.Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ $.Site.Params.author.name }}">
-                                {{ end }}
-                                <div class="post-card-meta-text">
-                                    {{ if isset $.Site.Params.author "name" }}
-                                    <span class="post-name">{{ $.Site.Params.author.name }}</span>
-                                    {{ end }}
-                                    <span class="post-date">Jun 2026 &middot; {{ .modules }} &middot; {{ .duration }}</span>
+            <div class="catalog-slider" data-slider="walkthroughs" data-visible="3">
+                <button class="slider-btn slider-prev" type="button" aria-label="Previous walkthroughs">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <div class="slider-viewport">
+                    <div class="slider-track">
+                        {{ range site.Data.pr_walkthroughs }}
+                        <div class="slider-slide">
+                            <div class="featured-card">
+                                <a href="{{ .url }}" class="featured-card-img-wrap">
+                                    <div class="featured-card-thumb" style="background: {{ .gradient | safeCSS }}; {{ if eq .iconType "text" }}font-weight: bold;{{ end }}">
+                                        {{ .icon }}
+                                    </div>
+                                </a>
+                                <div class="featured-card-body">
+                                    <div class="featured-card-cat">
+                                        <a href="/pr-walkthroughs/">{{ .category }}</a>
+                                    </div>
+                                    <h2 class="featured-card-title">
+                                        <a href="{{ .url }}">{{ .title }}</a>
+                                    </h2>
+                                    <p class="featured-card-summary">{{ .summary }}</p>
+                                    <div class="post-card-meta">
+                                        {{ if isset $.Site.Params.author "thumbnail" }}
+                                        <img class="author-thumb" src="{{ $.Site.Params.author.thumbnail | urlize | relURL }}" alt="{{ $.Site.Params.author.name }}">
+                                        {{ end }}
+                                        <div class="post-card-meta-text">
+                                            {{ if isset $.Site.Params.author "name" }}
+                                            <span class="post-name">{{ $.Site.Params.author.name }}</span>
+                                            {{ end }}
+                                            <span class="post-date">Jun 2026 &middot; {{ .modules }} &middot; {{ .duration }}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        {{ end }}
                     </div>
                 </div>
-                {{ end }}
+                <button class="slider-btn slider-next" type="button" aria-label="Next walkthroughs">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
             </div>
         </section>
         {{ end }}
