@@ -11,21 +11,9 @@
   {{ with .Lastmod }}
   "dateModified": "{{ .Format "2006-01-02T15:04:05Z07:00" }}",
   {{ end }}
-  "author": {
-    "@type": "Person",
-    "name": {{ .Site.Params.author.name | jsonify }},
-    "url": "{{ .Site.BaseURL }}",
-    "jobTitle": "GPU Software Development Engineer",
-    "affiliation": {
-      "@type": "Organization",
-      "name": "Intel Corporation"
-    }
-  },
-  "publisher": {
-    "@type": "Person",
-    "name": {{ .Site.Params.author.name | jsonify }},
-    "url": "{{ .Site.BaseURL }}"
-  },
+  "author": { "@id": "{{ .Site.BaseURL }}#person" },
+  "publisher": { "@id": "{{ .Site.BaseURL }}#person" },
+  "isPartOf": { "@id": "{{ .Site.BaseURL }}#website" },
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": {{ .Permalink | jsonify }}

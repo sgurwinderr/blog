@@ -1,12 +1,20 @@
 baseURL = "https://sgurwinderr.com/"
 languageCode = "en-us"
-title = "AI & Graphics"
+title = "Gurwinder - AI & GPU"
 theme = "medium"
 summaryLength = 25
 copyright = "Gurwinder - All rights reserved"
 enableEmoji = true
 
-# Disable RSS feeds — keep only HTML + JSON (search index) for home.
+# Minify HTML output on every build (perf: smaller payload, faster LCP).
+# keepConditionalComments preserves IE hacks; keepWhitespace off for max savings.
+[minify]
+  minifyOutput = true
+  [minify.tdewolff.html]
+    keepDocumentTags = true
+    keepConditionalComments = true
+
+# Keep only HTML + JSON (client-side search index) for home.
 # NOTE: do NOT list "Sitemap" on page kinds here. Hugo generates the
 # site-wide /sitemap.xml automatically from its own sitemap kind; adding
 # "Sitemap" to home/section/page instead renders the sitemap template
@@ -67,19 +75,19 @@ enableEmoji = true
 
 [params]
   logo = "/assets/images/logo.png"
-  description = "GPU SDE | AI & Graphics @ Intel, Loves to Work on AI, Games & AR/VR"
+  description = "Making large-scale AI fast, one kernel at a time. Deep dives into GPU programming, PyTorch/Triton internals, and ML compilers by Gurwinder, a GPU software engineer at Intel."
   customCSS = ["/css/custom.css"]
 
 [params.author]
   name = "Gurwinder"
   thumbnail = "assets/images/profile.jpg"
-  description = "GPU SDE | AI & Graphics @ Intel, Loves to Work on AI, Games & AR/VR"
+  description = "GPU software engineer at Intel. I write about GPU programming, PyTorch/Triton internals, and ML compilers."
 
 [params.index]
   picture = "assets/images/profile.jpg"
   title = "Gurwinder"
-  subtitle = "GPU SDE | AI & Graphics @ Intel"
-  mdtext = "I write about AI, Graphics, Game Development, and more."
+  subtitle = "GPU & ML Systems @ Intel"
+  mdtext = "Making large-scale AI fast, one kernel at a time."
   alertbar = false
 
 [params.social]

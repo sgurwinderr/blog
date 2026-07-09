@@ -1,3 +1,52 @@
+/* =====================================================================
+   EDITORIAL DESIGN SYSTEM (Phase 2)
+   Centralized tokens for the clean-minimal editorial look. Light-mode
+   values live here; the [data-theme="dark"] block near the bottom
+   overrides the same token names. Prefer var(--token) over hardcoded hex.
+   ===================================================================== */
+:root {
+    /* Single accent (collapses the old 5 greens: #038252/#026a43/#00ab6b/#02B875/#1C9963) */
+    --accent:            #038252;
+    --accent-hover:      #026a43;
+    --accent-soft:       rgba(3,130,82,0.09);
+    --accent-soft-hover: rgba(3,130,82,0.16);
+
+    /* Neutrals */
+    --bg:            #ffffff;
+    --surface:       #ffffff;
+    --surface-warm:  #fafafa;
+    --text:          #1a1a1a;
+    --text-body:     #2b2b2b;
+    --text-muted:    #6b7280;
+    --heading:       #111111;
+    --border:        #e7e7e7;
+    --border-light:  #f0f0f0;
+
+    /* Typography */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-serif: Merriweather, Georgia, "Times New Roman", serif;
+    --font-mono: "JetBrains Mono", "SF Mono", "Consolas", ui-monospace, monospace;
+
+    /* Modular type scale (1.25 major-third), base 18px */
+    --fs-base: 1.125rem;   /* 18px body */
+    --fs-sm:   0.875rem;
+    --fs-lg:   1.25rem;
+    --fs-h3:   1.35rem;
+    --fs-h2:   1.75rem;
+    --fs-h1:   2.4rem;
+    --lh-body: 1.7;
+    --lh-tight: 1.28;
+
+    /* Reading measure for long-form article text */
+    --measure: 72ch;
+
+    /* Radii + shadow (unify: cards/buttons 12px, code 8px) */
+    --radius:    12px;
+    --radius-sm: 8px;
+    --shadow:      0 1px 2px rgba(16,24,40,0.04), 0 8px 24px rgba(16,24,40,0.06);
+    --shadow-hover:0 2px 6px rgba(16,24,40,0.06), 0 18px 40px rgba(16,24,40,0.14);
+}
+
 /* ── Wider layout ──────────────────────────────────── */
 html {
     scroll-behavior: smooth;
@@ -21,6 +70,61 @@ html {
         max-width: 33.3333% !important;
     }
 }
+
+/* ── Editorial typography ──────────────────────────────
+   Body copy uses the token scale; headings use the sans stack for a
+   clean modern-tech feel; article text is capped to a readable measure. */
+body {
+    font-size: var(--fs-base);
+    line-height: var(--lh-body);
+    color: var(--text-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+.article-post {
+    font-family: var(--font-serif);
+    font-size: var(--fs-base);
+    line-height: var(--lh-body);
+    color: var(--text-body);
+    max-width: var(--measure);   /* ~72ch — no more 1000px+ lines */
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Article headings: sans, tight, clear hierarchy */
+.article-post h1,
+.article-post h2,
+.article-post h3,
+.article-post h4 {
+    font-family: var(--font-sans);
+    color: var(--heading);
+    line-height: var(--lh-tight);
+    letter-spacing: -0.01em;
+    margin-top: 2.2rem;
+    margin-bottom: 1rem;
+}
+.article-post h2 { font-size: var(--fs-h2); }
+.article-post h3 { font-size: var(--fs-h3); }
+
+/* Post title */
+h1.posttitle {
+    font-family: var(--font-sans);
+    font-size: var(--fs-h1);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--heading);
+    font-weight: 800;
+}
+
+/* Links inside prose pick up the single accent */
+.article-post a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+.article-post a:hover { color: var(--accent-hover); }
 
 /* ── Navbar wordmark ────────────────────────────────── */
 .mediumnavigation .navbar-brand.site-wordmark {
@@ -774,11 +878,39 @@ body.search-open {
 }
 
 /* ── Catalog slider (homepage Learn AI / PR Walkthroughs) ── */
+/* ── Refreshed section titles (replaces the dated double-underline) ── */
+.section-title h2 {
+    font-family: var(--font-sans);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: none !important;
+    margin-bottom: 1.5rem !important;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border) !important;
+}
+.section-title h2 span {
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+    display: inline;
+}
+
 .section-title--slider {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+}
+.section-title--slider h2 {
+    flex: 1;
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0.75rem;
 }
 .section-title--slider h2 {
     flex: 1;
@@ -1090,14 +1222,16 @@ body.search-open {
 }
 
 /* Inline code */
+/* Inline code — light chip in light mode (block code inside <pre> is reset
+   to transparent above, so this only affects inline `code`). */
 code {
-    background: #161b22 !important;
-    color: #e6edf3 !important;
+    background: var(--surface-warm) !important;
+    color: #b3123f !important;   /* muted crimson reads as "code" on light bg */
     padding: 2px 6px !important;
-    border-radius: 4px !important;
-    font-size: 13px !important;
-    font-family: 'Consolas', 'Courier New', monospace !important;
-    border: 1px solid #30363d !important;
+    border-radius: 5px !important;
+    font-size: 0.9em !important;
+    font-family: var(--font-mono) !important;
+    border: 1px solid var(--border) !important;
 }
 
 /* ── Suggested Posts ────────────────────────────────── */
@@ -1332,8 +1466,18 @@ code {
 
 /* Section titles */
 [data-theme="dark"] .section-title h2,
-[data-theme="dark"] .section-title h2 span { color: var(--dm-heading) !important; }
+[data-theme="dark"] .section-title h2 span { color: var(--dm-text-muted) !important; }
+[data-theme="dark"] .section-title h2,
+[data-theme="dark"] .section-title--slider { border-bottom-color: var(--dm-border) !important; }
 [data-theme="dark"] .section-title hr { border-color: var(--dm-border) !important; }
+
+
+/* Inline code (dark) — back to the dark chip */
+[data-theme="dark"] code {
+    background: var(--dm-code-bg) !important;
+    color: #e6edf3 !important;
+    border-color: var(--dm-border) !important;
+}
 
 /* Post page */
 [data-theme="dark"] .mainheading h1.posttitle { color: var(--dm-heading); }
@@ -1490,3 +1634,13 @@ code {
 [data-theme="dark"] .bottompagination .pagination > span.ml-1 { background: var(--dm-green); color: #10221a; }
 
 
+
+/* ── Footer meta (social links) ────────────────────── */
+.footer-meta { font-family: var(--font-sans); font-size: 0.85rem; color: var(--text-muted); }
+.footer-meta a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+.footer-meta a:hover { color: var(--accent); }
+.footer-sep { margin: 0 0.5rem; color: var(--border); }
+.footer-copy { margin-top: 0.5rem; }
+[data-theme="dark"] .footer-meta,
+[data-theme="dark"] .footer-meta a { color: var(--dm-text-muted); }
+[data-theme="dark"] .footer-meta a:hover { color: var(--dm-green); }

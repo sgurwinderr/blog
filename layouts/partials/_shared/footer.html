@@ -2,8 +2,11 @@
 <footer class="footer">
     <div class="container">
         <div class="row">
-            <div class="col-12 text-center">
-                &copy; {{ now.Year }} {{ .Site.Copyright }}
+            <div class="col-12 text-center footer-meta">
+                <a href="https://github.com/{{ .Site.Params.social.github }}" target="_blank" rel="noopener">GitHub</a>
+                <span class="footer-sep">&middot;</span>
+                <a href="https://linkedin.com/in/{{ .Site.Params.social.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>
+                <div class="footer-copy">&copy; {{ now.Year }} {{ .Site.Copyright }}</div>
             </div>
         </div>
     </div>

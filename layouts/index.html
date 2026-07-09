@@ -8,9 +8,9 @@
         {{ $allPosts := where site.RegularPages "Section" "post" }}
         {{ $featured := where $allPosts ".Params.featured" true }}
         {{ $regular := where $allPosts ".Params.featured" "!=" true }}
+        {{ $post_paginator := $.Paginate $regular 6 }}
 
         <!-- Learn AI Section (first page only) -->
-        {{ $post_paginator := $.Paginate $regular 6 }}
         {{ if eq $post_paginator.PageNumber 1 }}
         <section class="learn-ai-home mb-5">
             <div class="section-title section-title--slider">

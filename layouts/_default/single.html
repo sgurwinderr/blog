@@ -57,10 +57,11 @@
                     </div>
 
                     {{ with .Params.image }}
+                        {{/* LCP image: eager + high priority — never lazy (lazy+fetchpriority
+                             was contradictory and delayed the largest paint). */}}
                         <img class="featured-image img-fluid"
                              src="{{ . | relURL }}"
                              alt="{{ with $.Params.imageAlt }}{{ . }}{{ else }}Featured image for {{ $.Title }}{{ end }}"
-                             loading="lazy"
                              decoding="async"
                              fetchpriority="high">
                     {{ end }}

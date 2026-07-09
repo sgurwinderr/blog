@@ -1,8 +1,11 @@
+{{/* Canonical Person node (referenced by @id from article schema to avoid duplication)
+     plus a WebSite node emitted once on the home page. */}}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "Person",
-  "name": "Gurwinder",
+  "@id": "{{ .Site.BaseURL }}#person",
+  "name": {{ .Site.Params.author.name | jsonify }},
   "url": "{{ .Site.BaseURL }}",
   "description": {{ .Site.Params.description | jsonify }},
   "jobTitle": "GPU Software Development Engineer",
@@ -16,5 +19,18 @@
   ],
   "image": {{ .Site.Params.author.thumbnail | absURL | jsonify }}
 }
-
 </script>
+{{- if .IsHome }}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "{{ .Site.BaseURL }}#website",
+  "url": "{{ .Site.BaseURL }}",
+  "name": {{ .Site.Title | jsonify }},
+  "description": {{ .Site.Params.description | jsonify }},
+  "publisher": { "@id": "{{ .Site.BaseURL }}#person" },
+  "inLanguage": "en-US"
+}
+</script>
+{{- end }}

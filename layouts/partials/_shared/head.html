@@ -10,6 +10,9 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	{{/* Indexing directive: honour a per-page `noindex` front-matter flag, else index,follow.
+	     max-image-preview:large lets Google use full-size images in rich results. */}}
+	<meta name="robots" content="{{ if .Params.noindex }}noindex, nofollow{{ else }}index, follow, max-image-preview:large, max-snippet:-1{{ end }}">
 	{{ with .Site.Params.seo.googleSiteVerification }}
 	<meta name="google-site-verification" content="{{ . }}" />
 	{{ end }}
@@ -27,7 +30,7 @@
 	{{ with .Site.Params.logo }}
 	<link rel="icon" href="{{ . | urlize | relURL }}">
 	{{ end }}
-	<title>{{ .Page.Title }} | {{ .Site.Title }}</title>
+	<title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Page.Title }} | {{ .Site.Title }}{{ end }}</title>
 
 	<!-- Unified description computation (used in meta description, OG, Twitter) -->
 	{{ $desc := "" }}
@@ -83,7 +86,7 @@
 	{{- partial "_shared/schema.html" . -}}
 
 	<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
-	<link href="https://fonts.googleapis.com/css?family=Righteous%7CMerriweather:300,300i,400,400i,700,700i" rel="stylesheet">
+	<link href="https://fonts.googleapis.com/css?family=Righteous%7CMerriweather:300,300i,400,400i,700,700i&display=swap" rel="stylesheet">
 
 	{{ $medium := resources.Get "/css/medium.css" | resources.Minify | resources.Fingerprint }}
 	<link rel="stylesheet" href="{{ $medium.RelPermalink | absURL }}" integrity="{{ $medium.Data.Integrity }}">
