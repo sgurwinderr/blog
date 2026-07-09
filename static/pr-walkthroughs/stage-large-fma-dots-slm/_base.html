@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tensor-Descriptor Q-Load for Non-Power-of-2 GQA</title>
+  <title>Staging Large FMA Dots via SLM</title>
 
   <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,21 +32,20 @@
       </svg>
       <span>Back to Blog</span>
     </a>
-    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+    <a href="/pr-walkthroughs/" class="back-link ml-auto"><span>All Walkthroughs</span></a>
   </div>
 
   <nav class="nav" id="nav">
     <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
     <div class="nav-inner">
-      <span class="nav-title">TD Q-Load for Non-Pow2 GQA</span>
+      <span class="nav-title">Staging Large FMA Dots via SLM</span>
       <div class="nav-dots" id="nav-dots" role="tablist">
-        <button class="nav-dot" data-target="module-1" data-tooltip="The Power-of-2 Wall" role="tab" aria-label="Module 1: The Power-of-2 Wall"></button>
-        <button class="nav-dot" data-target="module-2" data-tooltip="GQA & the Pow2 Gate" role="tab" aria-label="Module 2: GQA and the Power-of-2 Gate"></button>
-        <button class="nav-dot" data-target="module-3" data-tooltip="Why TD Needs Pow2" role="tab" aria-label="Module 3: Why the TD Path Needs a Power of 2"></button>
-        <button class="nav-dot" data-target="module-4" data-tooltip="The Fix: Pad & Mask" role="tab" aria-label="Module 4: The Fix — Pad and Mask"></button>
-        <button class="nav-dot" data-target="module-5" data-tooltip="Load vs Store" role="tab" aria-label="Module 5: The Load/Store Asymmetry"></button>
-        <button class="nav-dot" data-target="module-6" data-tooltip="Widen Prefill Tile" role="tab" aria-label="Module 6: Widen the Prefill Tile"></button>
-        <button class="nav-dot" data-target="module-7" data-tooltip="Validation & Pattern" role="tab" aria-label="Module 7: Validation and the General Pattern"></button>
+        <button class="nav-dot" data-target="module-1" data-tooltip="The PTSS Cliff" role="tab" aria-label="Module 1: The PTSS Cliff"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Stage in SLM, Tile K" role="tab" aria-label="Module 2: Stage in SLM, Tile K"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="The IR Rewrite" role="tab" aria-label="Module 3: The IR Rewrite"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="K_TILE & The Gates" role="tab" aria-label="Module 4: K_TILE and the Gates"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Pipeline & Design" role="tab" aria-label="Module 5: Pipeline Placement and Design"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Validation & Risk" role="tab" aria-label="Module 6: Validation, Prior Art and Risk"></button>
       </div>
     </div>
   </nav>

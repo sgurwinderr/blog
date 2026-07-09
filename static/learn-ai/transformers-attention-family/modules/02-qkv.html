@@ -1,0 +1,84 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Every Token Asks, Advertises, and Offers</h1>
+      <p class="module-subtitle">Q, K, V are three learned projections of the same vector — a query, a key, a value.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three roles from one vector</h2>
+        <p>Take a single token's vector \(x\). Attention multiplies it by three learned weight matrices to produce three new vectors:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ed;</div>
+          <div class="callout-content">
+            <p style="margin:0">
+              $$ q = W_Q\,x \qquad k = W_K\,x \qquad v = W_V\,x $$
+            </p>
+          </div>
+        </div>
+        <p>Read them as roles:</p>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background:var(--color-actor-3)">Q</div>
+            <h4 class="pattern-title">Query — what am I looking for?</h4>
+            <p class="pattern-desc">The direction this token uses to probe every other token.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background:var(--color-actor-2)">K</div>
+            <h4 class="pattern-title">Key — what do I advertise?</h4>
+            <p class="pattern-desc">The direction a token exposes so others can decide if it's relevant.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background:var(--color-actor-5)">V</div>
+            <h4 class="pattern-title">Value — what do I contribute?</h4>
+            <p class="pattern-desc">The information actually passed on if a token is attended to.</p>
+          </div>
+        </div>
+
+        <div class="scene-stage" data-scene="qkv">
+          <canvas class="scene-canvas" aria-label="3D scene: a single token vector emits three projected vectors Q, K, V in different directions"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="reset">Replay</button>
+            <button class="scene-btn" data-scene-act="pause">Pause</button>
+            <button class="scene-btn" data-scene-act="play">Resume</button>
+          </div>
+          <div class="scene-caption">One white token \(x\) at the origin projects into three learned directions Q, K, V — the three arrows grow in as it animates. <strong>Replay</strong> to watch again. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">It's three matmuls, batched over the sequence</h2>
+        <p>In practice you don't do this one token at a time. Stack all \(T\) tokens into \(X \in \mathbb{R}^{T \times d}\) and the projections become three dense matrix multiplies:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ Q = X W_Q,\quad K = X W_K,\quad V = X W_V \qquad W_\bullet \in \mathbb{R}^{d \times d_{\text{head}}} $$</p>
+          </div>
+        </div>
+        <p>Notice the shapes: \(Q\) and \(K\) share dimension \(d_{\text{head}}\) so we can dot them together. And here's a foreshadow — the whole MHA→MQA→GQA→MLA story in Module 5 is about how many copies of \(K\) and \(V\) you actually need to keep around. For now, on to the dot product itself.</p>
+      </section>
+
+      <div class="quiz-container animate-in" id="quiz-qkv">
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Right — Q, K, V are three independent linear projections of the same input x; they are not the same vector and not fixed."
+             data-explanation-wrong="Q, K, V come from three different learned matrices applied to the same x — they differ from each other.">
+          <p class="quiz-question">A token's Q, K, and V vectors are…</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)"><span class="quiz-option-radio"></span> the same vector reused three times</button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)"><span class="quiz-option-radio"></span> three learned linear projections of the same input</button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)"><span class="quiz-option-radio"></span> fixed, non-trainable position codes</button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+        <button class="quiz-check-btn" onclick="checkQuiz('quiz-qkv')">Check</button>
+        <button class="quiz-reset-btn" onclick="resetQuiz('quiz-qkv')">Reset</button>
+      </div>
+
+    </div>
+  </div>
+</section>

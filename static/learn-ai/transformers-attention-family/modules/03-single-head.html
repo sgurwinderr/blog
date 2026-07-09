@@ -1,0 +1,61 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">One Attention Head, End to End</h1>
+      <p class="module-subtitle">Dot-product to score, softmax to weight, weighted sum to mix. This is the whole engine.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Score by alignment</h2>
+        <p>A query \(q\) scores a key \(k\) by their dot product \(q \cdot k\). Geometrically that's alignment: keys pointing the same way as the query score high, orthogonal keys score near zero, opposed keys go negative. The scene below draws one query (violet) against three keys (blue) — watch which key aligns.</p>
+
+        <div class="scene-stage" data-scene="attention">
+          <canvas class="scene-canvas" aria-label="3D scene: a query vector scored against three key vectors, softmax weights grow as bars, then a weighted value output appears"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> Q vs three keys · <strong>Step 2</strong> raw Q·K scores · <strong>Step 3</strong> softmax weights grow as green bars, the aligned key brightens · <strong>Step 4</strong> the orange output = weighted sum of values. Use <em>Next step</em>.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The formula, one symbol at a time</h2>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x2211;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{Attention}(Q,K,V) = \underbrace{\text{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_{\text{head}}}}\right)}_{\text{weights, one row per query}} V $$</p>
+          </div>
+        </div>
+        <ul>
+          <li><strong>\(QK^{\top}\)</strong> — every query dotted with every key: a \(T \times T\) score matrix.</li>
+          <li><strong>\(/\sqrt{d_{\text{head}}}\)</strong> — the scaling that keeps scores from exploding as \(d_{\text{head}}\) grows, so softmax doesn't saturate. This is the "scaled" in <em>scaled dot-product attention</em>.</li>
+          <li><strong>softmax</strong> — turns each score row into a probability distribution: non-negative, sums to 1.</li>
+          <li><strong>\(\cdot V\)</strong> — each output is that distribution's weighted average of value vectors.</li>
+        </ul>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why the \(T \times T\) matrix is the villain of this whole course</h2>
+        <p>That score matrix is quadratic in sequence length. At \(T=128\text{k}\) it's <em>16 billion entries per head</em> — it cannot live in memory naively. This single fact drives every variant we meet from Module 5 on: shrinking the KV cache (MQA/GQA/MLA), skipping cells (local/sparse), reordering the matmul (linear attention), and never materializing the grid at all (FlashAttention). We build the grid explicitly in the next module, then spend the rest of the course beating it.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Causal masking</strong>
+            <p>In a decoder, a token may only attend to itself and earlier tokens. We mask the upper triangle of \(QK^{\top}\) to \(-\infty\) before softmax so future positions get weight zero. Masking also shapes how work splits across devices.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

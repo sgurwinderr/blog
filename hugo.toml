@@ -99,6 +99,12 @@ enableEmoji = true
     url = "/learn-ai"
 
 [[menu.main]]
+    name = "PR Walkthroughs"
+    weight = 200
+    identifier = "pr-walkthroughs"
+    url = "/pr-walkthroughs"
+
+[[menu.main]]
     name = "About"
     weight = 600
     identifier = "about"

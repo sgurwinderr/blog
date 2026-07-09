@@ -1,0 +1,77 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">08</span>
+      <h1 class="module-title">FlashAttention: Compute the Exact Grid, Never Store It</h1>
+      <p class="module-subtitle">Same math as full attention — but tiled through fast on-chip memory so the T×T matrix is never written out.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Attention is memory-bound, not compute-bound</h2>
+        <p>The surprise in the naive implementation: the GPU spends most of its time <em>waiting on memory</em>, not multiplying. It writes the giant \(T\times T\) score matrix out to slow HBM, reads it back for softmax, writes again, reads again. At \(T=16{,}384\) that intermediate is <strong>512 MB per head, per batch item</strong> in FP16 (\(16384^2 \times 2\) bytes). Moving it dominates the runtime.</p>
+
+        <div class="scene-stage" data-scene="flashattn">
+          <canvas class="scene-canvas" aria-label="3D scene: a greyed T-by-T matrix labeled 'never written to HBM' while K/V blocks stream into a small SRAM tile; running max m and sum l update per block"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next stage</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Step through <strong>naive → safe → online → Flash</strong>. In the Flash stage, K/V blocks stream into a small SRAM tile and the running \(m\) (max) and \(l\) (sum) update per block — the big grid stays greyed: <em>never written to HBM</em>. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The obstacle: softmax isn't associative</h2>
+        <p>Matmul tiles cleanly because addition is associative — you can accumulate partial sums in any order. Softmax can't, because it needs the max and the sum over the <em>whole</em> row for numerical stability. FlashAttention's key trick is <strong>online softmax</strong>: carry two running numbers per row and correct them as each new block arrives.</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ee;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ m_i = \max(m_{i-1}, \tilde{m}),\qquad \ell_i = \ell_{i-1}\,e^{\,m_{i-1}-m_i} + \textstyle\sum e^{\,x - m_i} $$</p>
+          </div>
+        </div>
+        <p>The \(e^{m_{i-1}-m_i}\) factor rescales the old running sum whenever a bigger max appears. The result is the <em>exact</em> softmax — no approximation — computed without ever holding a full row, let alone the full matrix.</p>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why it scales</h2>
+        <p>FlashAttention tiles \(Q, K, V\) into blocks that fit in on-chip SRAM and <strong>fuses the whole computation into one kernel</strong>: scores, softmax, and the value-weighted sum happen on-chip, and only the final output goes back to HBM. The SRAM footprint depends on block size and head dimension — <em>not</em> on sequence length — so it scales to 16k+ context without the memory blow-up. Result: 2–4× faster and dramatically less memory, enabling longer context.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">One thing FlashAttention is NOT</strong>
+            <p>It does <em>not</em> make attention sub-quadratic in <strong>compute</strong> — it still performs \(O(T^2)\) FLOPs. What it removes is the \(O(T^2)\) <strong>memory traffic and storage</strong>. It's an exact, IO-aware reorganization, not an approximation like sparse or linear attention. That's why it composes with them: FlashAttention for the kernel, sparsity/linearity for the algorithm.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The family, in one table</h2>
+        <table class="post-bench">
+          <thead><tr><th>Variant</th><th>Attacks</th><th>Cost vs full</th><th>Exact?</th></tr></thead>
+          <tbody>
+            <tr><td>MHA</td><td>—</td><td>O(T²), full KV</td><td>exact (baseline)</td></tr>
+            <tr><td>MQA / GQA / MLA</td><td>KV-cache size</td><td>same compute, far less KV memory</td><td>exact</td></tr>
+            <tr><td>Local / sliding window</td><td>which cells compute</td><td>O(T·w), linear</td><td>approximate</td></tr>
+            <tr><td>Sparse / strided</td><td>which cells compute</td><td>sub-quadratic</td><td>approximate</td></tr>
+            <tr><td>Linear attention</td><td>the matmul order</td><td>O(T)</td><td>approximate</td></tr>
+            <tr><td>FlashAttention</td><td>memory traffic</td><td>O(T²) compute, O(1)-in-T memory</td><td>exact</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3c1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The through-line</strong>
+            <p>Every row of that table is a different answer to the same question from Module 4: <em>the \(T\times T\) score matrix is too expensive.</em> Shrink what you store, skip what you compute, reorder to avoid the grid, or compute it exactly but never write it down. Understand the grid, and the whole family falls into place.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

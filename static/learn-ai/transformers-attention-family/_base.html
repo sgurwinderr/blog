@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Attention Family — A Visual Guide</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+  <!-- MathJax for inline attention math (softmax, scaled dot-product) -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <!-- highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+
+  <!-- Three.js r128 core + OrbitControls (classic globals, no ES modules) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" defer></script>
+
+  <!-- Shared course engine + WebGL scenes -->
+  <script src="main.js" defer></script>
+  <script src="scenes.js?v=4" defer></script>
+
+  <script defer>
+    window.addEventListener('load', function () {
+      if (window.hljs) document.querySelectorAll('pre code').forEach(function (b) { hljs.highlightElement(b); });
+    });
+  </script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">The Attention Family</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Tokens &amp; Retrieval" role="tab" aria-label="Module 1: Tokens and the Retrieval Idea"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Q, K, V" role="tab" aria-label="Module 2: Q, K, V"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="One Head" role="tab" aria-label="Module 3: One Head end to end"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="The QKᵀ Matrix" role="tab" aria-label="Module 4: Multi-head and the QK^T matrix"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Shrinking the KV Cache" role="tab" aria-label="Module 5: MHA MQA GQA MLA"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Local &amp; Sparse" role="tab" aria-label="Module 6: Local and Sparse Attention"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Linear Attention" role="tab" aria-label="Module 7: Linear Attention"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="FlashAttention" role="tab" aria-label="Module 8: FlashAttention"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->

@@ -43,7 +43,17 @@ title: 'Staging Large FMA Dots via SLM: A TTGIR Pass for Non-DPAS Intel GPUs'
 .post-bench tbody tr:hover td { background: #e1f0fa; }
 </style>
 
-A tt.dot over a BlockedEncoding on non-DPAS Intel GPUs lowers to a fused-multiply-add (FMA) loop nest. If the K dimension is large, the LLVM-level unroller produces a register schedule wider than the 4 KB GRF, the surplus spills into Per-Thread Scratch Space (PTSS), and on integrated Xe-LPG hardware (ARL-S, A770, MTL) we blow past the 256 KB PTSS limit — the IGC build fails before the kernel ever runs.
+A tt.dot over a BlockedEncoding on non-DPAS Intel GPUs lowers to a fused-multiply-add (FMA) loop nest. If the K dimension is large, the LLVM-level unroller produces a register schedule wider than the 4 KB GRF, the surplus spills into Per-Thread Scratch Space (PTSS), and on integrated Xe-LPG hardware (ARL-S, A770, MTL) we blow past the 256 KB PTSS limit — the IGC build fails before the kernel ever runs. Running the 64×128×128 f16 repro on stock triton-xpu 3.7.1 baseline (ARL-S iGPU, 2026-06-25), IGC reports:
+
+```
+error: total scratch space exceeds HW supported limit for kernel dot_kernel:
+  325760 bytes (max permitted PTSS 262144 bytes)
+error: total scratch space exceeds HW supported limit for kernel dot_kernel:
+  321152 bytes (max permitted PTSS 262144 bytes)  # retry with 256-GRF mode
+error: backend compiler failed build.
+```
+
+That's **~318 KB** requested, **256 KB** allowed — a 62 KB overshoot. IGC's second line is the compiler's own 256-GRF-mode retry, which shaves 4 KB off but still overshoots. Issue [#7273](https://github.com/intel/intel-xpu-backend-for-triton/issues/7273) reports higher numbers (583–587 KB) on other software stacks; the ~318 KB above is what's observable on the version I ship this post from, but the pattern is the same on every non-DPAS Xe-LPG SKU: the build fails.
 
 This post walks through tritonintelgpu-stage-large-fma-dots-via-slm — a TTGIR pass that fixes the cliff by staging operands in SLM and emitting K-tile chunks against a memdesc_subslice view. On a 24-case ARL-S sweep it recovers **9/9 PTSS regressions** and delivers a **1.86× geomean speedup** on cases where both builds compile.
 
@@ -120,59 +130,81 @@ When you write `tl.dot(a, b, acc)` in a Triton kernel, the compiler picks one of
 - **DPAS path** — On hardware with a systolic matrix unit (PVC, BMG, ARL-H Xe2), the dot lowers to a few `dpas` instructions per K step. Hardware does the heavy lifting; per-thread register pressure stays bounded. **This pass is a no-op on DPAS hardware.**
 - **FMA path** — On non-DPAS Intel iGPUs (ARL-S, MTL, A770, and other integrated Xe-LPG GPUs) there is no DPAS unit. The dot falls back to a hand-coded FMA loop nest, fully unrolled along K. **This is the path that breaks.**
 
-### 1.3 The arithmetic of "fully unrolled K"
+### 1.3 The arithmetic: how the encoding sets register pressure
 
-Take a concrete shape: a 64×128×128 f16 GEMM where one thread covers an 8×8 micro-tile of the output.
+The ARL-S blocked encoding for this dot is:
 
-<div class="post-diagram">
-<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" aria-label="One thread covers an 8x8 micro-tile">
-  <rect x="40" y="60" width="80" height="160" fill="#e1f0fa" stroke="#0071c5" stroke-width="2"/>
-  <text x="80" y="50" class="mem-title" text-anchor="middle">A: 64×128</text>
-  <rect x="40" y="80" width="80" height="20" fill="#0071c5" opacity="0.5"/>
+```
+sizePerThread  = [1, 1]
+threadsPerWarp = [2, 16]     # 32 lanes/warp (SIMD32)
+warpsPerCTA    = [4, 1]      # num_warps = 4
+```
 
-  <rect x="180" y="60" width="160" height="80" fill="#e1f0fa" stroke="#0071c5" stroke-width="2"/>
-  <text x="260" y="50" class="mem-title" text-anchor="middle">B: 128×128</text>
-  <rect x="200" y="60" width="20" height="80" fill="#0071c5" opacity="0.5"/>
+A single lane doesn't get a contiguous block of the output — it gets a *scatter* of cells, one per CTA-tile repetition. Work out the repetitions:
 
-  <text x="370" y="115" class="mem-title" font-size="22" text-anchor="middle">=</text>
+$$
+\text{CTA tile} = \text{sizePerThread} \times \text{threadsPerWarp} \times \text{warpsPerCTA} = [1{\cdot}2{\cdot}4,\; 1{\cdot}16{\cdot}1] = [8,\; 16]
+$$
 
-  <rect x="420" y="60" width="160" height="80" fill="#fde4d0" stroke="#d94f30" stroke-width="2"/>
-  <text x="500" y="50" class="mem-title" text-anchor="middle">C: 64×128</text>
-  <rect x="440" y="80" width="20" height="20" fill="#d94f30"/>
+$$
+\text{reps} = [M, N] / \text{CTA tile} = [64/8,\; 128/16] = [8,\; 8]
+$$
 
-  <text x="350" y="255" class="mem-text" text-anchor="middle">For my 8×8 chunk of C, I need C[i][j] = Σ A[i][k] × B[k][j] for k = 0..127</text>
-  <text x="350" y="280" class="mem-text" text-anchor="middle">That's 64 output cells × 128 K-steps = <tspan font-weight="700" fill="#0071c5">8192 FMAs per thread, all unrolled flat</tspan></text>
-</svg>
-<div class="post-diagram-caption">One thread is responsible for 64 output cells × 128 multiply-add steps each = 8192 FMAs. Highlighted strips are the operand slices it actually consumes.</div>
+So each lane owns **8 × 8 = 64 output cells**, and to compute them with K=128 fully unrolled it holds, per lane:[^issue7273]
+
+<div class="post-step-cards">
+  <div class="post-step-card">
+    <div class="post-step-num">A</div>
+    <div class="post-step-body">
+      <strong>A operand — 2,048 B</strong>
+      <p>reps_M × K × 2 B (f16) = 8 × 128 × 2 = 2,048 B. Its 8 row-repetitions, each a full K=128 stripe.</p>
+    </div>
+  </div>
+  <div class="post-step-card">
+    <div class="post-step-num">B</div>
+    <div class="post-step-body">
+      <strong>B operand — 2,048 B</strong>
+      <p>K × reps_N × 2 B (f16) = 128 × 8 × 2 = 2,048 B. Its 8 column-repetitions, each a full K=128 stripe.</p>
+    </div>
+  </div>
+  <div class="post-step-card">
+    <div class="post-step-num">C</div>
+    <div class="post-step-body">
+      <strong>Accumulator — 256 B</strong>
+      <p>reps_M × reps_N × 4 B (f32) = 8 × 8 × 4 = 256 B. Live the entire way through.</p>
+    </div>
+  </div>
 </div>
+
+That's **4,352 B per lane** — already past the 4,096 B (4 KB) GRF. This 4,352 B estimate is exactly what the pass computes to decide whether to fire (it's Gate 2, §6). The moment per-lane pressure crosses 4 KB, the schedule must spill.
 
 The Triton lowering, plus IGC's backend, fully unrolls that K loop. There is no TTGIR-level K-tile knob in upstream's pipeliner.[^triton-pipe] IGC has a register-pressure-aware unroll heuristic and a `DisableLoopUnroll` switch,[^igc-unroll] but they don't fire on the Triton-emitted IR pattern at the pressure regime that bites here.
 
-### 1.4 The cliff: 345 KB spill, 256 KB cap
+### 1.4 The cliff: ~318 KB spill, 256 KB cap
 
 A SIMD16 thread on Xe-LPG has a **4 KB GRF** in the default *small* register mode (128 × 32-byte registers). Xe-LPG also supports a *large* register mode that doubles capacity to 8 KB, but it halves thread occupancy per XVE — and Intel's `-ftarget-register-alloc-mode` flag is currently restricted to PVC, so flipping into it isn't a portable knob.[^xe-grf]
 
-The fully-unrolled schedule wants more than 4 KB. IGC dutifully spills the surplus into PTSS. ARL-S, A770, and MTL iGPUs cap PTSS at **256 KB per thread**, enforced by Intel's compute-runtime (NEO) user-mode driver in `gfx_core_helper_xehp_and_later.inl::getMaxScratchSize`.[^neo-ptss] An over-budget kernel is rejected at `zeKernelCreate` time with `ZE_RESULT_ERROR_INVALID_NATIVE_BINARY` — the binary never loads.
+The 4,352 B/lane above is only the operand floor. Two things blow it up much further at the hardware-thread level: the FMA path **promotes f16 → f32** (`decomposeMixedModeDotOp` inserts the cast), doubling every operand byte, and the scheduler broadcasts each operand element across the cells that consume it and extends live ranges for pipelining. Multiplied across the SIMD lanes, the promoted operand set alone consumes the full 256 KB budget before accumulator and scheduling slack are counted.
 
-On the 64×128×128 f16 GEMM, the spilled schedule wants **345 KB**:
+IGC spills the surplus into PTSS. ARL-S, A770, and MTL iGPUs cap PTSS at **256 KB per thread** (262,144 bytes), enforced by Intel's compute-runtime (NEO) user-mode driver in `gfx_core_helper_xehp_and_later.inl::getMaxScratchSize`.[^neo-ptss] Running the repro just now on stock triton-xpu 3.7.1, IGC reports **325,760 bytes** requested — a 62 KB overshoot:
 
 <div class="post-diagram">
-<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" aria-label="PTSS overflow: 345 KB requested, 256 KB ceiling">
+<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" aria-label="PTSS overflow: 318 KB requested, 256 KB ceiling">
   <line x1="500" y1="40" x2="500" y2="120" stroke="#c93b3b" stroke-width="2" stroke-dasharray="6,3"/>
   <text x="500" y="32" class="mem-title" fill="#c93b3b" text-anchor="middle">256 KB ceiling</text>
 
-  <rect x="40" y="65" width="460" height="40" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
-  <rect x="500" y="65" width="160" height="40" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
-  <text x="270" y="90" class="mem-title" text-anchor="middle" fill="#2d8b55">"in-budget" zone</text>
-  <text x="580" y="90" class="mem-title" text-anchor="middle" fill="#c93b3b">overshoot 89 KB</text>
+  <rect x="40" y="65" width="504" height="40" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
+  <rect x="544" y="65" width="116" height="40" rx="6" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
+  <text x="292" y="90" class="mem-title" text-anchor="middle" fill="#2d8b55">"in-budget" zone (256 KB)</text>
+  <text x="602" y="90" class="mem-title" text-anchor="middle" fill="#c93b3b">+62 KB</text>
 
-  <text x="350" y="135" class="mem-mono" text-anchor="middle">FMA-unrolled spill estimate per thread: 345 KB</text>
+  <text x="350" y="135" class="mem-mono" text-anchor="middle">IGC-requested scratch: 325,760 B ≈ 318 KB per thread</text>
 
-  <text x="40" y="175" class="mem-text">↳ IGC reports: <tspan font-family="JetBrains Mono, monospace" fill="#c93b3b">out of scratch space</tspan></text>
-  <text x="40" y="195" class="mem-text">↳ Driver returns: <tspan font-family="JetBrains Mono, monospace" fill="#c93b3b">ZE_RESULT_ERROR_INVALID_NATIVE_BINARY</tspan></text>
-  <text x="40" y="215" class="mem-text">↳ <tspan font-weight="700">No SPIR-V is emitted. The kernel never gets to run.</tspan></text>
+  <text x="40" y="175" class="mem-mono" fill="#c93b3b">error: total scratch space exceeds HW supported limit for kernel dot_kernel:</text>
+  <text x="60" y="193" class="mem-mono" fill="#c93b3b">325760 bytes (max permitted PTSS 262144 bytes)</text>
+  <text x="40" y="217" class="mem-text">↳ <tspan font-weight="700">error: backend compiler failed build. No SPIR-V is emitted.</tspan></text>
 </svg>
-<div class="post-diagram-caption">Full-K unroll asks for 345 KB; the driver caps you at 256 KB. There is no compiler flag to flip.</div>
+<div class="post-diagram-caption">Measured on ARL-S, triton-xpu 3.7.1, 2026-06-25. IGC's own 256-GRF-mode retry shaves it to 321,152 B — still over. Exact bytes vary by IGC/driver version (issue #7273 reports 583–587 KB on an earlier stack); the overshoot is the invariant.</div>
 </div>
 
 This is not a soft regression. The kernel does not run at all.
@@ -188,8 +220,8 @@ The pass detects this regime in TTGIR — *before* the LLVM unroller sees the IR
   <text x="180" y="25" class="mem-title" text-anchor="middle" fill="#c93b3b">BEFORE — one monolithic K=128 dot</text>
   <rect x="40" y="40" width="280" height="80" rx="8" fill="#fde0e0" stroke="#c93b3b" stroke-width="2"/>
   <text x="180" y="72" class="mem-title" text-anchor="middle">tt.dot (full K=128)</text>
-  <text x="180" y="98" class="mem-mono" text-anchor="middle">8192 FMAs unrolled flat</text>
-  <text x="180" y="148" class="mem-mono" text-anchor="middle" fill="#c93b3b">→ 345 KB spill → fail</text>
+  <text x="180" y="98" class="mem-mono" text-anchor="middle">K unrolled flat, operands f32-promoted</text>
+  <text x="180" y="148" class="mem-mono" text-anchor="middle" fill="#c93b3b">→ ~318 KB spill → fail</text>
 
   <text x="540" y="25" class="mem-title" text-anchor="middle" fill="#2d8b55">AFTER — four K=32 dots fed from SLM</text>
   <rect x="380" y="40" width="78" height="80" rx="6" fill="#e8f5ee" stroke="#2d8b55" stroke-width="2"/>
@@ -457,7 +489,7 @@ These are the cases the pass exists for. Baseline produces no SPIR-V binary at a
     <tr><th>Shape</th><th>Tile</th><th>grid</th><th>Baseline</th><th>Optimized</th><th>TFLOPS</th></tr>
   </thead>
   <tbody>
-    <tr><td><strong>64×128×128</strong></td><td>64×128×128</td><td>1×1</td><td class="pass-fail">PTSS overflow (345 KB &gt; 256 KB)</td><td class="pass-ok">0.891 ms</td><td>0.002</td></tr>
+    <tr><td><strong>64×128×128</strong></td><td>64×128×128</td><td>1×1</td><td class="pass-fail">PTSS overflow (~318 KB &gt; 256 KB)</td><td class="pass-ok">0.891 ms</td><td>0.002</td></tr>
     <tr><td>64×128×256</td><td>64×128×128</td><td>1×1</td><td class="pass-fail">PTSS overflow</td><td class="pass-ok">1.372 ms</td><td>0.003</td></tr>
     <tr><td>64×128×512</td><td>64×128×128</td><td>1×1</td><td class="pass-fail">PTSS overflow</td><td class="pass-ok">2.479 ms</td><td>0.003</td></tr>
     <tr><td>64×128×1024</td><td>64×128×128</td><td>1×1</td><td class="pass-fail">PTSS overflow</td><td class="pass-ok">4.800 ms</td><td>0.003</td></tr>

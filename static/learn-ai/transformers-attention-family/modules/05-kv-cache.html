@@ -1,0 +1,75 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Shrinking the KV Cache: MHA → MQA → GQA → MLA</h1>
+      <p class="module-subtitle">One story, four steps — how much of the keys and values do you actually need to keep?</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why keys and values pile up</h2>
+        <p>When a model generates text, it produces one token at a time. To attend, each new token needs the keys and values of <em>every previous token</em>. Recomputing them each step would be wasteful, so they're stored — the <strong>KV cache</strong>. Its size is the memory bottleneck of inference: it grows with sequence length <em>and</em> with the number of KV heads. The variants below are one long effort to make it smaller.</p>
+
+        <div class="scene-stage" data-scene="kvcache">
+          <canvas class="scene-canvas" aria-label="3D scene: 8 query heads on top; KV heads below collapse from 8 to groups to 1 to a single latent vector as you step through MHA, MQA, GQA, MLA"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next variant</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Eight query heads stay fixed on top. Watch the KV heads below collapse: 8 → 2 groups → 1 shared → a single compressed latent. The readout tracks the relative KV footprint. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The four steps</h2>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <h4 class="pattern-title">MHA — Multi-Head</h4>
+            <p class="pattern-desc">Every query head has its <em>own</em> key and value head. Maximum expressiveness, maximum KV cache. The baseline (Vaswani 2017).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <h4 class="pattern-title">MQA — Multi-Query</h4>
+            <p class="pattern-desc">All query heads share a <em>single</em> KV head. KV cache shrinks ~\(h\times\); decode gets much faster — but quality can drop.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <h4 class="pattern-title">GQA — Grouped-Query</h4>
+            <p class="pattern-desc">An intermediate number of KV groups (more than 1, fewer than \(h\)). Uptrained GQA gets near-MHA quality at MQA-like speed. Used in Llama-2/3, Mistral.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-4)">
+            <h4 class="pattern-title">MLA — Multi-head Latent</h4>
+            <p class="pattern-desc">Compress K and V into one shared <em>latent vector</em>, decompressed on the fly. The smallest KV footprint (DeepSeek-V2).</p>
+          </div>
+        </div>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ee;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The through-line</strong>
+            <p>Query heads never change — you always have \(h\) of them. What shrinks is how many distinct \(K\)/\(V\) you store: <strong>\(h\) → groups → 1 → a latent</strong>. Same attention math, progressively less memory to carry between decode steps.</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="quiz-container animate-in" id="quiz-kv">
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Right — GQA uses several KV groups (between 1 and h), trading a little quality for a big KV-cache reduction, landing between MHA and MQA."
+             data-explanation-wrong="GQA sits between MHA (one KV head each) and MQA (a single shared KV head): it uses an intermediate number of KV groups.">
+          <p class="quiz-question">Grouped-Query Attention (GQA) uses…</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)"><span class="quiz-option-radio"></span> one KV head per query head (same as MHA)</button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)"><span class="quiz-option-radio"></span> an intermediate number of KV groups, between MHA and MQA</button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)"><span class="quiz-option-radio"></span> a single latent vector for all keys and values</button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+        <button class="quiz-check-btn" onclick="checkQuiz('quiz-kv')">Check</button>
+        <button class="quiz-reset-btn" onclick="resetQuiz('quiz-kv')">Reset</button>
+      </div>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Attention Family — A Visual Guide</title>
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+  <!-- MathJax for inline attention math (softmax, scaled dot-product) -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <!-- highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+
+  <!-- Three.js r128 core + OrbitControls (classic globals, no ES modules) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" defer></script>
+
+  <!-- Shared course engine + WebGL scenes -->
+  <script src="main.js" defer></script>
+  <script src="scenes.js?v=4" defer></script>
+
+  <script defer>
+    window.addEventListener('load', function () {
+      if (window.hljs) document.querySelectorAll('pre code').forEach(function (b) { hljs.highlightElement(b); });
+    });
+  </script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">The Attention Family</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Tokens &amp; Retrieval" role="tab" aria-label="Module 1: Tokens and the Retrieval Idea"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Q, K, V" role="tab" aria-label="Module 2: Q, K, V"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="One Head" role="tab" aria-label="Module 3: One Head end to end"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="The QKᵀ Matrix" role="tab" aria-label="Module 4: Multi-head and the QK^T matrix"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Shrinking the KV Cache" role="tab" aria-label="Module 5: MHA MQA GQA MLA"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Local &amp; Sparse" role="tab" aria-label="Module 6: Local and Sparse Attention"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Linear Attention" role="tab" aria-label="Module 7: Linear Attention"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="FlashAttention" role="tab" aria-label="Module 8: FlashAttention"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">Tokens Become Directions in Space</h1>
+      <p class="module-subtitle">Before attention can do anything, meaning has to become geometry.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The one idea the whole series rests on</h2>
+        <p>A transformer never sees words. It sees <strong>vectors</strong> — long lists of numbers, one per token, living in a space of a few thousand dimensions. The single most important fact about that space is that <em>direction encodes meaning</em>: tokens that behave alike point alike. Everything attention does is manipulate these directions.</p>
+        <p>We can't draw 4096 dimensions, so throughout this course we project down to 3 and animate the shadow. The intuition survives the projection.</p>
+
+        <div class="scene-stage" data-scene="tokens">
+          <canvas class="scene-canvas" aria-label="3D scene: word tokens animate outward from the origin into meaning clusters"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Step through it:</strong> four embeddings → the shared "royalty" direction → the arithmetic <span class="scene-eq">king − man + woman = queen</span>. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What "an embedding" actually is</h2>
+        <p>An embedding is a learned lookup table \(E \in \mathbb{R}^{V \times d}\): one row per vocabulary entry \(V\), each row a \(d\)-dimensional vector. Token id \(i\) becomes row \(E_i\). The rows start random and are shaped by gradient descent until the geometry above emerges — no one hand-places "king" near "queen"; the training objective does.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Direction is the whole game</strong>
+            <p>That table \(E\) can be enormous — a 128k-token vocab at \(d=8192\) is a billion parameters — but the idea is simple: every token is a point in a high-dimensional space, and <em>which way it points</em> carries its meaning. Attention is entirely about comparing those directions. Hold that thought.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Position has to be injected</h2>
+        <p>A bare embedding is <em>order-blind</em>: "dog bites man" and "man bites dog" produce the same set of vectors. Transformers add <strong>positional information</strong> — classically sinusoidal encodings, in modern models rotary embeddings (RoPE) that rotate Q and K by an angle proportional to position. The upshot: each token's vector now carries <em>both</em> what it means and where it sits.</p>
+        <p>With tokens as positioned directions, we're ready for the question attention answers: <em>which other tokens should this one listen to?</em></p>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Every Token Asks, Advertises, and Offers</h1>
+      <p class="module-subtitle">Q, K, V are three learned projections of the same vector — a query, a key, a value.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three roles from one vector</h2>
+        <p>Take a single token's vector \(x\). Attention multiplies it by three learned weight matrices to produce three new vectors:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ed;</div>
+          <div class="callout-content">
+            <p style="margin:0">
+              $$ q = W_Q\,x \qquad k = W_K\,x \qquad v = W_V\,x $$
+            </p>
+          </div>
+        </div>
+        <p>Read them as roles:</p>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background:var(--color-actor-3)">Q</div>
+            <h4 class="pattern-title">Query — what am I looking for?</h4>
+            <p class="pattern-desc">The direction this token uses to probe every other token.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background:var(--color-actor-2)">K</div>
+            <h4 class="pattern-title">Key — what do I advertise?</h4>
+            <p class="pattern-desc">The direction a token exposes so others can decide if it's relevant.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background:var(--color-actor-5)">V</div>
+            <h4 class="pattern-title">Value — what do I contribute?</h4>
+            <p class="pattern-desc">The information actually passed on if a token is attended to.</p>
+          </div>
+        </div>
+
+        <div class="scene-stage" data-scene="qkv">
+          <canvas class="scene-canvas" aria-label="3D scene: a single token vector emits three projected vectors Q, K, V in different directions"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="reset">Replay</button>
+            <button class="scene-btn" data-scene-act="pause">Pause</button>
+            <button class="scene-btn" data-scene-act="play">Resume</button>
+          </div>
+          <div class="scene-caption">One white token \(x\) at the origin projects into three learned directions Q, K, V — the three arrows grow in as it animates. <strong>Replay</strong> to watch again. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">It's three matmuls, batched over the sequence</h2>
+        <p>In practice you don't do this one token at a time. Stack all \(T\) tokens into \(X \in \mathbb{R}^{T \times d}\) and the projections become three dense matrix multiplies:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ Q = X W_Q,\quad K = X W_K,\quad V = X W_V \qquad W_\bullet \in \mathbb{R}^{d \times d_{\text{head}}} $$</p>
+          </div>
+        </div>
+        <p>Notice the shapes: \(Q\) and \(K\) share dimension \(d_{\text{head}}\) so we can dot them together. And here's a foreshadow — the whole MHA→MQA→GQA→MLA story in Module 5 is about how many copies of \(K\) and \(V\) you actually need to keep around. For now, on to the dot product itself.</p>
+      </section>
+
+      <div class="quiz-container animate-in" id="quiz-qkv">
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Right — Q, K, V are three independent linear projections of the same input x; they are not the same vector and not fixed."
+             data-explanation-wrong="Q, K, V come from three different learned matrices applied to the same x — they differ from each other.">
+          <p class="quiz-question">A token's Q, K, and V vectors are…</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)"><span class="quiz-option-radio"></span> the same vector reused three times</button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)"><span class="quiz-option-radio"></span> three learned linear projections of the same input</button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)"><span class="quiz-option-radio"></span> fixed, non-trainable position codes</button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+        <button class="quiz-check-btn" onclick="checkQuiz('quiz-qkv')">Check</button>
+        <button class="quiz-reset-btn" onclick="resetQuiz('quiz-qkv')">Reset</button>
+      </div>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">One Attention Head, End to End</h1>
+      <p class="module-subtitle">Dot-product to score, softmax to weight, weighted sum to mix. This is the whole engine.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Score by alignment</h2>
+        <p>A query \(q\) scores a key \(k\) by their dot product \(q \cdot k\). Geometrically that's alignment: keys pointing the same way as the query score high, orthogonal keys score near zero, opposed keys go negative. The scene below draws one query (violet) against three keys (blue) — watch which key aligns.</p>
+
+        <div class="scene-stage" data-scene="attention">
+          <canvas class="scene-canvas" aria-label="3D scene: a query vector scored against three key vectors, softmax weights grow as bars, then a weighted value output appears"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">
+            <strong>Step 1</strong> Q vs three keys · <strong>Step 2</strong> raw Q·K scores · <strong>Step 3</strong> softmax weights grow as green bars, the aligned key brightens · <strong>Step 4</strong> the orange output = weighted sum of values. Use <em>Next step</em>.
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The formula, one symbol at a time</h2>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x2211;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{Attention}(Q,K,V) = \underbrace{\text{softmax}\!\left(\frac{QK^{\top}}{\sqrt{d_{\text{head}}}}\right)}_{\text{weights, one row per query}} V $$</p>
+          </div>
+        </div>
+        <ul>
+          <li><strong>\(QK^{\top}\)</strong> — every query dotted with every key: a \(T \times T\) score matrix.</li>
+          <li><strong>\(/\sqrt{d_{\text{head}}}\)</strong> — the scaling that keeps scores from exploding as \(d_{\text{head}}\) grows, so softmax doesn't saturate. This is the "scaled" in <em>scaled dot-product attention</em>.</li>
+          <li><strong>softmax</strong> — turns each score row into a probability distribution: non-negative, sums to 1.</li>
+          <li><strong>\(\cdot V\)</strong> — each output is that distribution's weighted average of value vectors.</li>
+        </ul>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why the \(T \times T\) matrix is the villain of this whole course</h2>
+        <p>That score matrix is quadratic in sequence length. At \(T=128\text{k}\) it's <em>16 billion entries per head</em> — it cannot live in memory naively. This single fact drives every variant we meet from Module 5 on: shrinking the KV cache (MQA/GQA/MLA), skipping cells (local/sparse), reordering the matmul (linear attention), and never materializing the grid at all (FlashAttention). We build the grid explicitly in the next module, then spend the rest of the course beating it.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Causal masking</strong>
+            <p>In a decoder, a token may only attend to itself and earlier tokens. We mask the upper triangle of \(QK^{\top}\) to \(-\infty\) before softmax so future positions get weight zero. Masking also shapes how work splits across devices.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Many Heads — and the T×T Matrix That Costs You</h1>
+      <p class="module-subtitle">Multi-head is cheap. The quadratic score matrix is the bill every attention variant is trying to shrink.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Parallel heads, each with its own subspace</h2>
+        <p>One head can only track one kind of relationship. So a block runs \(h\) heads in parallel, each with its own \(W_Q, W_K, W_V\) projecting into a smaller \(d_{\text{head}} = d/h\) subspace. One head might track subject–verb agreement, another coreference, another local syntax — learned, not assigned.</p>
+
+        <div class="scene-stage" data-scene="multihead">
+          <canvas class="scene-canvas" aria-label="3D scene: seven tokens with different colored attention edges per head; step through heads"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next head</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Same seven tokens, three heads. Step through them: each head learns a <em>different</em> set of attention edges (local, syntactic, positional). Drag to orbit.</div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9f5;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{MHA}(X) = \text{Concat}(\text{head}_1,\dots,\text{head}_h)\,W_O,\qquad \text{head}_i = \text{Attention}(XW_Q^i, XW_K^i, XW_V^i) $$</p>
+          </div>
+        </div>
+        <p>Splitting \(d\) into \(h\) heads of size \(d/h\) is <strong>no more expensive</strong> than one big head: the FLOPs are \(h \cdot n^2 \cdot (d/h) = n^2 d\) either way. Multi-head buys you diversity for free.</p>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The real cost is that grid in the middle</h2>
+        <p>Look at one head's core: \(\text{softmax}(QK^{\top}/\sqrt{d})\,V\). The \(QK^{\top}\) term is an \(n \times n\) matrix — one score for every (query, key) pair. That grid is the whole story of attention's cost.</p>
+
+        <div class="scene-stage" data-scene="scorematrix">
+          <canvas class="scene-canvas" aria-label="3D scene: n by n grid of dots sized by Q dot K, softmax normalizes each row, causal mask greys the future"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Step 1</strong> dots sized by \(Q_i\cdot K_j\) · <strong>Step 2</strong> softmax normalizes each <em>row</em> (over keys) into an attention pattern · <strong>Step 3</strong> causal mask greys the future (\(j &gt; i\)). Drag to orbit.</div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">O(T²) — the quadratic wall</strong>
+            <p>The grid has \(T^2\) cells. Double the context, quadruple the score matrix — in both compute and memory. At \(T = 16{,}384\) one head's score matrix is <strong>512 MB</strong> in FP16. That wall is why the rest of this course exists.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Four ways to fight the T×T bill</h2>
+        <p>Every attention variant is an answer to "the \(T \times T\) matrix is too expensive." They attack it from different directions:</p>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background:var(--color-actor-3)">&#x1f5dc;&#xfe0f;</div>
+            <h4 class="pattern-title">Shrink the KV cache</h4>
+            <p class="pattern-desc">MHA → MQA → GQA → MLA: keep the full grid but store far fewer keys/values (Module 5).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background:var(--color-actor-2)">&#x1f533;</div>
+            <h4 class="pattern-title">Skip cells</h4>
+            <p class="pattern-desc">Local &amp; sparse attention: only compute a band or a pattern of the grid (Module 6).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background:var(--color-actor-5)">&#x267e;&#xfe0f;</div>
+            <h4 class="pattern-title">Reorder the matmul</h4>
+            <p class="pattern-desc">Linear attention: never form the grid at all — use \(Q(K^{\top}V)\) (Module 7).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background:var(--color-actor-4)">&#x26a1;</div>
+            <h4 class="pattern-title">Never store it</h4>
+            <p class="pattern-desc">FlashAttention: compute the exact grid in tiles, never write it to memory (Module 8).</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Shrinking the KV Cache: MHA → MQA → GQA → MLA</h1>
+      <p class="module-subtitle">One story, four steps — how much of the keys and values do you actually need to keep?</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why keys and values pile up</h2>
+        <p>When a model generates text, it produces one token at a time. To attend, each new token needs the keys and values of <em>every previous token</em>. Recomputing them each step would be wasteful, so they're stored — the <strong>KV cache</strong>. Its size is the memory bottleneck of inference: it grows with sequence length <em>and</em> with the number of KV heads. The variants below are one long effort to make it smaller.</p>
+
+        <div class="scene-stage" data-scene="kvcache">
+          <canvas class="scene-canvas" aria-label="3D scene: 8 query heads on top; KV heads below collapse from 8 to groups to 1 to a single latent vector as you step through MHA, MQA, GQA, MLA"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next variant</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Eight query heads stay fixed on top. Watch the KV heads below collapse: 8 → 2 groups → 1 shared → a single compressed latent. The readout tracks the relative KV footprint. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The four steps</h2>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <h4 class="pattern-title">MHA — Multi-Head</h4>
+            <p class="pattern-desc">Every query head has its <em>own</em> key and value head. Maximum expressiveness, maximum KV cache. The baseline (Vaswani 2017).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <h4 class="pattern-title">MQA — Multi-Query</h4>
+            <p class="pattern-desc">All query heads share a <em>single</em> KV head. KV cache shrinks ~\(h\times\); decode gets much faster — but quality can drop.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <h4 class="pattern-title">GQA — Grouped-Query</h4>
+            <p class="pattern-desc">An intermediate number of KV groups (more than 1, fewer than \(h\)). Uptrained GQA gets near-MHA quality at MQA-like speed. Used in Llama-2/3, Mistral.</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-4)">
+            <h4 class="pattern-title">MLA — Multi-head Latent</h4>
+            <p class="pattern-desc">Compress K and V into one shared <em>latent vector</em>, decompressed on the fly. The smallest KV footprint (DeepSeek-V2).</p>
+          </div>
+        </div>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ee;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The through-line</strong>
+            <p>Query heads never change — you always have \(h\) of them. What shrinks is how many distinct \(K\)/\(V\) you store: <strong>\(h\) → groups → 1 → a latent</strong>. Same attention math, progressively less memory to carry between decode steps.</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="quiz-container animate-in" id="quiz-kv">
+        <div class="quiz-question-block" data-correct="b"
+             data-explanation-right="Right — GQA uses several KV groups (between 1 and h), trading a little quality for a big KV-cache reduction, landing between MHA and MQA."
+             data-explanation-wrong="GQA sits between MHA (one KV head each) and MQA (a single shared KV head): it uses an intermediate number of KV groups.">
+          <p class="quiz-question">Grouped-Query Attention (GQA) uses…</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="a" onclick="selectOption(this)"><span class="quiz-option-radio"></span> one KV head per query head (same as MHA)</button>
+            <button class="quiz-option" data-value="b" onclick="selectOption(this)"><span class="quiz-option-radio"></span> an intermediate number of KV groups, between MHA and MQA</button>
+            <button class="quiz-option" data-value="c" onclick="selectOption(this)"><span class="quiz-option-radio"></span> a single latent vector for all keys and values</button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+        <button class="quiz-check-btn" onclick="checkQuiz('quiz-kv')">Check</button>
+        <button class="quiz-reset-btn" onclick="resetQuiz('quiz-kv')">Reset</button>
+      </div>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Local &amp; Sparse Attention: Skip Most of the Grid</h1>
+      <p class="module-subtitle">If a token only needs a few neighbors, don't compute the whole T×T matrix.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Most attention weight is local</h2>
+        <p>In practice, a token's attention is dominated by nearby tokens. Full attention still pays for the whole \(T \times T\) grid anyway. <strong>Local</strong> and <strong>sparse</strong> attention exploit the observation: only compute the cells you expect to matter, and treat the rest as zero.</p>
+
+        <div class="scene-stage" data-scene="sparsity">
+          <canvas class="scene-canvas" aria-label="3D scene: a 9x9 attention grid; toggle full causal, sliding window band, and strided sparse patterns; a readout counts computed cells"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next pattern</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Full</strong> lights the whole causal triangle (O(T²)) · <strong>Sliding window</strong> keeps a band of width \(w\) (O(T·w), linear in T) · <strong>Strided sparse</strong> adds a few global columns. The readout counts computed cells. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The two workhorse patterns</h2>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <h4 class="pattern-title">Sliding window (local)</h4>
+            <p class="pattern-desc">Each query attends only to the last \(w\) keys — a diagonal band. Cost drops from \(O(T^2)\) to \(O(T\cdot w)\), i.e. <em>linear</em> in sequence length. Stacking layers still grows the effective receptive field. (Mistral, Longformer.)</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <h4 class="pattern-title">Strided / global sparse</h4>
+            <p class="pattern-desc">Combine a local window with a handful of <em>global</em> tokens every query can see (and that see everyone). Keeps long-range reach at a fraction of the cells. (Sparse Transformer, BigBird.)</p>
+          </div>
+        </div>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Complexity, concretely</strong>
+            <p>Full causal attention computes \(\tfrac{T(T+1)}{2}\) cells. A window of \(w\) computes about \(T\cdot w\). At \(T=8192, w=256\) that's ~2M cells instead of ~34M — a <strong>16× cut</strong>, and it grows linearly, not quadratically, as context lengthens.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The trade</strong>
+            <p>Sparsity is <em>approximate</em> — you're betting the skipped cells didn't matter. That bet usually holds, but a genuinely long-range dependency outside the window is lost unless a global/strided path carries it. The pattern is a modeling choice, not a free lunch.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">07</span>
+      <h1 class="module-title">Linear Attention: Reorder the Matmul, Kill the Grid</h1>
+      <p class="module-subtitle">The T×T matrix is optional. Associativity lets you never build it.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A trick hiding in the parentheses</h2>
+        <p>Ignore softmax for a moment and look at the shape of attention: it's \((QK^{\top})V\). Matrix multiplication is <strong>associative</strong> — you get the same answer computing it as \(Q(K^{\top}V)\). But the two orders cost wildly different amounts:</p>
+
+        <div class="scene-stage" data-scene="linear">
+          <canvas class="scene-canvas" aria-label="3D scene: top path builds a big T-by-T QK-transpose block; bottom path builds a small d-by-d K-transpose-V state, showing the associativity reorder"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Reorder</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Standard</strong> forms the big \(T\times T\) matrix first (O(T²)). <strong>Reorder</strong> to \(Q(K^{\top}V)\): build the tiny \(d\times d\) state first, then multiply by \(Q\) — cost becomes \(O(T)\). Same result, no grid. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where softmax goes</h2>
+        <p>The catch: real attention has \(\text{softmax}(QK^{\top})\) in the middle, and softmax does <em>not</em> factor across the reorder. Linear attention replaces the softmax similarity \(\exp(q\cdot k)\) with a <strong>kernel feature map</strong> \(\phi(q)\cdot\phi(k)\) that <em>does</em> factor:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x267e;&#xfe0f;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{out}_i = \frac{\phi(q_i)\left(\sum_{j\le i}\phi(k_j)^{\top} v_j\right)}{\phi(q_i)\left(\sum_{j\le i}\phi(k_j)\right)} $$</p>
+          </div>
+        </div>
+        <p>The inner sums are a <strong>running state</strong> of fixed size \(d\times d\) — update it token by token, no \(T\times T\) matrix, \(O(T)\) time and \(O(1)\)-in-\(T\) memory. This is the bridge to recurrent/state-space views (Performer, Linear Transformers, and the RNN-like reading of attention).</p>
+      </section>
+
+      <section class="screen animate-in">
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The trade</strong>
+            <p>The feature map \(\phi\) only <em>approximates</em> softmax's sharp, selective weighting. You buy linear cost and a compact recurrent state; you pay in some of softmax's ability to focus hard on a single key. Great for very long sequences, not always a drop-in for quality-critical short-context work.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">08</span>
+      <h1 class="module-title">FlashAttention: Compute the Exact Grid, Never Store It</h1>
+      <p class="module-subtitle">Same math as full attention — but tiled through fast on-chip memory so the T×T matrix is never written out.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Attention is memory-bound, not compute-bound</h2>
+        <p>The surprise in the naive implementation: the GPU spends most of its time <em>waiting on memory</em>, not multiplying. It writes the giant \(T\times T\) score matrix out to slow HBM, reads it back for softmax, writes again, reads again. At \(T=16{,}384\) that intermediate is <strong>512 MB per head, per batch item</strong> in FP16 (\(16384^2 \times 2\) bytes). Moving it dominates the runtime.</p>
+
+        <div class="scene-stage" data-scene="flashattn">
+          <canvas class="scene-canvas" aria-label="3D scene: a greyed T-by-T matrix labeled 'never written to HBM' while K/V blocks stream into a small SRAM tile; running max m and sum l update per block"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next stage</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Step through <strong>naive → safe → online → Flash</strong>. In the Flash stage, K/V blocks stream into a small SRAM tile and the running \(m\) (max) and \(l\) (sum) update per block — the big grid stays greyed: <em>never written to HBM</em>. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The obstacle: softmax isn't associative</h2>
+        <p>Matmul tiles cleanly because addition is associative — you can accumulate partial sums in any order. Softmax can't, because it needs the max and the sum over the <em>whole</em> row for numerical stability. FlashAttention's key trick is <strong>online softmax</strong>: carry two running numbers per row and correct them as each new block arrives.</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9ee;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ m_i = \max(m_{i-1}, \tilde{m}),\qquad \ell_i = \ell_{i-1}\,e^{\,m_{i-1}-m_i} + \textstyle\sum e^{\,x - m_i} $$</p>
+          </div>
+        </div>
+        <p>The \(e^{m_{i-1}-m_i}\) factor rescales the old running sum whenever a bigger max appears. The result is the <em>exact</em> softmax — no approximation — computed without ever holding a full row, let alone the full matrix.</p>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Why it scales</h2>
+        <p>FlashAttention tiles \(Q, K, V\) into blocks that fit in on-chip SRAM and <strong>fuses the whole computation into one kernel</strong>: scores, softmax, and the value-weighted sum happen on-chip, and only the final output goes back to HBM. The SRAM footprint depends on block size and head dimension — <em>not</em> on sequence length — so it scales to 16k+ context without the memory blow-up. Result: 2–4× faster and dramatically less memory, enabling longer context.</p>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">One thing FlashAttention is NOT</strong>
+            <p>It does <em>not</em> make attention sub-quadratic in <strong>compute</strong> — it still performs \(O(T^2)\) FLOPs. What it removes is the \(O(T^2)\) <strong>memory traffic and storage</strong>. It's an exact, IO-aware reorganization, not an approximation like sparse or linear attention. That's why it composes with them: FlashAttention for the kernel, sparsity/linearity for the algorithm.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The family, in one table</h2>
+        <table class="post-bench">
+          <thead><tr><th>Variant</th><th>Attacks</th><th>Cost vs full</th><th>Exact?</th></tr></thead>
+          <tbody>
+            <tr><td>MHA</td><td>—</td><td>O(T²), full KV</td><td>exact (baseline)</td></tr>
+            <tr><td>MQA / GQA / MLA</td><td>KV-cache size</td><td>same compute, far less KV memory</td><td>exact</td></tr>
+            <tr><td>Local / sliding window</td><td>which cells compute</td><td>O(T·w), linear</td><td>approximate</td></tr>
+            <tr><td>Sparse / strided</td><td>which cells compute</td><td>sub-quadratic</td><td>approximate</td></tr>
+            <tr><td>Linear attention</td><td>the matmul order</td><td>O(T)</td><td>approximate</td></tr>
+            <tr><td>FlashAttention</td><td>memory traffic</td><td>O(T²) compute, O(1)-in-T memory</td><td>exact</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f3c1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The through-line</strong>
+            <p>Every row of that table is a different answer to the same question from Module 4: <em>the \(T\times T\) score matrix is too expensive.</em> Shrink what you store, skip what you compute, reorder to avoid the grid, or compute it exactly but never write it down. Understand the grid, and the whole family falls into place.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

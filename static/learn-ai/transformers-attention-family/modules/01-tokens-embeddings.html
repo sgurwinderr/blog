@@ -1,0 +1,50 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">Tokens Become Directions in Space</h1>
+      <p class="module-subtitle">Before attention can do anything, meaning has to become geometry.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The one idea the whole series rests on</h2>
+        <p>A transformer never sees words. It sees <strong>vectors</strong> — long lists of numbers, one per token, living in a space of a few thousand dimensions. The single most important fact about that space is that <em>direction encodes meaning</em>: tokens that behave alike point alike. Everything attention does is manipulate these directions.</p>
+        <p>We can't draw 4096 dimensions, so throughout this course we project down to 3 and animate the shadow. The intuition survives the projection.</p>
+
+        <div class="scene-stage" data-scene="tokens">
+          <canvas class="scene-canvas" aria-label="3D scene: word tokens animate outward from the origin into meaning clusters"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Step through it:</strong> four embeddings → the shared "royalty" direction → the arithmetic <span class="scene-eq">king − man + woman = queen</span>. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What "an embedding" actually is</h2>
+        <p>An embedding is a learned lookup table \(E \in \mathbb{R}^{V \times d}\): one row per vocabulary entry \(V\), each row a \(d\)-dimensional vector. Token id \(i\) becomes row \(E_i\). The rows start random and are shaped by gradient descent until the geometry above emerges — no one hand-places "king" near "queen"; the training objective does.</p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">&#x1f4a1;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Direction is the whole game</strong>
+            <p>That table \(E\) can be enormous — a 128k-token vocab at \(d=8192\) is a billion parameters — but the idea is simple: every token is a point in a high-dimensional space, and <em>which way it points</em> carries its meaning. Attention is entirely about comparing those directions. Hold that thought.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Position has to be injected</h2>
+        <p>A bare embedding is <em>order-blind</em>: "dog bites man" and "man bites dog" produce the same set of vectors. Transformers add <strong>positional information</strong> — classically sinusoidal encodings, in modern models rotary embeddings (RoPE) that rotate Q and K by an angle proportional to position. The upshot: each token's vector now carries <em>both</em> what it means and where it sits.</p>
+        <p>With tokens as positioned directions, we're ready for the question attention answers: <em>which other tokens should this one listen to?</em></p>
+      </section>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,61 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Local &amp; Sparse Attention: Skip Most of the Grid</h1>
+      <p class="module-subtitle">If a token only needs a few neighbors, don't compute the whole T×T matrix.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Most attention weight is local</h2>
+        <p>In practice, a token's attention is dominated by nearby tokens. Full attention still pays for the whole \(T \times T\) grid anyway. <strong>Local</strong> and <strong>sparse</strong> attention exploit the observation: only compute the cells you expect to matter, and treat the rest as zero.</p>
+
+        <div class="scene-stage" data-scene="sparsity">
+          <canvas class="scene-canvas" aria-label="3D scene: a 9x9 attention grid; toggle full causal, sliding window band, and strided sparse patterns; a readout counts computed cells"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next pattern</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Full</strong> lights the whole causal triangle (O(T²)) · <strong>Sliding window</strong> keeps a band of width \(w\) (O(T·w), linear in T) · <strong>Strided sparse</strong> adds a few global columns. The readout counts computed cells. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The two workhorse patterns</h2>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <h4 class="pattern-title">Sliding window (local)</h4>
+            <p class="pattern-desc">Each query attends only to the last \(w\) keys — a diagonal band. Cost drops from \(O(T^2)\) to \(O(T\cdot w)\), i.e. <em>linear</em> in sequence length. Stacking layers still grows the effective receptive field. (Mistral, Longformer.)</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <h4 class="pattern-title">Strided / global sparse</h4>
+            <p class="pattern-desc">Combine a local window with a handful of <em>global</em> tokens every query can see (and that see everyone). Keeps long-range reach at a fraction of the cells. (Sparse Transformer, BigBird.)</p>
+          </div>
+        </div>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f4d0;</div>
+          <div class="callout-content">
+            <strong class="callout-title">Complexity, concretely</strong>
+            <p>Full causal attention computes \(\tfrac{T(T+1)}{2}\) cells. A window of \(w\) computes about \(T\cdot w\). At \(T=8192, w=256\) that's ~2M cells instead of ~34M — a <strong>16× cut</strong>, and it grows linearly, not quadratically, as context lengthens.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The trade</strong>
+            <p>Sparsity is <em>approximate</em> — you're betting the skipped cells didn't matter. That bet usually holds, but a genuinely long-range dependency outside the window is lost unless a global/strided path carries it. The pattern is a modeling choice, not a free lunch.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,90 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Many Heads — and the T×T Matrix That Costs You</h1>
+      <p class="module-subtitle">Multi-head is cheap. The quadratic score matrix is the bill every attention variant is trying to shrink.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Parallel heads, each with its own subspace</h2>
+        <p>One head can only track one kind of relationship. So a block runs \(h\) heads in parallel, each with its own \(W_Q, W_K, W_V\) projecting into a smaller \(d_{\text{head}} = d/h\) subspace. One head might track subject–verb agreement, another coreference, another local syntax — learned, not assigned.</p>
+
+        <div class="scene-stage" data-scene="multihead">
+          <canvas class="scene-canvas" aria-label="3D scene: seven tokens with different colored attention edges per head; step through heads"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next head</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption">Same seven tokens, three heads. Step through them: each head learns a <em>different</em> set of attention edges (local, syntactic, positional). Drag to orbit.</div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x1f9f5;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{MHA}(X) = \text{Concat}(\text{head}_1,\dots,\text{head}_h)\,W_O,\qquad \text{head}_i = \text{Attention}(XW_Q^i, XW_K^i, XW_V^i) $$</p>
+          </div>
+        </div>
+        <p>Splitting \(d\) into \(h\) heads of size \(d/h\) is <strong>no more expensive</strong> than one big head: the FLOPs are \(h \cdot n^2 \cdot (d/h) = n^2 d\) either way. Multi-head buys you diversity for free.</p>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The real cost is that grid in the middle</h2>
+        <p>Look at one head's core: \(\text{softmax}(QK^{\top}/\sqrt{d})\,V\). The \(QK^{\top}\) term is an \(n \times n\) matrix — one score for every (query, key) pair. That grid is the whole story of attention's cost.</p>
+
+        <div class="scene-stage" data-scene="scorematrix">
+          <canvas class="scene-canvas" aria-label="3D scene: n by n grid of dots sized by Q dot K, softmax normalizes each row, causal mask greys the future"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Next step</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Step 1</strong> dots sized by \(Q_i\cdot K_j\) · <strong>Step 2</strong> softmax normalizes each <em>row</em> (over keys) into an attention pattern · <strong>Step 3</strong> causal mask greys the future (\(j &gt; i\)). Drag to orbit.</div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x26a0;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">O(T²) — the quadratic wall</strong>
+            <p>The grid has \(T^2\) cells. Double the context, quadruple the score matrix — in both compute and memory. At \(T = 16{,}384\) one head's score matrix is <strong>512 MB</strong> in FP16. That wall is why the rest of this course exists.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Four ways to fight the T×T bill</h2>
+        <p>Every attention variant is an answer to "the \(T \times T\) matrix is too expensive." They attack it from different directions:</p>
+        <div class="pattern-cards">
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background:var(--color-actor-3)">&#x1f5dc;&#xfe0f;</div>
+            <h4 class="pattern-title">Shrink the KV cache</h4>
+            <p class="pattern-desc">MHA → MQA → GQA → MLA: keep the full grid but store far fewer keys/values (Module 5).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background:var(--color-actor-2)">&#x1f533;</div>
+            <h4 class="pattern-title">Skip cells</h4>
+            <p class="pattern-desc">Local &amp; sparse attention: only compute a band or a pattern of the grid (Module 6).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-5)">
+            <div class="pattern-icon" style="background:var(--color-actor-5)">&#x267e;&#xfe0f;</div>
+            <h4 class="pattern-title">Reorder the matmul</h4>
+            <p class="pattern-desc">Linear attention: never form the grid at all — use \(Q(K^{\top}V)\) (Module 7).</p>
+          </div>
+          <div class="pattern-card" style="border-top:3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background:var(--color-actor-4)">&#x26a1;</div>
+            <h4 class="pattern-title">Never store it</h4>
+            <p class="pattern-desc">FlashAttention: compute the exact grid in tiles, never write it to memory (Module 8).</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

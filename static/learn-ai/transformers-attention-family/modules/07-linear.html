@@ -1,0 +1,52 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+    <header class="module-header animate-in">
+      <span class="module-number">07</span>
+      <h1 class="module-title">Linear Attention: Reorder the Matmul, Kill the Grid</h1>
+      <p class="module-subtitle">The T×T matrix is optional. Associativity lets you never build it.</p>
+    </header>
+
+    <div class="module-body">
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A trick hiding in the parentheses</h2>
+        <p>Ignore softmax for a moment and look at the shape of attention: it's \((QK^{\top})V\). Matrix multiplication is <strong>associative</strong> — you get the same answer computing it as \(Q(K^{\top}V)\). But the two orders cost wildly different amounts:</p>
+
+        <div class="scene-stage" data-scene="linear">
+          <canvas class="scene-canvas" aria-label="3D scene: top path builds a big T-by-T QK-transpose block; bottom path builds a small d-by-d K-transpose-V state, showing the associativity reorder"></canvas>
+          <div class="scene-loading">loading 3D scene…</div>
+          <div class="scene-readout"></div>
+          <div class="scene-controls">
+            <button class="scene-btn primary" data-scene-act="step">Reorder</button>
+            <button class="scene-btn" data-scene-act="reset">Reset</button>
+            <span class="scene-progress"></span>
+          </div>
+          <div class="scene-caption"><strong>Standard</strong> forms the big \(T\times T\) matrix first (O(T²)). <strong>Reorder</strong> to \(Q(K^{\top}V)\): build the tiny \(d\times d\) state first, then multiply by \(Q\) — cost becomes \(O(T)\). Same result, no grid. Drag to orbit.</div>
+        </div>
+      </section>
+
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Where softmax goes</h2>
+        <p>The catch: real attention has \(\text{softmax}(QK^{\top})\) in the middle, and softmax does <em>not</em> factor across the reorder. Linear attention replaces the softmax similarity \(\exp(q\cdot k)\) with a <strong>kernel feature map</strong> \(\phi(q)\cdot\phi(k)\) that <em>does</em> factor:</p>
+        <div class="callout callout-info">
+          <div class="callout-icon">&#x267e;&#xfe0f;</div>
+          <div class="callout-content">
+            <p style="margin:0">$$ \text{out}_i = \frac{\phi(q_i)\left(\sum_{j\le i}\phi(k_j)^{\top} v_j\right)}{\phi(q_i)\left(\sum_{j\le i}\phi(k_j)\right)} $$</p>
+          </div>
+        </div>
+        <p>The inner sums are a <strong>running state</strong> of fixed size \(d\times d\) — update it token by token, no \(T\times T\) matrix, \(O(T)\) time and \(O(1)\)-in-\(T\) memory. This is the bridge to recurrent/state-space views (Performer, Linear Transformers, and the RNN-like reading of attention).</p>
+      </section>
+
+      <section class="screen animate-in">
+        <div class="callout callout-warning">
+          <div class="callout-icon">&#x2696;&#xfe0f;</div>
+          <div class="callout-content">
+            <strong class="callout-title">The trade</strong>
+            <p>The feature map \(\phi\) only <em>approximates</em> softmax's sharp, selective weighting. You buy linear cost and a compact recurrent state; you pay in some of softmax's ability to focus hard on a single key. Great for very long sequences, not always a drop-in for quality-critical short-context work.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
