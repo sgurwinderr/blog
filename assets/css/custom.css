@@ -720,7 +720,7 @@ body.search-open {
     position: relative;
     display: block;
     overflow: hidden;
-    height: 220px;
+    height: 210px;   /* match .featured-card-thumb so all 3 homepage sliders align */
 }
 
 .featured-card-img {
