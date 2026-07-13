@@ -113,6 +113,12 @@ enableEmoji = true
     url = "/pr-walkthroughs"
 
 [[menu.main]]
+    name = "PRs"
+    weight = 300
+    identifier = "open-source-work"
+    url = "/open-source-work/"
+
+[[menu.main]]
     name = "About"
     weight = 600
     identifier = "about"

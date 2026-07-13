@@ -1,0 +1,86 @@
+{{ define "header"}}
+    <link rel="stylesheet" href="{{ "css/open-source-work.css" | relURL }}">
+    {{- partial "_shared/navbar.html" . -}}
+{{ end }}
+
+{{ define "main" }}
+    <main class="open-source-work" data-github-user="sgurwinderr">
+        <section class="osw-hero" aria-label="Open source activity">
+            <div class="osw-hero-copy">
+                <p class="osw-eyebrow">Open source activity</p>
+                <p class="osw-subtitle">Live pull requests and issues where sgurwinderr is author or assignee across vLLM, Intel XPU Triton, Torch XPU Ops, and PyTorch.</p>
+            </div>
+            <div class="osw-repo-pills" aria-label="Tracked repositories">
+                <span>vllm-project/vllm</span>
+                <span>intel/intel-xpu-backend-for-triton</span>
+                <span>intel/torch-xpu-ops</span>
+                <span>pytorch/pytorch</span>
+            </div>
+        </section>
+
+        <section class="osw-overview" aria-label="Open source work summary">
+            <div class="osw-metrics">
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-pr-count">0</span>
+                    <span class="osw-metric-label">Open PRs</span>
+                </div>
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-closed-pr-count">0</span>
+                    <span class="osw-metric-label">Closed PRs</span>
+                </div>
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-issue-count">0</span>
+                    <span class="osw-metric-label">Open Issues</span>
+                </div>
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-closed-issue-count">0</span>
+                    <span class="osw-metric-label">Closed Issues</span>
+                </div>
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-authored-count">0</span>
+                    <span class="osw-metric-label">Authored</span>
+                </div>
+                <div class="osw-metric">
+                    <span class="osw-metric-value" id="osw-assigned-count">0</span>
+                    <span class="osw-metric-label">Assigned</span>
+                </div>
+            </div>
+            <button class="osw-refresh" type="button" id="osw-refresh" aria-label="Refresh GitHub results">
+                <span class="osw-refresh-icon" aria-hidden="true"></span>
+                <span>Refresh</span>
+            </button>
+        </section>
+
+        <section class="osw-filterbar" aria-label="Filter pull requests and issues">
+            <div class="osw-filter-tabs" role="tablist" aria-label="Work item filters">
+                <button class="osw-filter-btn is-active" type="button" data-filter="all" role="tab" aria-selected="true" tabindex="0" aria-controls="osw-results">
+                    <span>All</span><span class="osw-filter-badge" id="osw-filter-all-count">0</span>
+                </button>
+                <button class="osw-filter-btn" type="button" data-filter="issues" role="tab" aria-selected="false" tabindex="-1" aria-controls="osw-results">
+                    <span>Issues</span><span class="osw-filter-badge" id="osw-filter-issues-count">0</span>
+                </button>
+                <button class="osw-filter-btn" type="button" data-filter="open-pr" role="tab" aria-selected="false" tabindex="-1" aria-controls="osw-results">
+                    <span>Open PR</span><span class="osw-filter-badge" id="osw-filter-open-pr-count">0</span>
+                </button>
+                <button class="osw-filter-btn" type="button" data-filter="closed-pr" role="tab" aria-selected="false" tabindex="-1" aria-controls="osw-results">
+                    <span>Closed PR</span><span class="osw-filter-badge" id="osw-filter-closed-pr-count">0</span>
+                </button>
+                <button class="osw-filter-btn" type="button" data-filter="authored" role="tab" aria-selected="false" tabindex="-1" aria-controls="osw-results">
+                    <span>Authored</span><span class="osw-filter-badge" id="osw-filter-authored-count">0</span>
+                </button>
+            </div>
+            <span class="osw-filter-count" id="osw-filter-count" aria-live="polite"></span>
+        </section>
+
+        <div class="osw-status osw-status-loading" id="osw-status" role="status" aria-live="polite">
+            Loading GitHub results...
+        </div>
+
+        <section class="osw-repos" id="osw-results" aria-label="Pull requests and issues"></section>
+    </main>
+{{ end }}
+
+{{ define "footer"}}
+    <script src="{{ "js/open-source-work.js?v=rest-v8" | relURL }}" defer></script>
+    {{- partial "_shared/footer.html" . -}}
+{{ end }}

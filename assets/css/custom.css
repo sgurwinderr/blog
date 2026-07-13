@@ -153,7 +153,40 @@ h1.posttitle {
 }
 
 .site-wordmark:hover .brand-main { color: #038252; }
+/* Keep navbar typography at the theme's original scale. */
+.mediumnavigation .nav-item,
+.mediumnavigation .nav-link {
+    font-size: 0.9rem;
+}
 
+
+/* Keep the full navbar visible on laptop-width desktop layouts. */
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    .mediumnavigation .container-fluid {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    .brand-main {
+        font-size: 1.18rem !important;
+    }
+
+    .navbar-expand-lg .navbar-nav .nav-link {
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+    }
+
+    .mediumnavigation .nav-item,
+    .mediumnavigation .nav-link {
+        font-size: 0.84rem;
+    }
+
+    .nav-search-btn,
+    .nav-dark-btn {
+        width: 30px;
+        height: 30px;
+    }
+}
 /* ── Navbar search button ───────────────────────────── */
 .nav-search-item {
     display: flex;
