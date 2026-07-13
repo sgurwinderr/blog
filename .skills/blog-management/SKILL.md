@@ -1,103 +1,85 @@
 ---
 name: blog-management
-description: Use when asked to create blog posts, add courses to catalog, fix course styling issues, or publish blog content
+description: Manage this Hugo technical blog. Use when creating or updating posts, editing blog/catalog data, running Hugo build/preview checks, fixing blog navigation or content presentation, or preparing local publish steps for sgurwinderr.com.
 ---
 
-# Hugo Blog Management
+# Blog Management
 
-## When to Use
+Use the repo's existing Hugo structure and data-driven catalog patterns. Keep edits scoped to the requested content, layouts, or data files.
 
-**Use this skill when:**
-- Creating new blog posts with Hugo frontmatter
-- Adding courses to the Learn AI catalog (courses.json)
-- Fixing module number visibility in course styling
-- Running Hugo commands (server, build, list drafts)
-- Publishing workflow (test → build → commit)
+## Core Workflow
 
-**Don't use for:**
-- Theme customization (see CLAUDE.md layouts/ section)
-- LaTeX configuration (see CLAUDE.md MathJax section)
-- Codebase architecture questions (see CLAUDE.md)
+1. Inspect `hugo.toml`, relevant layouts, and existing nearby content before editing.
+2. Make the smallest content/layout/data change that satisfies the request.
+3. Run `hugo --minify --cleanDestinationDir` before finishing when the change can affect output.
+4. Report drafts, build warnings, and any checks that could not run.
+5. Commit only when the user explicitly asks. Never push without explicit approval.
 
-## Create Post
-```bash
-touch content/post/YYYY-MM-DD-slug.md
-```
+## Blog Posts
 
-Frontmatter:
+Create posts under `content/post/YYYY-MM-DD-slug.md`. Match existing frontmatter style and include SEO fields for published posts:
+
 ```yaml
 ---
 author: Gurwinder
-categories: [AI, PyTorch]
-date: 'YYYY-MM-DD'
+categories:
+- AI
+- PyTorch
+date: 'YYYY-MM-DDT00:00:00Z'
 slug: 'post-slug'
 featured: false
 draft: false
 image: assets/images/cover.jpg
-title: 'Title: Subtitle'
+imageAlt: 'Specific description of the featured image'
+description: 'Search-result summary under 160 characters.'
+title: 'Post Title'
 ---
 ```
 
-## Hugo Commands
-```bash
-cd ~/blog
-hugo server -D --bind 0.0.0.0 --port 1313  # Start (default port)
-hugo --cleanDestinationDir                 # Build
-hugo list drafts                           # List drafts
-```
+Use `/assets/images/name.ext` in Markdown content for images stored under `static/assets/images/`. Add meaningful Markdown alt text for inline images.
 
-## Course Management
+## Learn AI And PR Walkthrough Catalogs
 
-### Add to Catalog
-Edit `data/courses.json`:
+Course cards are data-driven:
+
+- `data/courses.json` feeds `/learn-ai/` and the Learn AI homepage section.
+- `data/pr_walkthroughs.json` feeds `/pr-walkthroughs/` and the homepage PR Walkthroughs section.
+
+Catalog entry shape:
+
 ```json
 {
   "title": "Course Title",
-  "url": "/learn-ai/course-name/",
+  "url": "/learn-ai/course-slug/",
   "category": "Category",
-  "summary": "Description",
-  "gradient": "linear-gradient(135deg, #color1 0%, #color2 100%)",
-  "icon": "⚡",
-  "iconType": "emoji",
-  "modules": "N Modules",
-  "duration": "X Hours"
+  "summary": "Brief description.",
+  "gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  "icon": "GPU",
+  "iconType": "text",
+  "modules": "8 Modules",
+  "duration": "1-2 Hours"
 }
 ```
 
-### Module Number Visibility Fix
-All courses need this in `styles.css`:
-```css
-.module-number {
-  color: var(--color-text);  /* NOT var(--color-accent) */
-  opacity: 0.8;               /* NOT 0.15 */
-}
-```
+Use `iconType: "text"` for short labels such as `GPU`, `SLM`, or `vLLM`; use `emoji` only when the file already uses a compatible emoji and encoding is preserved.
 
-## LaTeX
-Inline: `$e^{i\pi}$` or `\(x^2\)`  
-Display: `$$\frac{e^{x_i}}{\sum_j e^{x_j}}$$`
+## Hugo Commands
 
-## Key Locations
-```
-content/post/             # Blog posts
-data/courses.json         # Course metadata (homepage + catalog)
-static/learn-ai/          # Courses
-layouts/index.html        # Homepage
-hugo.toml                 # Config
-```
+Run from the repo root:
 
-## Publish Workflow
 ```bash
-# 1. Test locally
 hugo server -D --bind 0.0.0.0 --port 1313
-# 2. Build
-hugo --cleanDestinationDir
-# 3. Commit (DON'T auto-push)
-git add -A && git commit -m "message"
-# 4. Get approval, then push
+hugo --minify --cleanDestinationDir
+hugo list drafts
+hugo list all
 ```
 
-## Common Issues
-- **Course not showing:** Add to `data/courses.json`
-- **Numbers invisible:** Fix opacity + color in styles.css
-- **No LaTeX:** Check `$` delimiters, restart server
+If port `1313` is busy, use another port and tell the user the URL.
+
+## Common Fixes
+
+- Course card missing: add or correct the entry in `data/courses.json` or `data/pr_walkthroughs.json`.
+- Featured image missing: verify `image:` maps to a real file under `static/`.
+- Weak SEO snippet: add or tighten `description:` and `imageAlt:` in frontmatter.
+- Math not rendering: keep inline math as `$...$` or `\(...\)` and display math as `$$...$$`; verify `layouts/_default/single.html` before changing MathJax.
+- Hugo deprecation warnings: update config/templates only if compatible with the deployed Hugo version in `.github/workflows/*.yml`.

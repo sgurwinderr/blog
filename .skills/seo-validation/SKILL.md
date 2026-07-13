@@ -1,75 +1,81 @@
 ---
 name: seo-validation
-description: Use after publishing blog posts to validate SEO requirements locally before pushing
+description: Validate SEO, accessibility, sitemap, metadata, and rendered Hugo output for this blog. Use after adding or editing posts, layouts, catalog pages, images, schema, analytics, or before a publish/deploy check.
 ---
 
 # SEO Validation
 
-Run SEO checks locally after writing/publishing blog posts, before pushing to GitHub.
+Run local checks before a push or release. Prefer verifying rendered `public/` output, because many SEO issues are introduced by templates rather than Markdown alone.
 
-## When to Use
+## Required Checks
 
-After creating or updating blog posts, before committing/pushing.
+1. Build the site:
 
-## Quick Validation
-
-### 1. Frontmatter Check
 ```bash
-# Check required SEO fields
-post="content/post/YYYY-MM-DD-slug.md"
-
-grep -q "^title:" "$post" || echo "❌ Missing title"
-grep -q "^date:" "$post" || echo "❌ Missing date"
-grep -q "^slug:" "$post" || echo "❌ Missing slug"
-grep -q "^categories:" "$post" || echo "❌ Missing categories"
-grep -q "^image:" "$post" || echo "❌ Missing image"
-
-# Check title length (50-60 optimal)
-title=$(grep "^title:" "$post" | cut -d'"' -f2)
-echo "Title length: ${#title} chars (optimal: 50-60)"
+hugo --minify --cleanDestinationDir
 ```
 
-### 2. Image Alt Text
+2. List drafts and confirm whether they are expected:
+
 ```bash
-# Check markdown images
-grep -n '!\[]\|!\[\s*]' content/post/*.md && echo "❌ Images missing alt text"
+hugo list drafts
 ```
 
-### 3. Build & Preview
+3. For published posts, verify frontmatter includes:
+
+- `title`
+- `date`
+- `slug`
+- `categories`
+- `description` under 160 characters when practical
+- `image` when the post has a featured image
+- `imageAlt` when `image` is present
+
+4. Verify featured image files exist. `image: assets/images/foo.png` must map to `static/assets/images/foo.png`.
+
+5. Check Markdown images for empty alt text:
+
 ```bash
-hugo --minify
-ls -lh public/sitemap.xml  # Check sitemap generated
+rg -n '!\[\s*\]\(' content
 ```
 
-### 4. Local Link Check
+6. Parse the generated sitemap and confirm important pages are present:
+
 ```bash
-# After hugo server running
-curl -s http://localhost:1313/ | grep -i "title\|description\|og:"
+hugo --minify --cleanDestinationDir
 ```
 
-## GitHub Actions (Automated)
+Then inspect `public/sitemap.xml` for the new slug and catalog pages.
 
-4 workflows run on push:
+7. Inspect rendered HTML for missing or semantically wrong alt text. A passing `alt=` presence check is not enough; related/suggested cards should describe the image or target post, not the current page.
 
-**seo-audit.yml** - Lighthouse performance + SEO audit
-**link-checker.yml** - Find broken links (weekly + on push)
-**image-alt-checker.yml** - Verify all images have alt text
-**sitemap-validator.yml** - Validate sitemap.xml structure
+## Template-Specific Checks
 
-View results: GitHub repo → Actions tab
+- Post cards: use each post's `.Params.imageAlt`, falling back to that post's `.Title`.
+- Suggested posts: ensure `range` scoping does not accidentally use the current page title for suggested post images.
+- Homepage featured posts: ensure image alt text comes from the ranged post, not the home page context.
+- Open Graph and Twitter tags: confirm `og:title`, `og:description`, `og:image`, and `og:image:alt` render for posts with images.
+- Canonical URLs: confirm `.Permalink` points at the slug URL, not an old alias.
 
-## Common Issues
+## GitHub Workflows
 
-**Missing OG image**: Add `image: assets/images/cover.jpg` to frontmatter
-**Title too long**: Keep under 60 characters for Google SERP
-**No alt text**: Use `![description](path)` not `![](path)`
-**Broken internal links**: Use `/slug/` format, test locally first
+Relevant checks live in `.github/workflows/`:
 
-## Checklist Before Push
+- `hugo.yml`: production Pages build and deploy.
+- `image-alt-checker.yml`: empty/missing image alt checks.
+- `link-checker.yml`: scheduled and content-push link checks.
+- `seo-audit.yml`: Lighthouse audit against selected local URLs.
+- `sitemap-validator.yml`: generated sitemap XML check.
 
-- [ ] All frontmatter fields present
-- [ ] Title 50-60 characters
-- [ ] Image has alt text
-- [ ] Internal links work locally
-- [ ] `hugo --minify` succeeds
-- [ ] Sitemap includes new post
+If local Hugo is newer than CI Hugo, treat local deprecation warnings as maintenance items but verify any template/config update remains compatible with the workflow Hugo version.
+
+## Report Format
+
+Report:
+
+- Build result and warnings.
+- Drafts found.
+- Missing or weak SEO fields.
+- Missing image files or bad alt text.
+- Sitemap status.
+- Any checks skipped and why.
