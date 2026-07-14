@@ -344,23 +344,31 @@
 
     function renderRepo(repo, items, repoIndex) {
         var counts = countItems(items);
+        var expanded = expandedRepos[repo] === true;
+        var panelId = repoPanelId(repo);
         var body = items.length ? '<div class="osw-work-list">' + items.map(renderRow).join("") + "</div>" : '<div class="osw-empty-repo">No matching items in this repository.</div>';
         return [
-            '<article class="osw-repo" style="animation-delay:' + (repoIndex * 70) + 'ms">',
-                '<div class="osw-repo-shell">',
-                    '<div class="osw-repo-header">',
-                        '<div>',
-                            '<h2 class="osw-repo-title">' + escapeHtml(repo) + "</h2>",
-                            '<div class="osw-repo-subtitle">' + items.length + " visible, sorted by recent activity</div>",
-                        "</div>",
-                        '<div class="osw-repo-counts" aria-label="Repository counts">',
-                            '<span class="osw-count-chip">' + counts.pr + " Open PR</span>",
-                            '<span class="osw-count-chip">' + counts.closedPr + " Closed PR</span>",
-                            '<span class="osw-count-chip">' + (counts.issue + counts.closedIssue) + " Issues</span>",
-                            '<span class="osw-count-chip">' + counts.authored + " Authored</span>",
-                        "</div>",
+            '<article class="osw-repo' + (expanded ? " is-open" : "") + '" style="animation-delay:' + (repoIndex * 70) + 'ms">',
+                '<div class="osw-repo-shell" data-repo-shell>',
+                    '<button class="osw-repo-header" type="button" data-repo-toggle="' + escapeHtml(repo) + '" aria-expanded="' + (expanded ? "true" : "false") + '" aria-controls="' + panelId + '">',
+                        '<span class="osw-repo-heading">',
+                            '<span class="osw-repo-eyeline">Repository</span>',
+                            '<span class="osw-repo-title">' + escapeHtml(repo) + "</span>",
+                            '<span class="osw-repo-subtitle">' + items.length + (items.length === 1 ? " item" : " items") + " - recent activity first</span>",
+                        "</span>",
+                        '<span class="osw-repo-actions">',
+                            '<span class="osw-repo-counts" aria-label="Repository counts">',
+                                '<span class="osw-count-chip osw-count-open">' + counts.pr + " Open PR</span>",
+                                '<span class="osw-count-chip osw-count-closed">' + counts.closedPr + " Closed PR</span>",
+                                '<span class="osw-count-chip osw-count-issues">' + (counts.issue + counts.closedIssue) + " Issues</span>",
+                                '<span class="osw-count-chip osw-count-authored">' + counts.authored + " Authored</span>",
+                            "</span>",
+                            '<span class="osw-repo-chevron" aria-hidden="true"></span>',
+                        "</span>",
+                    "</button>",
+                    '<div class="osw-repo-panel" id="' + panelId + '"' + (expanded ? "" : " hidden") + ">",
+                        body,
                     "</div>",
-                    body,
                 "</div>",
             "</article>"
         ].join("");
@@ -448,6 +456,43 @@
             activeFilter = button.getAttribute("data-filter") || "all";
             render(allItems);
         });
+    });
+
+    function toggleRepo(button) {
+        var repo = button.getAttribute("data-repo-toggle");
+        var panel = document.getElementById(button.getAttribute("aria-controls"));
+        var repoEl = button.closest ? button.closest(".osw-repo") : null;
+        var expanded = button.getAttribute("aria-expanded") !== "true";
+
+        expandedRepos[repo] = expanded;
+        button.setAttribute("aria-expanded", expanded ? "true" : "false");
+        if (panel) {
+            panel.hidden = !expanded;
+        }
+        if (repoEl) {
+            repoEl.classList.toggle("is-open", expanded);
+        }
+    }
+
+    resultsEl.addEventListener("click", function (event) {
+        if (!event.target.closest) {
+            return;
+        }
+
+        var rowLink = event.target.closest(".osw-row");
+        if (rowLink) {
+            return;
+        }
+
+        var shell = event.target.closest("[data-repo-shell]");
+        if (!shell || !resultsEl.contains(shell)) {
+            return;
+        }
+
+        var button = shell.querySelector("[data-repo-toggle]");
+        if (button) {
+            toggleRepo(button);
+        }
     });
 
     if (refreshBtn) {
