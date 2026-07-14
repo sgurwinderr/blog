@@ -1,0 +1,117 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Occupancy &amp; Latency Hiding</h1>
+      <p class="module-subtitle">The single best separator in GPU-performance interviews: <strong>higher occupancy is not always faster</strong>. Know the limiters, the Little's-Law intuition, and why forcing occupancy can backfire via register spilling.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Define occupancy, name the three limiters, and — the key signal — explain that once you have <em>enough</em> warps to hide latency, more occupancy gives nothing, and cutting registers to chase it can cause <strong>spilling</strong>.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Latency Hiding = Enough Warps in Flight</h2>
+      <p><span class="term" data-definition="Occupancy = active warps per SM ÷ maximum possible warps per SM. It's a means to hide latency, not an end in itself: when a warp stalls on memory, the scheduler issues another ready warp.">Occupancy</span> = active warps per SM ÷ max possible. GPUs hide latency by keeping many warps resident — when one stalls, another issues. This is <strong>Little's Law</strong>: to keep the pipeline full you need <code>concurrency = latency &times; throughput</code> in-flight. At ~500-cycle latency and ~1 instr/cycle, you need hundreds of independent warp-instructions in flight.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Registers/thread</span>
+          <span class="badge-desc">64 regs &times; 2048 threads &gt; 65536 register file &rarr; capped. The most common limiter.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">Shared mem/block</span>
+          <span class="badge-desc">Total shared SRAM ÷ per-block usage bounds resident blocks.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">Warp/block caps</span>
+          <span class="badge-desc">Max warps per SM (e.g. 64 = 2048 threads) and max blocks per SM.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the separator -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Higher Occupancy Is NOT Always Faster</h2>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Volkov insight</span>
+          <p>Once you have <em>enough</em> warps to hide latency, more occupancy buys nothing. Worse: forcing high occupancy by cutting registers-per-thread can cause <strong>register spilling</strong> to local memory (GMEM-backed, slow). Many high-<span class="term" data-definition="Instruction-Level Parallelism: independent instructions within a single thread that can be in flight simultaneously. High ILP lets a kernel hide latency with FEWER warps, so it can run best at lower occupancy.">ILP</span> kernels run best at ~50% occupancy. The rule: low occupancy hurts latency hiding, but max occupancy ≠ max speed.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Worked example</span>
+          <pre><code><span class="code-line"><span class="code-comment"># SM: 65536 registers, max 2048 threads</span></span>
+<span class="code-line"><span class="code-comment"># 32 regs/thread:</span></span>
+<span class="code-line">65536 / 32 = 2048 threads = 100%</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># bump to 40 regs/thread:</span></span>
+<span class="code-line">65536 / 40 = 1638 -&gt; ~1536 = 75%</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The lever</span>
+          <div class="translation-lines">
+            <div class="tl">Register pressure sets the ceiling.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Use <code>__launch_bounds__</code> / <code>-maxrregcount</code> to trade registers for occupancy <em>deliberately</em> — and measure, because more isn't always better.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Separator Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe5">
+        <div class="quiz-question-block" data-correct="two" data-explanation-right="Correct. 96 regs × 256 threads = 24576 regs/block; 65536 / 24576 = 2.67 → 2 resident blocks = 512 threads. If the SM supports 2048, register pressure caps you at 25% occupancy." data-explanation-wrong="96×256 = 24576 regs/block; 65536/24576 = 2 blocks (512 threads). Register pressure is the limiter → 25% occupancy.">
+          <p class="quiz-question">1. 96 regs/thread, 256-thread blocks, 65536 regs/SM. Max resident blocks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="two" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>2 blocks (512 threads) — register-limited</span></button>
+            <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>8 blocks — occupancy is always maxed</span></button>
+            <button class="quiz-option" data-value="one" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>1 block — only one fits ever</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="spill" data-explanation-right="Correct. Raising occupancy usually means fewer registers per thread; if that forces register spilling to local memory, you add global traffic and slow down. Or the kernel was already latency-hidden via ILP at 25%, so extra warps only add cache pressure." data-explanation-wrong="The likely cause is register spilling (the register cut needed for higher occupancy pushed values to local memory), or the kernel was already latency-hidden by ILP.">
+          <p class="quiz-question">2. You raise occupancy 25% &rarr; 75% but the kernel gets <em>slower</em>. Cause?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="spill" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Register spilling to local memory (or it was already latency-hidden)</span></button>
+            <button class="quiz-option" data-value="impossible" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Impossible — more occupancy is always faster</span></button>
+            <button class="quiz-option" data-value="banks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It must be a bank conflict</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "Maximize occupancy always" is the wrong answer — it's a means to hide latency.<br>
+          &bull; Register spilling is silent; check <code>-Xptxas -v</code> for spill loads/stores.<br>
+          &bull; High-ILP kernels can beat high-occupancy ones (fewer warps, more work each).<br>
+          &bull; Use the Occupancy Calculator / Nsight to find which resource is the limiter.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

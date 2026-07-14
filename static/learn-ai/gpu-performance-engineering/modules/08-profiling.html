@@ -1,0 +1,134 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Profiling, Concurrency &amp; the Optimization Workflow</h1>
+      <p class="module-subtitle">Tie it together: measure &rarr; find the dominant bottleneck &rarr; fix one thing &rarr; re-measure. Plus streams/overlap — a high-frequency topic. Framed as methodology you narrate, not tool-clicks.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Your <strong>measure-first</strong> workflow, reading a profiler to classify memory- vs compute- vs latency-bound, and using <strong>streams</strong> to overlap compute with transfers. "How would you find the bottleneck?" is the real question — never guess.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Systematic Loop</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Profile &rarr; read Speed of Light</strong>
+            <p>Nsight Compute's SOL shows % of peak for Compute vs Memory. The higher one tells you which roof you're near; both low &rarr; latency-bound.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Memory-bound? Fix data movement</strong>
+            <p>Check coalescing/sector efficiency, reduce bytes (fusion, precision), stage in shared memory, exploit L2.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Compute-bound? Fix the math</strong>
+            <p>Reduce instructions, use tensor cores, fix divergence, faster math intrinsics.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Latency-bound? Raise occupancy or ILP</strong>
+            <p>Low both-SOL + high <span class="term" data-definition="A warp stall reason in Nsight Compute: the warp is waiting on a global/local memory dependency. It's the classic memory-latency stall — fix with more occupancy, better locality, or higher ILP.">long-scoreboard</span> stalls &rarr; too few eligible warps. Then re-measure.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: streams -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Streams: Overlap Compute &amp; Transfers</h2>
+      <p>A high-frequency topic: host&harr;device PCIe (~16–64 GB/s) is far slower than device bandwidth (~3 TB/s), so you <strong>overlap</strong> transfers with compute using <span class="term" data-definition="A CUDA stream is an ordered queue of operations. Work in different streams can run concurrently, letting you overlap host↔device memory copies with kernel execution. Requires pinned (page-locked) host memory for async copies.">streams</span> and pinned memory.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// copy chunk i+1 while computing chunk i</span></span>
+<span class="code-line">cudaMemcpyAsync(d+off, h+off, sz,</span>
+<span class="code-line">    cudaMemcpyHostToDevice, stream[i]);</span>
+<span class="code-line">kernel&lt;&lt;&lt;g, b, <span class="code-number">0</span>, stream[i]&gt;&gt;&gt;(d+off);</span>
+<span class="code-line">cudaMemcpyAsync(h+off, d+off, sz,</span>
+<span class="code-line">    cudaMemcpyDeviceToHost, stream[i]);</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it helps</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Different streams run concurrently</strong> — the copy engine and SMs work in parallel.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Async copies need pinned host memory</strong> (<code>cudaMallocHost</code>).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Hides PCIe latency behind compute instead of stalling on it.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Diagnosis Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe8">
+        <div class="quiz-question-block" data-correct="mem" data-explanation-right="Correct. Memory SOL 85%, Compute 20%, dominant 'long scoreboard' stall = memory-bound, warps waiting on global-memory latency. Fix: coalescing/sector efficiency, shared-memory reuse, fewer bytes, raise occupancy. Do NOT optimize arithmetic." data-explanation-wrong="High Memory SOL + long-scoreboard stalls = memory-bound. Improve locality/coalescing and reduce bytes; optimizing FLOPs won't help.">
+          <p class="quiz-question">1. Nsight: Memory SOL 85%, Compute SOL 20%, dominant stall "long scoreboard." Diagnosis?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="mem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound — improve locality/coalescing, reduce bytes</span></button>
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound — optimize the arithmetic</span></button>
+            <button class="quiz-option" data-value="fine" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Well-optimized — nothing to do</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="latency" data-explanation-right="Correct. Both SOL low yet slow = latency-bound / poor latency hiding: too few eligible warps (low occupancy or low ILP), so schedulers skip issue slots. Increase resident warps or independent work per thread." data-explanation-wrong="Both Compute and Memory SOL low = latency-bound — not enough eligible warps to hide latency. Raise occupancy or ILP.">
+          <p class="quiz-question">2. Both Compute and Memory SOL ~25% yet the kernel is slow. What's wrong?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="latency" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Latency-bound — too few eligible warps (occupancy/ILP)</span></button>
+            <button class="quiz-option" data-value="banks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Definitely bank conflicts</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The GPU is downclocking</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed GPU Performance Engineering</span>
+          <p>Execution model &rarr; memory hierarchy &rarr; coalescing &rarr; bank conflicts &rarr; occupancy &rarr; roofline &rarr; warps &amp; reductions &rarr; profiling. The through-line every interviewer rewards: <strong>classify the bound first (memory / compute / latency), then optimize the thing that's actually limiting you</strong> — measured, not guessed.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Anti-patterns the profiler exposes</span>
+          <p>&bull; Uncoalesced/AoS access; unnecessary global round-trips; bank conflicts; single-address atomic contention.<br>
+          &bull; Chasing occupancy into register spills; optimizing FLOPs on a memory-bound kernel.<br>
+          &bull; Unhidden PCIe transfers — overlap them with streams.<br>
+          &bull; Apply this next in <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a>, where each step is a measured march up the roofline.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

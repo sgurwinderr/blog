@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEMM from Scratch: How a Matmul Reaches 90% of Peak</title>
+  <meta name="description" content="Optimize a GPU matrix multiply step by step — naive kernel, coalescing, shared-memory tiling, register blocking, vectorized loads, tensor cores, and closing the gap to cuBLAS. The canonical GPU-systems deep dive.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/gemm-from-scratch/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="GEMM from Scratch: How a Matmul Reaches 90% of Peak">
+  <meta property="og:description" content="Optimize a GPU matrix multiply step by step, from a naive kernel to tensor cores and cuBLAS-level performance.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/gemm-from-scratch/">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #EA580C;
+      --color-accent-hover: #C2410C;
+      --color-accent-light: #FFEDD5;
+      --color-accent-muted: #FB923C;
+    }
+  </style>
+
+  <!-- MathJax for the arithmetic-intensity / % of peak math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">GEMM from Scratch</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Why Matmul & Roofline" role="tab" aria-label="Module 1: Why Matmul & the Roofline"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Naive Kernel" role="tab" aria-label="Module 2: The Naive Kernel"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Coalescing" role="tab" aria-label="Module 3: Global Memory Coalescing"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Shared-Mem Tiling" role="tab" aria-label="Module 4: Shared Memory Tiling"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Register Blocking" role="tab" aria-label="Module 5: Register Blocking"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Vectorized Loads" role="tab" aria-label="Module 6: Advanced Memory Optimizations"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Tensor Cores" role="tab" aria-label="Module 7: Tensor Cores"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Reaching cuBLAS" role="tab" aria-label="Module 8: Reaching cuBLAS"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->

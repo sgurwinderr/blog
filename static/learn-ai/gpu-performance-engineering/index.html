@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPU Performance Engineering: CUDA &amp; SYCL from the Hardware Up</title>
+  <meta name="description" content="How GPUs actually execute code and how to make kernels fast — the execution model, memory hierarchy, coalescing, bank conflicts, occupancy, the roofline model, warp divergence, and profiling. CUDA and SYCL.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/gpu-performance-engineering/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="GPU Performance Engineering: CUDA & SYCL">
+  <meta property="og:description" content="How GPUs execute code and how to make kernels fast — execution model, memory hierarchy, occupancy, roofline, and profiling.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/gpu-performance-engineering/">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #0EA5E9;
+      --color-accent-hover: #0284C7;
+      --color-accent-light: #E0F2FE;
+      --color-accent-muted: #7DD3FC;
+    }
+  </style>
+
+  <!-- MathJax for roofline / occupancy math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">GPU Performance Engineering</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Execution Model" role="tab" aria-label="Module 1: The GPU Execution Model"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Memory Hierarchy" role="tab" aria-label="Module 2: The Memory Hierarchy"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Coalescing" role="tab" aria-label="Module 3: Memory Coalescing"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Bank Conflicts" role="tab" aria-label="Module 4: Shared Memory & Bank Conflicts"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Occupancy" role="tab" aria-label="Module 5: Occupancy & Latency Hiding"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Roofline" role="tab" aria-label="Module 6: The Roofline Model"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Warp Divergence" role="tab" aria-label="Module 7: Warp-Level & Control Flow"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Profiling" role="tab" aria-label="Module 8: Profiling & Optimization Workflow"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">The GPU Execution Model</h1>
+      <p class="module-subtitle">Assumed knowledge in every GPU interview. Draw the thread &rarr; warp &rarr; block &rarr; grid hierarchy, map it to SM hardware, and know why blocks have no ordering guarantee — that's the foundation everything else builds on.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you map the software hierarchy to hardware, know a block runs entirely on <strong>one SM</strong>, and explain why there's <strong>no ordering between blocks</strong> (it's what lets one binary scale across any GPU size)?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">SIMT: Scalar Code, Lockstep Warps</h2>
+      <p>You write scalar per-thread code; hardware groups threads into <span class="term" data-definition="A warp is 32 threads that issue instructions in lockstep (SIMT). On NVIDIA it is always 32; the SYCL/Intel analogue is a sub-group (8/16/32 on Intel). The warp is the true unit of scheduling and divergence.">warps of 32</span> that issue in lockstep. The hierarchy: <strong>thread &rarr; warp (32) &rarr; block &rarr; grid</strong>. The scheduler assigns whole blocks to <span class="term" data-definition="Streaming Multiprocessor — the GPU's core compute cluster. A thread block is assigned entirely to one SM and never spans two. Warp schedulers within the SM pick an eligible warp each cycle (zero-overhead context switching), which is how latency is hidden.">SMs</span>; a block never spans two SMs.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why no ordering between blocks?</span>
+          <p>So the runtime can schedule blocks in <em>any</em> order across <em>any</em> number of SMs — the same binary scales from a laptop GPU to an H100. Blocks must therefore be independent: no inter-block sync within a kernel (barring cooperative groups). This is a favorite "why is it designed this way" question.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: CUDA/SYCL mapping (sidebar) -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">CUDA &harr; SYCL Terminology <span style="font-weight:400;font-size:0.7em;color:var(--color-text-muted)">(sidebar — interviews speak CUDA)</span></h2>
+      <p>Interviews use CUDA vocabulary; SYCL/oneAPI is the portable equivalent (relevant mainly at Intel). The one mapping people get wrong: <strong>warp = sub-group</strong>, <strong>block = work-group</strong> — not "warp = work-group."</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">warp &harr; sub-group</span>
+          <span class="badge-desc">Lockstep group. 32 on NVIDIA; 8/16/32 on Intel Xe.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">block &harr; work-group</span>
+          <span class="badge-desc">Cooperative group sharing on-chip memory + a barrier.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">SM &harr; compute unit (Xe-core)</span>
+          <span class="badge-desc">The compute cluster a block/work-group runs on.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">shared memory &harr; local memory (SLM)</span>
+          <span class="badge-desc">On-chip scratchpad. Note the CUDA <code>.x</code> axis maps to SYCL's highest dim.</span>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Independent thread scheduling (Volta / CC 7.0+)</span>
+          <p>Pre-Volta, a warp shared one program counter — divergent threads couldn't progress independently. From CC 7.0 each thread has its own PC and can diverge/reconverge at sub-warp granularity. This <em>breaks</em> legacy warp-synchronous code; use <code>__syncwarp()</code> and the <code>_sync</code> primitive variants (Module 7).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe1">
+        <div class="quiz-question-block" data-correct="scale" data-explanation-right="Correct. With no ordering guarantee, the runtime schedules blocks in any order across any number of SMs — so one binary scales from a small GPU to a large one. The cost is that blocks must be independent (no inter-block sync within a kernel)." data-explanation-wrong="No inter-block ordering lets the same binary scale across GPUs of any size by scheduling blocks in any order. Independence is the required tradeoff.">
+          <p class="quiz-question">1. Why does CUDA guarantee no execution order between thread blocks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="scale" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>So one binary scales across any number of SMs</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Random order is faster than ordered</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To save memory on the scheduler</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="four" data-explanation-right="Correct. ceil(100/32) = 4 warps. The 4th warp has 28 active + 4 inactive lanes that are masked off but still occupy a warp slot and scheduling resources." data-explanation-wrong="100 threads → ceil(100/32) = 4 warps; the last warp runs 28 active lanes and 4 masked-off inactive lanes.">
+          <p class="quiz-question">2. A block of 100 threads runs on an SM. How many warps?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="three" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>3 warps (100 / 32 rounded down)</span></button>
+            <button class="quiz-option" data-value="four" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>4 warps — the last has 4 masked-off lanes</span></button>
+            <button class="quiz-option" data-value="100" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>100 — one warp per thread</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "warp = work-group" is <strong>wrong</strong> — warp = sub-group, block = work-group.<br>
+          &bull; A block runs entirely on one SM; it never spans two.<br>
+          &bull; Zero-overhead warp switching is <em>the</em> latency-hiding mechanism (Module 5).<br>
+          &bull; Post-Volta, don't rely on implicit warp-synchronous behavior.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">The Memory Hierarchy</h1>
+      <p class="module-subtitle">Order the levels by latency and bandwidth with rough numbers — that's a direct interview question. The non-obvious one: on modern GPUs, L1 and shared memory are the <em>same</em> physical SRAM.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The latency/bandwidth ordering, the scope and lifetime of each level, and that using more shared memory shrinks available L1 (they share SRAM). Rough HBM bandwidth of a current GPU is fair game.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Five Levels, Capacity vs Speed</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Registers</span>
+          <span class="badge-desc">Per-thread, ~1 cycle, ~20 TB/s. 256 KB/SM. Fastest, most scarce.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">Shared mem / L1</span>
+          <span class="badge-desc">Per-block, ~20–30 cyc, ~12–19 TB/s, up to 228 KB/SM (H100). <strong>Same SRAM as L1.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">L2 cache</span>
+          <span class="badge-desc">Device-wide, ~200 cyc, ~6–8 TB/s, 50 MB (H100).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Global / HBM</span>
+          <span class="badge-desc">Device-wide, ~400–700 cyc, 3.35 TB/s (H100 HBM3), 80–192 GB.</span>
+        </div>
+      </div>
+      <p>The whole game is keeping data in fast on-chip storage and minimizing global traffic. A global load costs ~500 cycles — but with enough resident warps, the scheduler hides it entirely (Module 5).</p>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe2">
+        <div class="quiz-question-block" data-correct="hidden" data-explanation-right="Correct. Latency is hidden, not eliminated: with hundreds of resident warps the scheduler always has an eligible warp to issue while others wait on memory. You need enough parallelism (occupancy or ILP) to cover the ~500-cycle latency." data-explanation-wrong="GPUs hide global-memory latency with concurrency — the scheduler issues other warps' work during the wait. It's hidden by parallelism, not made fast.">
+          <p class="quiz-question">1. Why is ~500-cycle global latency usually not a throughput problem?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hidden" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's hidden by issuing other resident warps during the wait</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The L2 cache makes every access ~1 cycle</span></button>
+            <button class="quiz-option" data-value="prefetch" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Hardware prefetches everything in advance</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="l1" data-explanation-right="Correct. On Volta+ (and Intel Xe), shared memory and L1 share one physical SRAM. Requesting 100 KB of shared memory leaves less L1 for caching global accesses and caps how many blocks fit per SM — an occupancy limiter." data-explanation-wrong="Shared memory and L1 are the same SRAM on modern GPUs. Requesting lots of shared memory reduces available L1 and limits resident blocks.">
+          <p class="quiz-question">2. You request 100 KB shared memory per block on an H100. Side effect?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="l1" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Less L1 available + fewer resident blocks (shared SRAM)</span></button>
+            <button class="quiz-option" data-value="none" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No effect — shared memory is separate silicon</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The kernel automatically runs faster</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Forgetting shared mem and L1 are the same SRAM (a tunable carveout).<br>
+          &bull; Confusing scope: registers are per-thread, shared is per-block, L2/global are device-wide.<br>
+          &bull; Quoting a register/shared bandwidth as if it were HBM — they differ by ~10&times;.<br>
+          &bull; The point of the hierarchy: raise <em>reuse</em> so you touch HBM as little as possible (Modules 4, 6).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">Memory Coalescing &amp; Access Patterns</h1>
+      <p class="module-subtitle">One of <em>the</em> most-asked CUDA questions. Define coalescing, know what breaks it, and explain why SoA beats AoS on a GPU. It's the single biggest "free" speedup in most kernels.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That coalescing is a <strong>warp</strong> property (which thread touches which address), not caching — and that you can reason about transaction count for a given pattern. AoS-vs-SoA is a classic follow-up.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">128 Bytes at a Time</h2>
+      <p>Global memory is served in fixed-size transactions. If a warp's 32 threads read 32 consecutive, aligned 4-byte words (128 bytes), the hardware <span class="term" data-definition="Coalescing merges the memory accesses of a warp's 32 threads into the minimum number of aligned memory transactions (32-byte sectors, or a 128-byte line). Consecutive threads hitting consecutive aligned addresses = one efficient transfer; strided/misaligned access fragments into many transactions.">coalesces</span> them into the minimum number of transactions (100% efficiency). Any stride or misalignment wastes transactions:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Consecutive</span>
+          <span class="badge-desc">Thread <code>i</code> reads element <code>base+i</code> &rarr; four 32-byte sectors, ~100% efficiency.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">Stride-2</span>
+          <span class="badge-desc">8 sectors per warp &rarr; ~50% efficiency (half the bytes wasted).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Scattered / stride-32</span>
+          <span class="badge-desc">Up to 32 separate transactions &rarr; ~3% efficiency (worst case).</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Uncoalesced Access</h2>
+      <p>This kernel updates <code>.x</code> for every particle and runs at ~3% of memory bandwidth. Click the design decision responsible.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: Array-of-Structs. A warp reading .x for 32 particles strides by 12 bytes (sizeof struct), so each thread pulls a different 32-byte sector — ~32 transactions instead of 4. Fix: Struct-of-Arrays — a separate float x[] array — so the warp's .x reads are contiguous and coalesce."><code>struct Particle { float x, y, z; }; Particle p[N];&nbsp;&nbsp;// AoS</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The index computation is the standard coalesced mapping — the layout above is the problem."><code>int i = blockIdx.x*blockDim.x + threadIdx.x;</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The update itself is fine; it's slow only because of the AoS layout."><code>p[i].x += dt * v[i];&nbsp;&nbsp;// warp strides by 12 bytes</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The SoA fix</span>
+          <p>Store <code>float x[N], y[N], z[N]</code> separately. Now a warp's <code>x[i]</code> reads are contiguous &rarr; coalesced &rarr; ~100% efficiency. SoA is almost always the GPU-friendly layout.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe3">
+        <div class="quiz-question-block" data-correct="transactions" data-explanation-right="Correct. Same bytes, same FLOPs — but the fast one issues ~four 128-byte-worth transactions per warp; the slow one issues up to 32 separate transactions, using a fraction of each fetched sector. Coalescing is about bytes-used-per-byte-fetched." data-explanation-wrong="The difference is transaction efficiency: coalesced access uses most of each fetched sector; scattered access wastes most of it, issuing many more transactions for the same data.">
+          <p class="quiz-question">1. Two kernels, same bytes and FLOPs, one 6&times; faster. Why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="transactions" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Coalescing — the slow one issues many more memory transactions</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The fast one fits entirely in L2 cache</span></button>
+            <button class="quiz-option" data-value="warps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The fast one uses more warps</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="warp" data-explanation-right="Correct. Coalescing is a warp-level property: it's about how the 32 threads' addresses in a single warp map to memory transactions. It's distinct from L1/L2 caching, which candidates often conflate it with." data-explanation-wrong="Coalescing is about how a warp's 32 addresses map to transactions — a warp property, not the same as caching.">
+          <p class="quiz-question">2. Coalescing is fundamentally about...?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="warp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>How a warp's 32 addresses map to memory transactions</span></button>
+            <button class="quiz-option" data-value="caching" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The same thing as L1/L2 caching</span></button>
+            <button class="quiz-option" data-value="registers" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>How registers are allocated</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Coalescing needs <strong>alignment</strong>, not just contiguity — a misaligned base still fragments.<br>
+          &bull; It's easy to break with a transpose or a bad <code>/</code> vs <code>%</code> in the index.<br>
+          &bull; AoS is natural in CPU code but poison on GPU — prefer SoA.<br>
+          &bull; Same guidance in SYCL: adjacent work-items &rarr; adjacent addresses.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Shared Memory &amp; Bank Conflicts</h1>
+      <p class="module-subtitle">A top separator question. Explain the 32-bank model, what causes a conflict, and the <code>+1</code> padding fix. Bank conflicts happen <em>within a warp</em> — that phrasing matters.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The 32-bank model, why the <code>+1</code> padding trick works, the broadcast exception, and that <code>__syncthreads()</code> is <strong>block-level</strong> (believing it syncs the whole grid is a red flag).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">32 Banks, Serialized on Conflict</h2>
+      <p>Shared memory is a programmer-managed scratchpad used to <em>stage</em> data (tiling) so global memory is read once and reused. It's split into <span class="term" data-definition="Shared memory is divided into 32 banks, each serving 32 bits per clock. Successive 32-bit words map to successive banks. A bank conflict occurs when threads in a warp access different addresses in the SAME bank — those accesses serialize (an N-way conflict is N times slower).">32 banks</span>; successive 32-bit words map to successive banks. A <strong>bank conflict</strong> = N threads in a warp hit N different addresses in the same bank &rarr; the accesses <strong>serialize</strong> (N&times; slower).</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The broadcast exception</span>
+          <p>If all threads read the <em>same</em> address, hardware broadcasts — no conflict. Conflicts only arise from <em>different</em> addresses in the same bank. A full-warp stride-32 access lands all 32 threads in one bank &rarr; a 32-way conflict.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: padding fix -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The <code>+1</code> Padding Trick</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// conflict: column access, all in bank 0</span></span>
+<span class="code-line">__shared__ float tile[<span class="code-number">32</span>][<span class="code-number">32</span>];</span>
+<span class="code-line">float v = tile[threadIdx.x][<span class="code-number">0</span>];  <span class="code-comment">// 32-way!</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment">// fix: pad the leading dimension</span></span>
+<span class="code-line">__shared__ float tile[<span class="code-number">32</span>][<span class="code-number">33</span>];  <span class="code-comment">// +1</span></span>
+<span class="code-line">float v = tile[threadIdx.x][<span class="code-number">0</span>];  <span class="code-comment">// conflict-free</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why +1 works</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Without padding</strong>, row <code>i</code> col 0 = element <code>i*32</code> = bank <code>(i*32)%32 = 0</code> &rarr; every row's col 0 is bank 0 &rarr; 32-way conflict.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>With <code>[33]</code></strong>, each row shifts by one bank, so consecutive rows' col 0 land in <em>different</em> banks. Costs one word per row.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe4">
+        <div class="quiz-question-block" data-correct="pad" data-explanation-right="Correct. s[threadIdx.x][0] accesses element i*32 for row i; (i*32)%32 = 0 for all rows → all 32 threads hit bank 0 → 32-way conflict. Pad to s[32][33] so each row's column 0 lands in a distinct bank." data-explanation-wrong="All 32 threads land in bank 0 (a 32-way conflict). Fix: pad to [32][33] so consecutive rows shift by one bank.">
+          <p class="quiz-question">1. <code>__shared__ float s[32][32]</code>, threads read <code>s[threadIdx.x][0]</code>. Conflict degree + fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pad" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>32-way conflict; pad to <code>s[32][33]</code></span></button>
+            <button class="quiz-option" data-value="none" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No conflict — column access is always fine</span></button>
+            <button class="quiz-option" data-value="two" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>2-way; add a <code>__syncthreads</code></span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="same" data-explanation-right="Correct. Same-bank access is only a conflict when the addresses differ. If all participating threads read the SAME address, hardware broadcasts/multicasts in a single transaction — no serialization." data-explanation-wrong="Same-bank access is NOT a conflict when all threads read the same address — that's a hardware broadcast.">
+          <p class="quiz-question">2. When is same-bank access NOT a conflict?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>When all threads read the same address (broadcast)</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never — same bank always conflicts</span></button>
+            <button class="quiz-option" data-value="write" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only on writes, never on reads</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; <code>__syncthreads()</code> is <strong>block-level</strong>, not device-level — it does not sync the whole grid.<br>
+          &bull; Bank conflicts are a <em>within-a-warp</em> phenomenon tied to 32 banks / 4-byte words.<br>
+          &bull; You need <code>__syncthreads</code> between writing shared memory and reading what <em>other</em> threads wrote.<br>
+          &bull; Diagnose with Nsight's <code>shared_ld_bank_conflict</code> metric (Module 8).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Occupancy &amp; Latency Hiding</h1>
+      <p class="module-subtitle">The single best separator in GPU-performance interviews: <strong>higher occupancy is not always faster</strong>. Know the limiters, the Little's-Law intuition, and why forcing occupancy can backfire via register spilling.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Define occupancy, name the three limiters, and — the key signal — explain that once you have <em>enough</em> warps to hide latency, more occupancy gives nothing, and cutting registers to chase it can cause <strong>spilling</strong>.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Latency Hiding = Enough Warps in Flight</h2>
+      <p><span class="term" data-definition="Occupancy = active warps per SM ÷ maximum possible warps per SM. It's a means to hide latency, not an end in itself: when a warp stalls on memory, the scheduler issues another ready warp.">Occupancy</span> = active warps per SM ÷ max possible. GPUs hide latency by keeping many warps resident — when one stalls, another issues. This is <strong>Little's Law</strong>: to keep the pipeline full you need <code>concurrency = latency &times; throughput</code> in-flight. At ~500-cycle latency and ~1 instr/cycle, you need hundreds of independent warp-instructions in flight.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Registers/thread</span>
+          <span class="badge-desc">64 regs &times; 2048 threads &gt; 65536 register file &rarr; capped. The most common limiter.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">Shared mem/block</span>
+          <span class="badge-desc">Total shared SRAM ÷ per-block usage bounds resident blocks.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">Warp/block caps</span>
+          <span class="badge-desc">Max warps per SM (e.g. 64 = 2048 threads) and max blocks per SM.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the separator -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Higher Occupancy Is NOT Always Faster</h2>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">The Volkov insight</span>
+          <p>Once you have <em>enough</em> warps to hide latency, more occupancy buys nothing. Worse: forcing high occupancy by cutting registers-per-thread can cause <strong>register spilling</strong> to local memory (GMEM-backed, slow). Many high-<span class="term" data-definition="Instruction-Level Parallelism: independent instructions within a single thread that can be in flight simultaneously. High ILP lets a kernel hide latency with FEWER warps, so it can run best at lower occupancy.">ILP</span> kernels run best at ~50% occupancy. The rule: low occupancy hurts latency hiding, but max occupancy ≠ max speed.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Worked example</span>
+          <pre><code><span class="code-line"><span class="code-comment"># SM: 65536 registers, max 2048 threads</span></span>
+<span class="code-line"><span class="code-comment"># 32 regs/thread:</span></span>
+<span class="code-line">65536 / 32 = 2048 threads = 100%</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># bump to 40 regs/thread:</span></span>
+<span class="code-line">65536 / 40 = 1638 -&gt; ~1536 = 75%</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The lever</span>
+          <div class="translation-lines">
+            <div class="tl">Register pressure sets the ceiling.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Use <code>__launch_bounds__</code> / <code>-maxrregcount</code> to trade registers for occupancy <em>deliberately</em> — and measure, because more isn't always better.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Separator Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe5">
+        <div class="quiz-question-block" data-correct="two" data-explanation-right="Correct. 96 regs × 256 threads = 24576 regs/block; 65536 / 24576 = 2.67 → 2 resident blocks = 512 threads. If the SM supports 2048, register pressure caps you at 25% occupancy." data-explanation-wrong="96×256 = 24576 regs/block; 65536/24576 = 2 blocks (512 threads). Register pressure is the limiter → 25% occupancy.">
+          <p class="quiz-question">1. 96 regs/thread, 256-thread blocks, 65536 regs/SM. Max resident blocks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="two" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>2 blocks (512 threads) — register-limited</span></button>
+            <button class="quiz-option" data-value="eight" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>8 blocks — occupancy is always maxed</span></button>
+            <button class="quiz-option" data-value="one" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>1 block — only one fits ever</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="spill" data-explanation-right="Correct. Raising occupancy usually means fewer registers per thread; if that forces register spilling to local memory, you add global traffic and slow down. Or the kernel was already latency-hidden via ILP at 25%, so extra warps only add cache pressure." data-explanation-wrong="The likely cause is register spilling (the register cut needed for higher occupancy pushed values to local memory), or the kernel was already latency-hidden by ILP.">
+          <p class="quiz-question">2. You raise occupancy 25% &rarr; 75% but the kernel gets <em>slower</em>. Cause?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="spill" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Register spilling to local memory (or it was already latency-hidden)</span></button>
+            <button class="quiz-option" data-value="impossible" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Impossible — more occupancy is always faster</span></button>
+            <button class="quiz-option" data-value="banks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It must be a bank conflict</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "Maximize occupancy always" is the wrong answer — it's a means to hide latency.<br>
+          &bull; Register spilling is silent; check <code>-Xptxas -v</code> for spill loads/stores.<br>
+          &bull; High-ILP kernels can beat high-occupancy ones (fewer warps, more work each).<br>
+          &bull; Use the Occupancy Calculator / Nsight to find which resource is the limiter.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">The Roofline Model</h1>
+      <p class="module-subtitle">The highest-frequency mental model across every GPU interview loop. Compute arithmetic intensity, find the ridge point, and classify a kernel memory- vs compute-bound — then you know <em>what</em> to optimize.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Whether you can compute the ridge point from hardware specs, classify a kernel, and say what to optimize. Bonus signal: knowing ridge points <em>climb</em> each GPU generation, so more kernels are memory-bound over time.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Arithmetic Intensity &amp; the Ridge Point</h2>
+      <p><span class="term" data-definition="Arithmetic intensity (AI) = FLOPs performed ÷ bytes moved between memory levels. Low AI = memory-bound; high AI = compute-bound. Raising AI (via reuse/tiling/fusion) is how you move a kernel toward the compute roof.">Arithmetic intensity</span> = FLOPs ÷ bytes moved. Attainable performance is:</p>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128207;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{FLOP/s} = \min\left(\text{peak compute},\; \text{AI} \times \text{peak bandwidth}\right)$$</span>
+          <p>The <strong>ridge point</strong> = peak compute ÷ peak bandwidth [FLOP/byte]. AI <em>below</em> it &rarr; memory-bound (optimize data movement). AI <em>above</em> it &rarr; compute-bound (optimize math / use tensor cores).</p>
+        </div>
+      </div>
+      <p>Ridge points are <strong>rising</strong> each generation — H100 BF16 tensor-core ridge ≈ 295 FLOP/byte, up from A100's ≈ 156 — so kernels are increasingly memory-bound on newer hardware.</p>
+    </div>
+
+    <!-- SCREEN 2: worked example -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Worked Example: SAXPY vs SGEMM</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128201;</div>
+          <div class="pattern-title">SAXPY: hopelessly memory-bound</div>
+          <p class="pattern-desc"><code>y = a*x + y</code>: 2 FLOPs, 12 bytes (read x, read y, write y) &rarr; AI &asymp; 0.17. On H100 (ridge 295) that's far left &rarr; max ~0.56 TFLOP/s of 989 peak. Only <em>fewer bytes</em> (fusion, lower precision) helps — never more compute.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128200;</div>
+          <div class="pattern-title">SGEMM: crosses into compute-bound</div>
+          <p class="pattern-desc">2N&sup3; FLOPs, ~16N&sup2; bytes &rarr; AI = N/8, <em>grows with N</em>. Large matmuls cross the ridge &rarr; compute-bound &rarr; map beautifully onto tensor cores. This is why matmul dominates ML.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Estimation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe6">
+        <div class="quiz-question-block" data-correct="mem" data-explanation-right="Correct. AI = 10 is far below the H100 ridge of 295 → memory-bound. Attainable ≈ 10 × 3.35 TB/s = 33.5 TFLOP/s, ~3% of peak. Optimize memory traffic (coalescing, reuse, fewer bytes), not FLOPs." data-explanation-wrong="10 ≪ 295 (ridge) → memory-bound. Attainable ≈ AI × bandwidth ≈ 33.5 TFLOP/s. Optimize data movement, not arithmetic.">
+          <p class="quiz-question">1. Kernel AI = 10 FLOP/byte on H100 (ridge 295). Bound + action?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="mem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound — optimize data movement, not FLOPs</span></button>
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound — use faster math</span></button>
+            <button class="quiz-option" data-value="peak" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At peak already — nothing to do</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="reuse" data-explanation-right="Correct. Raise AI by reusing loaded data (tiling/blocking in shared memory + registers), fusing ops to avoid DRAM round-trips, and using lower precision (fewer bytes). This moves the point rightward toward the compute roof." data-explanation-wrong="Increase AI by reusing data (tiling, register blocking), fusing operations, and lowering precision — all reduce bytes moved per FLOP.">
+          <p class="quiz-question">2. How do you <em>increase</em> a kernel's arithmetic intensity?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="reuse" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Reuse data (tiling), fuse ops, lower precision</span></button>
+            <button class="quiz-option" data-value="threads" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Launch more threads</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raise the clock speed</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">This model is everywhere</span>
+          <p>The roofline reappears in <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a> (each optimization raises AI) and in <a href="/learn-ai/triton-kernel-mastery/">Triton</a> ("is my kernel memory- or compute-bound?"). Learn it once here; reuse it everywhere. It's arguably the highest-frequency thread across every GPU interview.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "Peak" is precision-specific — FP32 vs FP16 tensor-core peak differ &gt;10&times;. Always state precision.<br>
+          &bull; Small/skinny problems are latency- or launch-bound, not roofline-bound.<br>
+          &bull; AI is measured between specific memory levels — be clear which (HBM vs SMEM).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Warp-Level Ops, Divergence &amp; Reductions</h1>
+      <p class="module-subtitle">Warp divergence, shuffle reductions, and atomic contention all appear verbatim in question banks. The parallel reduction is GPU-interview canon — know the hierarchical warp&rarr;block&rarr;global pattern.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That divergence cost = <strong>serialization of branches within a warp</strong> (not "ifs are slow"), why <code>_sync</code> primitives exist post-Volta, and how to cut atomic contention with a hierarchical reduction.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Warp Divergence</h2>
+      <p>A warp shares one instruction stream. If threads take different branches of a data-dependent conditional, the warp executes <em>each path serially</em>, masking off threads not on the current path. <code>if (threadIdx.x % 2)</code> splits every warp &rarr; both paths run &rarr; ~2&times; cost. Divergence is confined to a warp — <em>different</em> warps are free. Minimize by aligning branches to warp size (branch on <code>threadIdx.x / 32</code>, not per-thread).</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Warp-shuffle reduction</span>
+          <pre><code><span class="code-line"><span class="code-comment">// register-to-register, no shared mem, no sync</span></span>
+<span class="code-line"><span class="code-keyword">for</span> (<span class="code-keyword">int</span> off = <span class="code-number">16</span>; off &gt; <span class="code-number">0</span>; off /= <span class="code-number">2</span>)</span>
+<span class="code-line">  val += __shfl_down_sync(<span class="code-number">0xffffffff</span>, val, off);</span>
+<span class="code-line"><span class="code-comment">// lane 0 now holds the warp sum</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it's fast</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>__shfl_down_sync</strong> exchanges registers directly between lanes — no shared-memory loads/stores, no <code>__syncthreads</code>.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">The explicit <strong>mask</strong> (<code>0xffffffff</code>) is required post-Volta (independent thread scheduling).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: reduction DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Hierarchical Reduction — Match Each Stage</h2>
+      <p>Summing a big array is GPU-interview canon. The efficient pattern is a three-level hierarchy that minimizes atomic contention. Drag each technique to its stage.</p>
+      <div class="dnd-container animate-in" id="dnd-pe7">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="warp"><code>__shfl_down_sync</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="block"><code>shared memory + __syncthreads</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="global"><code>one atomicAdd per block</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="bad"><code>atomicAdd per thread to one address</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="warp">
+            <div class="dnd-zone-label">Reduce 32 lanes within a warp (registers only)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="block">
+            <div class="dnd-zone-label">Combine warp results within a block</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="global">
+            <div class="dnd-zone-label">Combine block results into the global total</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="bad">
+            <div class="dnd-zone-label">The anti-pattern: massive serialization/contention</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-pe7')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-pe7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe7">
+        <div class="quiz-question-block" data-correct="serial" data-explanation-right="Correct. Even/odd lanes split within every warp, so the warp runs the if-path then the else-path serially — ~2× time, half the lanes idle each pass. Restructure to branch on threadIdx.x >> 5 so a whole warp takes one path." data-explanation-wrong="The cost is serialization within the warp: both paths run, ~2× time. Branch on whole-warp boundaries (threadIdx.x/32) to avoid it.">
+          <p class="quiz-question">1. <code>if (threadIdx.x % 2 == 0) A(); else B();</code> — cost?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="serial" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>~2&times; — the warp runs A() then B() serially</span></button>
+            <button class="quiz-option" data-value="free" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Free — branches are predicated away</span></button>
+            <button class="quiz-option" data-value="crash" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It deadlocks the warp</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="noshared" data-explanation-right="Correct. The shuffle exchanges data register-to-register within the warp in a few instructions — no shared-memory loads/stores and no __syncthreads barriers. That eliminates both memory traffic and synchronization for the final 32 elements." data-explanation-wrong="Warp shuffle moves data register-to-register with no shared memory and no barriers, so it beats a shared-memory reduction for the last 32 elements.">
+          <p class="quiz-question">2. Why is a <code>__shfl_down_sync</code> reduction faster than shared memory for the final 32 elements?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="noshared" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No shared-memory traffic and no <code>__syncthreads</code> barriers</span></button>
+            <button class="quiz-option" data-value="moreregs" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses more registers</span></button>
+            <button class="quiz-option" data-value="tensor" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It runs on tensor cores</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Legacy <code>__shfl</code>/<code>__ballot</code> (no mask) are deprecated — use <code>_sync</code> variants (independent thread scheduling). Adding <code>__syncwarp</code> before a legacy call does <em>not</em> make it safe.<br>
+          &bull; A single-address <code>atomicAdd</code> from thousands of threads serializes — reduce hierarchically first.<br>
+          &bull; Divergence <em>across</em> warps is free; only <em>within</em> a warp costs.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Profiling, Concurrency &amp; the Optimization Workflow</h1>
+      <p class="module-subtitle">Tie it together: measure &rarr; find the dominant bottleneck &rarr; fix one thing &rarr; re-measure. Plus streams/overlap — a high-frequency topic. Framed as methodology you narrate, not tool-clicks.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Your <strong>measure-first</strong> workflow, reading a profiler to classify memory- vs compute- vs latency-bound, and using <strong>streams</strong> to overlap compute with transfers. "How would you find the bottleneck?" is the real question — never guess.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Systematic Loop</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Profile &rarr; read Speed of Light</strong>
+            <p>Nsight Compute's SOL shows % of peak for Compute vs Memory. The higher one tells you which roof you're near; both low &rarr; latency-bound.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Memory-bound? Fix data movement</strong>
+            <p>Check coalescing/sector efficiency, reduce bytes (fusion, precision), stage in shared memory, exploit L2.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Compute-bound? Fix the math</strong>
+            <p>Reduce instructions, use tensor cores, fix divergence, faster math intrinsics.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Latency-bound? Raise occupancy or ILP</strong>
+            <p>Low both-SOL + high <span class="term" data-definition="A warp stall reason in Nsight Compute: the warp is waiting on a global/local memory dependency. It's the classic memory-latency stall — fix with more occupancy, better locality, or higher ILP.">long-scoreboard</span> stalls &rarr; too few eligible warps. Then re-measure.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: streams -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Streams: Overlap Compute &amp; Transfers</h2>
+      <p>A high-frequency topic: host&harr;device PCIe (~16–64 GB/s) is far slower than device bandwidth (~3 TB/s), so you <strong>overlap</strong> transfers with compute using <span class="term" data-definition="A CUDA stream is an ordered queue of operations. Work in different streams can run concurrently, letting you overlap host↔device memory copies with kernel execution. Requires pinned (page-locked) host memory for async copies.">streams</span> and pinned memory.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// copy chunk i+1 while computing chunk i</span></span>
+<span class="code-line">cudaMemcpyAsync(d+off, h+off, sz,</span>
+<span class="code-line">    cudaMemcpyHostToDevice, stream[i]);</span>
+<span class="code-line">kernel&lt;&lt;&lt;g, b, <span class="code-number">0</span>, stream[i]&gt;&gt;&gt;(d+off);</span>
+<span class="code-line">cudaMemcpyAsync(h+off, d+off, sz,</span>
+<span class="code-line">    cudaMemcpyDeviceToHost, stream[i]);</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it helps</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Different streams run concurrently</strong> — the copy engine and SMs work in parallel.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Async copies need pinned host memory</strong> (<code>cudaMallocHost</code>).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Hides PCIe latency behind compute instead of stalling on it.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Diagnosis Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe8">
+        <div class="quiz-question-block" data-correct="mem" data-explanation-right="Correct. Memory SOL 85%, Compute 20%, dominant 'long scoreboard' stall = memory-bound, warps waiting on global-memory latency. Fix: coalescing/sector efficiency, shared-memory reuse, fewer bytes, raise occupancy. Do NOT optimize arithmetic." data-explanation-wrong="High Memory SOL + long-scoreboard stalls = memory-bound. Improve locality/coalescing and reduce bytes; optimizing FLOPs won't help.">
+          <p class="quiz-question">1. Nsight: Memory SOL 85%, Compute SOL 20%, dominant stall "long scoreboard." Diagnosis?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="mem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound — improve locality/coalescing, reduce bytes</span></button>
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound — optimize the arithmetic</span></button>
+            <button class="quiz-option" data-value="fine" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Well-optimized — nothing to do</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="latency" data-explanation-right="Correct. Both SOL low yet slow = latency-bound / poor latency hiding: too few eligible warps (low occupancy or low ILP), so schedulers skip issue slots. Increase resident warps or independent work per thread." data-explanation-wrong="Both Compute and Memory SOL low = latency-bound — not enough eligible warps to hide latency. Raise occupancy or ILP.">
+          <p class="quiz-question">2. Both Compute and Memory SOL ~25% yet the kernel is slow. What's wrong?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="latency" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Latency-bound — too few eligible warps (occupancy/ILP)</span></button>
+            <button class="quiz-option" data-value="banks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Definitely bank conflicts</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The GPU is downclocking</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed GPU Performance Engineering</span>
+          <p>Execution model &rarr; memory hierarchy &rarr; coalescing &rarr; bank conflicts &rarr; occupancy &rarr; roofline &rarr; warps &amp; reductions &rarr; profiling. The through-line every interviewer rewards: <strong>classify the bound first (memory / compute / latency), then optimize the thing that's actually limiting you</strong> — measured, not guessed.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Anti-patterns the profiler exposes</span>
+          <p>&bull; Uncoalesced/AoS access; unnecessary global round-trips; bank conflicts; single-address atomic contention.<br>
+          &bull; Chasing occupancy into register spills; optimizing FLOPs on a memory-bound kernel.<br>
+          &bull; Unhidden PCIe transfers — overlap them with streams.<br>
+          &bull; Apply this next in <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a>, where each step is a measured march up the roofline.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

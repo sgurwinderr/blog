@@ -1,0 +1,88 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">The Memory Hierarchy</h1>
+      <p class="module-subtitle">Order the levels by latency and bandwidth with rough numbers — that's a direct interview question. The non-obvious one: on modern GPUs, L1 and shared memory are the <em>same</em> physical SRAM.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The latency/bandwidth ordering, the scope and lifetime of each level, and that using more shared memory shrinks available L1 (they share SRAM). Rough HBM bandwidth of a current GPU is fair game.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Five Levels, Capacity vs Speed</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Registers</span>
+          <span class="badge-desc">Per-thread, ~1 cycle, ~20 TB/s. 256 KB/SM. Fastest, most scarce.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">Shared mem / L1</span>
+          <span class="badge-desc">Per-block, ~20–30 cyc, ~12–19 TB/s, up to 228 KB/SM (H100). <strong>Same SRAM as L1.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">L2 cache</span>
+          <span class="badge-desc">Device-wide, ~200 cyc, ~6–8 TB/s, 50 MB (H100).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Global / HBM</span>
+          <span class="badge-desc">Device-wide, ~400–700 cyc, 3.35 TB/s (H100 HBM3), 80–192 GB.</span>
+        </div>
+      </div>
+      <p>The whole game is keeping data in fast on-chip storage and minimizing global traffic. A global load costs ~500 cycles — but with enough resident warps, the scheduler hides it entirely (Module 5).</p>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe2">
+        <div class="quiz-question-block" data-correct="hidden" data-explanation-right="Correct. Latency is hidden, not eliminated: with hundreds of resident warps the scheduler always has an eligible warp to issue while others wait on memory. You need enough parallelism (occupancy or ILP) to cover the ~500-cycle latency." data-explanation-wrong="GPUs hide global-memory latency with concurrency — the scheduler issues other warps' work during the wait. It's hidden by parallelism, not made fast.">
+          <p class="quiz-question">1. Why is ~500-cycle global latency usually not a throughput problem?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hidden" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's hidden by issuing other resident warps during the wait</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The L2 cache makes every access ~1 cycle</span></button>
+            <button class="quiz-option" data-value="prefetch" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Hardware prefetches everything in advance</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="l1" data-explanation-right="Correct. On Volta+ (and Intel Xe), shared memory and L1 share one physical SRAM. Requesting 100 KB of shared memory leaves less L1 for caching global accesses and caps how many blocks fit per SM — an occupancy limiter." data-explanation-wrong="Shared memory and L1 are the same SRAM on modern GPUs. Requesting lots of shared memory reduces available L1 and limits resident blocks.">
+          <p class="quiz-question">2. You request 100 KB shared memory per block on an H100. Side effect?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="l1" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Less L1 available + fewer resident blocks (shared SRAM)</span></button>
+            <button class="quiz-option" data-value="none" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No effect — shared memory is separate silicon</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The kernel automatically runs faster</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Forgetting shared mem and L1 are the same SRAM (a tunable carveout).<br>
+          &bull; Confusing scope: registers are per-thread, shared is per-block, L2/global are device-wide.<br>
+          &bull; Quoting a register/shared bandwidth as if it were HBM — they differ by ~10&times;.<br>
+          &bull; The point of the hierarchy: raise <em>reuse</em> so you touch HBM as little as possible (Modules 4, 6).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

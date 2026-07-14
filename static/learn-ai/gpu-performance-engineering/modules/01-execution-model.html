@@ -1,0 +1,109 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">The GPU Execution Model</h1>
+      <p class="module-subtitle">Assumed knowledge in every GPU interview. Draw the thread &rarr; warp &rarr; block &rarr; grid hierarchy, map it to SM hardware, and know why blocks have no ordering guarantee — that's the foundation everything else builds on.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you map the software hierarchy to hardware, know a block runs entirely on <strong>one SM</strong>, and explain why there's <strong>no ordering between blocks</strong> (it's what lets one binary scale across any GPU size)?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">SIMT: Scalar Code, Lockstep Warps</h2>
+      <p>You write scalar per-thread code; hardware groups threads into <span class="term" data-definition="A warp is 32 threads that issue instructions in lockstep (SIMT). On NVIDIA it is always 32; the SYCL/Intel analogue is a sub-group (8/16/32 on Intel). The warp is the true unit of scheduling and divergence.">warps of 32</span> that issue in lockstep. The hierarchy: <strong>thread &rarr; warp (32) &rarr; block &rarr; grid</strong>. The scheduler assigns whole blocks to <span class="term" data-definition="Streaming Multiprocessor — the GPU's core compute cluster. A thread block is assigned entirely to one SM and never spans two. Warp schedulers within the SM pick an eligible warp each cycle (zero-overhead context switching), which is how latency is hidden.">SMs</span>; a block never spans two SMs.</p>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Why no ordering between blocks?</span>
+          <p>So the runtime can schedule blocks in <em>any</em> order across <em>any</em> number of SMs — the same binary scales from a laptop GPU to an H100. Blocks must therefore be independent: no inter-block sync within a kernel (barring cooperative groups). This is a favorite "why is it designed this way" question.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: CUDA/SYCL mapping (sidebar) -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">CUDA &harr; SYCL Terminology <span style="font-weight:400;font-size:0.7em;color:var(--color-text-muted)">(sidebar — interviews speak CUDA)</span></h2>
+      <p>Interviews use CUDA vocabulary; SYCL/oneAPI is the portable equivalent (relevant mainly at Intel). The one mapping people get wrong: <strong>warp = sub-group</strong>, <strong>block = work-group</strong> — not "warp = work-group."</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">warp &harr; sub-group</span>
+          <span class="badge-desc">Lockstep group. 32 on NVIDIA; 8/16/32 on Intel Xe.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">block &harr; work-group</span>
+          <span class="badge-desc">Cooperative group sharing on-chip memory + a barrier.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">SM &harr; compute unit (Xe-core)</span>
+          <span class="badge-desc">The compute cluster a block/work-group runs on.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">shared memory &harr; local memory (SLM)</span>
+          <span class="badge-desc">On-chip scratchpad. Note the CUDA <code>.x</code> axis maps to SYCL's highest dim.</span>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Independent thread scheduling (Volta / CC 7.0+)</span>
+          <p>Pre-Volta, a warp shared one program counter — divergent threads couldn't progress independently. From CC 7.0 each thread has its own PC and can diverge/reconverge at sub-warp granularity. This <em>breaks</em> legacy warp-synchronous code; use <code>__syncwarp()</code> and the <code>_sync</code> primitive variants (Module 7).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe1">
+        <div class="quiz-question-block" data-correct="scale" data-explanation-right="Correct. With no ordering guarantee, the runtime schedules blocks in any order across any number of SMs — so one binary scales from a small GPU to a large one. The cost is that blocks must be independent (no inter-block sync within a kernel)." data-explanation-wrong="No inter-block ordering lets the same binary scale across GPUs of any size by scheduling blocks in any order. Independence is the required tradeoff.">
+          <p class="quiz-question">1. Why does CUDA guarantee no execution order between thread blocks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="scale" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>So one binary scales across any number of SMs</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Random order is faster than ordered</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To save memory on the scheduler</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="four" data-explanation-right="Correct. ceil(100/32) = 4 warps. The 4th warp has 28 active + 4 inactive lanes that are masked off but still occupy a warp slot and scheduling resources." data-explanation-wrong="100 threads → ceil(100/32) = 4 warps; the last warp runs 28 active lanes and 4 masked-off inactive lanes.">
+          <p class="quiz-question">2. A block of 100 threads runs on an SM. How many warps?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="three" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>3 warps (100 / 32 rounded down)</span></button>
+            <button class="quiz-option" data-value="four" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>4 warps — the last has 4 masked-off lanes</span></button>
+            <button class="quiz-option" data-value="100" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>100 — one warp per thread</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "warp = work-group" is <strong>wrong</strong> — warp = sub-group, block = work-group.<br>
+          &bull; A block runs entirely on one SM; it never spans two.<br>
+          &bull; Zero-overhead warp switching is <em>the</em> latency-hiding mechanism (Module 5).<br>
+          &bull; Post-Volta, don't rely on implicit warp-synchronous behavior.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,98 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Tensor Cores — Why They Dominate Peak</h1>
+      <p class="module-subtitle">Dedicated matrix-multiply units on a separate, ~17&times; higher FLOP ceiling. Low-precision inputs, FP32 accumulate. Rising fast in interviews as FP8/BF16 take over.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why FP16 inputs but FP32 accumulator, and that a WMMA call is executed by the <strong>whole warp</strong> cooperatively (not per-thread). The peak-FLOP gap over CUDA cores is the "why bother" answer.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">A Separate, Much Higher Ceiling</h2>
+      <p><span class="term" data-definition="Tensor Cores are dedicated matrix-multiply-accumulate units. A warp cooperatively computes D = A·B + C on small tiles (e.g. 16×16×16) with low-precision inputs (FP16/BF16/TF32/FP8) and higher-precision accumulate (FP32). They sit on a separate, much higher FLOP ceiling than the FP32 CUDA cores.">Tensor Cores</span> compute a small matrix-multiply-accumulate in a few instructions. H100 peaks (why libraries target them):</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-4);">FP32 CUDA cores</span><span class="badge-desc">60 TFLOP/s — the baseline.</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-3);">TF32 tensor</span><span class="badge-desc">500 TFLOP/s (near-drop-in FP32 replacement).</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-2);">FP16 / BF16 tensor</span><span class="badge-desc">1000 TFLOP/s — <strong>~17&times;</strong> the FP32 cores.</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-1);">FP8 tensor</span><span class="badge-desc">2000 TFLOP/s.</span></div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — WMMA (warp cooperative)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">using namespace</span> nvcuda;</span>
+<span class="code-line">wmma::fragment&lt;matrix_a, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, half, row_major&gt; a;</span>
+<span class="code-line">wmma::fragment&lt;matrix_b, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, half, col_major&gt; b;</span>
+<span class="code-line">wmma::fragment&lt;accumulator, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, <span class="code-keyword">float</span>&gt; acc;</span>
+<span class="code-line">wmma::load_matrix_sync(a, A+..., lda);</span>
+<span class="code-line">wmma::mma_sync(acc, a, b, acc);  <span class="code-comment">// D = A*B + C</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key facts</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>half in, float accumulate</strong> — declared in the fragment types.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The whole warp (32 threads)</strong> cooperates on one 16&times;16&times;16 MMA; the fragment is spread across the warp's registers.</div>
+            <div class="tl"><strong>mma_sync</strong> does the multiply-accumulate in place.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm7">
+        <div class="quiz-question-block" data-correct="accumulate" data-explanation-right="Correct. FP16 multiply is cheap and fast, but summing thousands of products in FP16 loses precision catastrophically. FP32 accumulation keeps the K-length reduction accurate. Hardware does 'FP16 multiply, full-precision product, FP32 accumulate.'" data-explanation-wrong="FP16 inputs are fast but summing many products in FP16 is inaccurate; FP32 accumulation preserves the K-length reduction's precision.">
+          <p class="quiz-question">1. Why FP16 inputs but FP32 accumulator?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="accumulate" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FP16 multiply is fast; FP32 accumulation keeps the reduction accurate</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FP32 accumulators use less memory</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tensor cores only support FP32 output</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="warp" data-explanation-right="Correct. Though WMMA is written as per-thread calls, the whole WARP (32 threads) cooperates on one 16×16×16 MMA; the fragment is distributed across the warp's registers. Calling it with a divergent or partial warp is illegal." data-explanation-wrong="A WMMA op is executed cooperatively by the entire warp — the fragment is spread across all 32 threads' registers. Every lane must participate.">
+          <p class="quiz-question">2. WMMA is written per-thread — what actually executes it?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="warp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The whole warp cooperates on one MMA</span></button>
+            <button class="quiz-option" data-value="thread" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Each thread does its own independent MMA</span></button>
+            <button class="quiz-option" data-value="block" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The entire block together</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; The WMMA fragment layout is <strong>opaque</strong> — don't index it manually; use load/store/mma.<br>
+          &bull; Every active lane must participate — no divergence.<br>
+          &bull; BF16 keeps FP32's exponent range (safer than FP16 for training); TF32 truncates the mantissa — wrong for full-precision HPC.<br>
+          &bull; Below WMMA, <code>mma.sync</code> (PTX) + <code>ldmatrix</code> and Hopper's <code>wgmma</code> give finer control — what libraries use.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

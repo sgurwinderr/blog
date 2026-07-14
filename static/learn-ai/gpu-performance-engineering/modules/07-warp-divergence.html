@@ -1,0 +1,123 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Warp-Level Ops, Divergence &amp; Reductions</h1>
+      <p class="module-subtitle">Warp divergence, shuffle reductions, and atomic contention all appear verbatim in question banks. The parallel reduction is GPU-interview canon — know the hierarchical warp&rarr;block&rarr;global pattern.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That divergence cost = <strong>serialization of branches within a warp</strong> (not "ifs are slow"), why <code>_sync</code> primitives exist post-Volta, and how to cut atomic contention with a hierarchical reduction.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Warp Divergence</h2>
+      <p>A warp shares one instruction stream. If threads take different branches of a data-dependent conditional, the warp executes <em>each path serially</em>, masking off threads not on the current path. <code>if (threadIdx.x % 2)</code> splits every warp &rarr; both paths run &rarr; ~2&times; cost. Divergence is confined to a warp — <em>different</em> warps are free. Minimize by aligning branches to warp size (branch on <code>threadIdx.x / 32</code>, not per-thread).</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Warp-shuffle reduction</span>
+          <pre><code><span class="code-line"><span class="code-comment">// register-to-register, no shared mem, no sync</span></span>
+<span class="code-line"><span class="code-keyword">for</span> (<span class="code-keyword">int</span> off = <span class="code-number">16</span>; off &gt; <span class="code-number">0</span>; off /= <span class="code-number">2</span>)</span>
+<span class="code-line">  val += __shfl_down_sync(<span class="code-number">0xffffffff</span>, val, off);</span>
+<span class="code-line"><span class="code-comment">// lane 0 now holds the warp sum</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it's fast</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>__shfl_down_sync</strong> exchanges registers directly between lanes — no shared-memory loads/stores, no <code>__syncthreads</code>.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">The explicit <strong>mask</strong> (<code>0xffffffff</code>) is required post-Volta (independent thread scheduling).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: reduction DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Hierarchical Reduction — Match Each Stage</h2>
+      <p>Summing a big array is GPU-interview canon. The efficient pattern is a three-level hierarchy that minimizes atomic contention. Drag each technique to its stage.</p>
+      <div class="dnd-container animate-in" id="dnd-pe7">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="warp"><code>__shfl_down_sync</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="block"><code>shared memory + __syncthreads</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="global"><code>one atomicAdd per block</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="bad"><code>atomicAdd per thread to one address</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="warp">
+            <div class="dnd-zone-label">Reduce 32 lanes within a warp (registers only)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="block">
+            <div class="dnd-zone-label">Combine warp results within a block</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="global">
+            <div class="dnd-zone-label">Combine block results into the global total</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="bad">
+            <div class="dnd-zone-label">The anti-pattern: massive serialization/contention</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-pe7')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-pe7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe7">
+        <div class="quiz-question-block" data-correct="serial" data-explanation-right="Correct. Even/odd lanes split within every warp, so the warp runs the if-path then the else-path serially — ~2× time, half the lanes idle each pass. Restructure to branch on threadIdx.x >> 5 so a whole warp takes one path." data-explanation-wrong="The cost is serialization within the warp: both paths run, ~2× time. Branch on whole-warp boundaries (threadIdx.x/32) to avoid it.">
+          <p class="quiz-question">1. <code>if (threadIdx.x % 2 == 0) A(); else B();</code> — cost?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="serial" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>~2&times; — the warp runs A() then B() serially</span></button>
+            <button class="quiz-option" data-value="free" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Free — branches are predicated away</span></button>
+            <button class="quiz-option" data-value="crash" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It deadlocks the warp</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="noshared" data-explanation-right="Correct. The shuffle exchanges data register-to-register within the warp in a few instructions — no shared-memory loads/stores and no __syncthreads barriers. That eliminates both memory traffic and synchronization for the final 32 elements." data-explanation-wrong="Warp shuffle moves data register-to-register with no shared memory and no barriers, so it beats a shared-memory reduction for the last 32 elements.">
+          <p class="quiz-question">2. Why is a <code>__shfl_down_sync</code> reduction faster than shared memory for the final 32 elements?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="noshared" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No shared-memory traffic and no <code>__syncthreads</code> barriers</span></button>
+            <button class="quiz-option" data-value="moreregs" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses more registers</span></button>
+            <button class="quiz-option" data-value="tensor" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It runs on tensor cores</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Legacy <code>__shfl</code>/<code>__ballot</code> (no mask) are deprecated — use <code>_sync</code> variants (independent thread scheduling). Adding <code>__syncwarp</code> before a legacy call does <em>not</em> make it safe.<br>
+          &bull; A single-address <code>atomicAdd</code> from thousands of threads serializes — reduce hierarchically first.<br>
+          &bull; Divergence <em>across</em> warps is free; only <em>within</em> a warp costs.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,103 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Shared Memory &amp; Bank Conflicts</h1>
+      <p class="module-subtitle">A top separator question. Explain the 32-bank model, what causes a conflict, and the <code>+1</code> padding fix. Bank conflicts happen <em>within a warp</em> — that phrasing matters.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The 32-bank model, why the <code>+1</code> padding trick works, the broadcast exception, and that <code>__syncthreads()</code> is <strong>block-level</strong> (believing it syncs the whole grid is a red flag).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">32 Banks, Serialized on Conflict</h2>
+      <p>Shared memory is a programmer-managed scratchpad used to <em>stage</em> data (tiling) so global memory is read once and reused. It's split into <span class="term" data-definition="Shared memory is divided into 32 banks, each serving 32 bits per clock. Successive 32-bit words map to successive banks. A bank conflict occurs when threads in a warp access different addresses in the SAME bank — those accesses serialize (an N-way conflict is N times slower).">32 banks</span>; successive 32-bit words map to successive banks. A <strong>bank conflict</strong> = N threads in a warp hit N different addresses in the same bank &rarr; the accesses <strong>serialize</strong> (N&times; slower).</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The broadcast exception</span>
+          <p>If all threads read the <em>same</em> address, hardware broadcasts — no conflict. Conflicts only arise from <em>different</em> addresses in the same bank. A full-warp stride-32 access lands all 32 threads in one bank &rarr; a 32-way conflict.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: padding fix -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The <code>+1</code> Padding Trick</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// conflict: column access, all in bank 0</span></span>
+<span class="code-line">__shared__ float tile[<span class="code-number">32</span>][<span class="code-number">32</span>];</span>
+<span class="code-line">float v = tile[threadIdx.x][<span class="code-number">0</span>];  <span class="code-comment">// 32-way!</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment">// fix: pad the leading dimension</span></span>
+<span class="code-line">__shared__ float tile[<span class="code-number">32</span>][<span class="code-number">33</span>];  <span class="code-comment">// +1</span></span>
+<span class="code-line">float v = tile[threadIdx.x][<span class="code-number">0</span>];  <span class="code-comment">// conflict-free</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why +1 works</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Without padding</strong>, row <code>i</code> col 0 = element <code>i*32</code> = bank <code>(i*32)%32 = 0</code> &rarr; every row's col 0 is bank 0 &rarr; 32-way conflict.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>With <code>[33]</code></strong>, each row shifts by one bank, so consecutive rows' col 0 land in <em>different</em> banks. Costs one word per row.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe4">
+        <div class="quiz-question-block" data-correct="pad" data-explanation-right="Correct. s[threadIdx.x][0] accesses element i*32 for row i; (i*32)%32 = 0 for all rows → all 32 threads hit bank 0 → 32-way conflict. Pad to s[32][33] so each row's column 0 lands in a distinct bank." data-explanation-wrong="All 32 threads land in bank 0 (a 32-way conflict). Fix: pad to [32][33] so consecutive rows shift by one bank.">
+          <p class="quiz-question">1. <code>__shared__ float s[32][32]</code>, threads read <code>s[threadIdx.x][0]</code>. Conflict degree + fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pad" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>32-way conflict; pad to <code>s[32][33]</code></span></button>
+            <button class="quiz-option" data-value="none" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No conflict — column access is always fine</span></button>
+            <button class="quiz-option" data-value="two" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>2-way; add a <code>__syncthreads</code></span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="same" data-explanation-right="Correct. Same-bank access is only a conflict when the addresses differ. If all participating threads read the SAME address, hardware broadcasts/multicasts in a single transaction — no serialization." data-explanation-wrong="Same-bank access is NOT a conflict when all threads read the same address — that's a hardware broadcast.">
+          <p class="quiz-question">2. When is same-bank access NOT a conflict?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>When all threads read the same address (broadcast)</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never — same bank always conflicts</span></button>
+            <button class="quiz-option" data-value="write" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only on writes, never on reads</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; <code>__syncthreads()</code> is <strong>block-level</strong>, not device-level — it does not sync the whole grid.<br>
+          &bull; Bank conflicts are a <em>within-a-warp</em> phenomenon tied to 32 banks / 4-byte words.<br>
+          &bull; You need <code>__syncthreads</code> between writing shared memory and reading what <em>other</em> threads wrote.<br>
+          &bull; Diagnose with Nsight's <code>shared_ld_bank_conflict</code> metric (Module 8).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

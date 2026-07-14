@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triton Kernel Mastery: From tl.load to Flash Attention</title>
+  <meta name="description" content="Write custom GPU kernels in Triton from first principles — the block programming model, masking, fused softmax, autotuning, blocked matmul, and Flash Attention, then integrate with PyTorch and torch.compile.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/triton-kernel-mastery/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Triton Kernel Mastery: From tl.load to Flash Attention">
+  <meta property="og:description" content="Write custom GPU kernels in Triton from first principles — up to Flash Attention and torch.compile integration.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/triton-kernel-mastery/">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #7C3AED;
+      --color-accent-hover: #6D28D9;
+      --color-accent-light: #EDE9FE;
+      --color-accent-muted: #A78BFA;
+    }
+  </style>
+
+  <!-- MathJax for kernel/perf math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">Triton Kernel Mastery</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Programming Model" role="tab" aria-label="Module 1: Why Triton & the Programming Model"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="First Kernel" role="tab" aria-label="Module 2: Your First Kernel"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Memory & Masking" role="tab" aria-label="Module 3: The Memory Model & Masking"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Fused Softmax" role="tab" aria-label="Module 4: Fused Softmax"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Autotuning" role="tab" aria-label="Module 5: Autotuning & Performance"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Matrix Multiply" role="tab" aria-label="Module 6: Blocked Matrix Multiply"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Flash Attention" role="tab" aria-label="Module 7: Flash Attention in Triton"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="PyTorch Integration" role="tab" aria-label="Module 8: Integration with PyTorch"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">Why Triton Exists &amp; the Programming Model</h1>
+      <p class="module-subtitle">The framing question of every Triton interview: "why is Triton's model different from CUDA?" Get the block-vs-SIMT distinction right and you've cleared the conceptual bar.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Whether you understand Triton's <strong>block/tile programming model</strong> vs CUDA's per-thread SIMT — and can name what the compiler does <em>for</em> you. The #1 separator: candidates who think a Triton "program" is a CUDA thread.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Two Philosophies</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#129504;</div>
+          <div class="pattern-title">CUDA: Scalar Program, Blocked Threads</div>
+          <p class="pattern-desc">You write per-thread scalar code (<code>acc += A[m,k]*B[k,n]</code>) and manually manage coalescing, shared memory, and <code>__syncthreads</code>.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3);">
+          <div class="pattern-icon" style="background: rgba(123,109,170,0.1); color: var(--color-actor-3);">&#128230;</div>
+          <div class="pattern-title">Triton: Blocked Program, Scalar Threads</div>
+          <p class="pattern-desc">You write <strong>tile-level</strong> code (<code>acc += A[m:m+BM, :] @ B[:, n:n+BN]</code>); the compiler maps threads underneath. There is no <code>threadIdx</code>.</p>
+        </div>
+      </div>
+      <p>You are one <span class="term" data-definition="A Triton program instance is like a CUDA block: it owns an entire tile of data and is identified by tl.program_id(). It is NOT a single thread — the compiler maps each program to a group of threads (warps) automatically.">program</span> (<code>tl.program_id</code>) that owns a whole tile — not one thread among many.</p>
+    </div>
+
+    <!-- SCREEN 2 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">What the Compiler Does For You</h2>
+      <p>In CUDA you hand-tune these; in Triton the compiler handles them via block-level data-flow analysis. Naming three of these is a standard interview answer:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">Coalescing</span>
+          <span class="badge-desc">Automatic memory coalescing &amp; thread swizzling — you never arrange threads by hand.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">Shared memory</span>
+          <span class="badge-desc">Automatic shared-memory allocation + synchronization — no manual <code>__shared__</code> / <code>__syncthreads</code>.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">Vectorization + tensor cores</span>
+          <span class="badge-desc">Automatic vectorization, tensor-core instruction selection, prefetching, async-copy scheduling.</span>
+        </div>
+      </div>
+      <p>Compilation path: <code>@triton.jit</code> Python &rarr; Triton IR &rarr; TritonGPU IR &rarr; LLVM &rarr; PTX &rarr; SASS, launched over a <strong>grid</strong> of program instances.</p>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Framing Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm1">
+        <div class="quiz-question-block" data-correct="block" data-explanation-right="Correct. tl.program_id returns the index of the current program instance in the grid — analogous to CUDA's blockIdx, not threadIdx. Triton has no threadIdx; the compiler maps a program's tile to threads automatically." data-explanation-wrong="A Triton program is like a CUDA BLOCK (blockIdx), not a thread. There is no threadIdx in Triton — that's the whole point of the model.">
+          <p class="quiz-question">1. What is a Triton "program" analogous to in CUDA?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="thread" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A single thread (threadIdx)</span></button>
+            <button class="quiz-option" data-value="block" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A block (blockIdx) — it owns a whole tile</span></button>
+            <button class="quiz-option" data-value="grid" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The entire grid</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="compiler" data-explanation-right="Correct. Coalescing, shared-memory allocation/sync, and vectorization/tensor-core selection are all automatic in Triton — that's the productivity win. You control tile shapes, num_warps, and num_stages." data-explanation-wrong="Triton automates coalescing, shared-memory management, and vectorization/tensor-core selection. You do NOT hand-manage those — you only choose tile shapes and warp/stage counts.">
+          <p class="quiz-question">2. Which of these do you NOT manage by hand in Triton?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="compiler" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Coalescing, shared-memory sync, vectorization</span></button>
+            <button class="quiz-option" data-value="tiles" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tile shapes and BLOCK_SIZE</span></button>
+            <button class="quiz-option" data-value="grid" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The launch grid dimensions</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups &amp; gotchas</span>
+          <p>&bull; "Block" in Triton = a program's tile of <em>data</em>, not a CUDA thread block. Same word, different meaning.<br>
+          &bull; You cannot control individual threads — only tile shapes, <code>num_warps</code>, <code>num_stages</code>.<br>
+          &bull; "Does Triton always beat cuBLAS?" — No; its win is near-peak performance with far less code for <em>custom fused</em> ops.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">Your First Kernel — Vector Add</h1>
+      <p class="module-subtitle">The warm-up. Every Triton kernel follows this skeleton: compute offsets, mask the boundary, load, compute, store. Get the masking right and you won't segfault in a live coding round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Rarely the actual bar — but the <strong>boundary mask</strong> is where candidates crash live. If <code>n_elements</code> isn't a multiple of <code>BLOCK_SIZE</code>, the last program runs out of bounds without it.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Universal Skeleton</h2>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>program_id &rarr; offsets</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>mask boundary</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>tl.load</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>compute</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">5</div><p>tl.store</p></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the kernel -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Complete Kernel</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@triton.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">add_kernel</span>(x_ptr, y_ptr, out_ptr,</span>
+<span class="code-line">    n_elements, BLOCK_SIZE: tl.constexpr):</span>
+<span class="code-line">  pid = tl.program_id(axis=<span class="code-number">0</span>)</span>
+<span class="code-line">  start = pid * BLOCK_SIZE</span>
+<span class="code-line">  offs = start + tl.arange(<span class="code-number">0</span>, BLOCK_SIZE)</span>
+<span class="code-line">  mask = offs &lt; n_elements</span>
+<span class="code-line">  x = tl.load(x_ptr + offs, mask=mask)</span>
+<span class="code-line">  y = tl.load(y_ptr + offs, mask=mask)</span>
+<span class="code-line">  tl.store(out_ptr + offs, x + y, mask=mask)</span>
+<span class="code-line"></span>
+<span class="code-line">grid = <span class="code-keyword">lambda</span> m: (triton.cdiv(n, m[<span class="code-string">'BLOCK_SIZE'</span>]),)</span>
+<span class="code-line">add_kernel[grid](x, y, out, n, BLOCK_SIZE=<span class="code-number">1024</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Line by line</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Tensors pass as pointers</strong> to their first element.</div>
+            <div class="tl"><strong>BLOCK_SIZE is constexpr</strong> — compile-time, usable as a shape.</div>
+            <div class="tl"><strong>program_id</strong> — which tile this program owns.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>tl.arange</strong> builds the offset vector.</div>
+            <div class="tl"><strong>mask</strong> guards the ragged last block.</div>
+            <div class="tl"><strong>tl.load/store</strong> honor the mask — masked lanes skipped.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>grid lambda</strong> gets meta so cdiv sees BLOCK_SIZE. Launch is <strong>async</strong>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Illegal Memory Access</h2>
+      <p>This kernel crashes with "illegal memory access" when <code>n = 1000, BLOCK_SIZE = 1024</code>. Click the line at fault.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Computing offsets is correct."><code>&nbsp;&nbsp;offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: no mask. With n=1000 and BLOCK_SIZE=1024, the single program addresses offsets 0-1023 — reading/writing 24 elements out of bounds. Add mask = offs < n_elements and pass mask= to load and store."><code>&nbsp;&nbsp;x = tl.load(x_ptr + offs)&nbsp;&nbsp;# no mask!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The store would be fine IF the load above were masked."><code>&nbsp;&nbsp;tl.store(out_ptr + offs, x + 1.0)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm2">
+        <div class="quiz-question-block" data-correct="shape" data-explanation-right="Correct. BLOCK_SIZE is used as a shape in tl.arange(0, BLOCK_SIZE); shapes must be known at compile time, so it must be tl.constexpr. Changing it triggers a recompile (a new specialization)." data-explanation-wrong="BLOCK_SIZE is used as a compile-time shape (tl.arange(0, BLOCK_SIZE)), so it must be tl.constexpr. That's why changing it recompiles the kernel.">
+          <p class="quiz-question">1. Why must <code>BLOCK_SIZE</code> be <code>tl.constexpr</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="shape" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's used as a compile-time shape in tl.arange</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Runtime ints are too slow</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To fit it in a register</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="async" data-explanation-right="Correct. The launch is asynchronous — it returns before the GPU finishes. To read the result correctly you rely on the stream ordering (a later .cpu()/print synchronizes), but the launch call itself doesn't block." data-explanation-wrong="Triton kernel launches are asynchronous; the call returns immediately and the GPU runs it on the stream. A subsequent read synchronizes.">
+          <p class="quiz-question">2. Does <code>add_kernel[grid](...)</code> block until the GPU finishes?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="blocks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes, it blocks until complete</span></button>
+            <button class="quiz-option" data-value="async" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No, the launch is asynchronous</span></button>
+            <button class="quiz-option" data-value="depends" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only if BLOCK_SIZE > 512</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Forgetting the mask when size isn't a multiple of the block.<br>
+          &bull; Passing <code>BLOCK_SIZE</code> positionally — meta-params must be keyword args.<br>
+          &bull; This uses plain pointer arithmetic (<code>x_ptr + offs</code>), <em>not</em> <code>tl.make_block_ptr</code> — block pointers appear in matmul/attention. Don't conflate them.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">The Memory Model &amp; Masking</h1>
+      <p class="module-subtitle">Where candidates break in live coding. Triton manipulates <em>pointers into tensors</em>, not tensors — strides, broadcasting, and the right <code>other=</code> value for a masked reduction are the details that separate strong from weak.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Whether you build addresses from <strong>strides</strong> (never assume contiguity) and pick the correct <code>other=</code> fill for masked lanes — <code>-inf</code> for a max, <code>0.0</code> for a sum. This is a top boundary-handling separator.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Pointers, Strides, Broadcasting</h2>
+      <p>An address is <code>base + i*stride_i + j*stride_j</code>. Build 2D pointer blocks by broadcasting <code>offs_i[:, None]</code> against <code>offs_j[None, :]</code>. Strides come from PyTorch's <code>.stride()</code> and are in <strong>elements</strong>, not bytes.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Strided 2D tile load</span>
+          <pre><code><span class="code-line">offs_m = pid_m*BM + tl.arange(<span class="code-number">0</span>, BM)</span>
+<span class="code-line">offs_n = pid_n*BN + tl.arange(<span class="code-number">0</span>, BN)</span>
+<span class="code-line">ptrs = base + offs_m[:, <span class="code-keyword">None</span>]*stride_m \</span>
+<span class="code-line">            + offs_n[<span class="code-keyword">None</span>, :]*stride_n</span>
+<span class="code-line">mask = (offs_m[:, <span class="code-keyword">None</span>] &lt; M) &amp; \</span>
+<span class="code-line">       (offs_n[<span class="code-keyword">None</span>, :] &lt; N)</span>
+<span class="code-line">tile = tl.load(ptrs, mask=mask, other=<span class="code-number">0.0</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key ideas</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Broadcasting</strong> [:, None] &times; [None, :] builds the 2D address grid.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>2D mask</strong> guards both dimensions at once.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>other=</strong> is the value masked-off lanes return — <em>choose it for your reduction.</em></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: The Wrong Fill Value</h2>
+      <p>This kernel computes a row max but returns wrong answers for rows with all-negative values. Click the mistake.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Building the column offsets is correct."><code>&nbsp;&nbsp;offs = tl.arange(0, BLOCK_SIZE)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: other=0.0 for a MAX reduction. Padded lanes contribute 0.0; if every real value in the row is negative, tl.max returns 0 (a padded lane wins). Use other=-float('inf') so padding can never beat a real value in a max."><code>&nbsp;&nbsp;row = tl.load(p + offs, mask=offs&lt;n, other=0.0)&nbsp;&nbsp;# max reduction!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The reduction itself is correct — the fill value above poisoned it."><code>&nbsp;&nbsp;m = tl.max(row, axis=0)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The rule</span>
+          <p>Pick the <strong>neutral element</strong> for your reduction: <code>other=-float('inf')</code> for max, <code>other=0.0</code> for sum, <code>other=float('inf')</code> for min. The fill must never affect the result.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm3">
+        <div class="quiz-question-block" data-correct="strides" data-explanation-right="Correct. Never assume contiguity — pass the actual .stride(d) values from PyTorch and compute addresses with them. A transposed or sliced tensor has non-trivial strides; hardcoding row-major arithmetic silently reads wrong memory." data-explanation-wrong="Index with the tensor's actual .stride() values. Assuming contiguity breaks on transposed/sliced inputs.">
+          <p class="quiz-question">1. How do you correctly index a transposed/strided tensor in Triton?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="strides" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Pass the real <code>.stride()</code> values and build addresses from them</span></button>
+            <button class="quiz-option" data-value="contig" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Assume row-major and use <code>i*ncols + j</code></span></button>
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Always <code>.contiguous()</code> first — strides never matter</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="elements" data-explanation-right="Correct. Triton strides are in ELEMENTS (matching PyTorch's .stride()), not bytes. Multiplying by dtype size is a classic double-counting bug." data-explanation-wrong="Strides in Triton are in elements, exactly like PyTorch's .stride() — not bytes. Don't multiply by the dtype size.">
+          <p class="quiz-question">2. Triton strides are measured in...?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="bytes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Bytes</span></button>
+            <button class="quiz-option" data-value="elements" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Elements (like PyTorch <code>.stride()</code>)</span></button>
+            <button class="quiz-option" data-value="bits" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Bits</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Wrong <code>other=</code> for the reduction (the bug above).<br>
+          &bull; Broadcasting mistakes — <code>[:, None]</code> vs <code>[None, :]</code> transposed.<br>
+          &bull; Forgetting the mask on <code>tl.store</code> &rarr; out-of-bounds writes.<br>
+          &bull; Assuming contiguity instead of threading strides through.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Fused Softmax</h1>
+      <p class="module-subtitle">The canonical Triton coding exercise. "Write a fused softmax kernel" tests masking, numerical stability, and single-pass reduction all at once — and sets up Flash Attention.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Two things: <strong>why subtract the row max</strong> (numerical stability + shift-invariance), and <strong>why fusion is faster</strong> (softmax is memory-bound; separate ops round-trip DRAM per op).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">One Pass, On-Chip</h2>
+      <p>Load a whole row into SRAM, then do max &rarr; subtract &rarr; exp &rarr; sum &rarr; divide <em>on-chip in one pass</em>, and write once. The naive PyTorch softmax round-trips DRAM per op (~<code>5MN</code> read + <code>3MN</code> write); the fused kernel touches DRAM ~once in / once out (~<code>2MN</code>) &rarr; roughly 4&times; less traffic.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line">row = tl.load(row_ptr + cols,</span>
+<span class="code-line">    mask=cols &lt; n_cols, other=-float(<span class="code-string">'inf'</span>))</span>
+<span class="code-line">row = row - tl.max(row, axis=<span class="code-number">0</span>)   <span class="code-comment"># stability</span></span>
+<span class="code-line">num = tl.exp(row)</span>
+<span class="code-line">den = tl.sum(num, axis=<span class="code-number">0</span>)</span>
+<span class="code-line">tl.store(out_ptr + cols, num / den,</span>
+<span class="code-line">    mask=cols &lt; n_cols)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why each line</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>other=-inf</strong> so padded lanes never win the max.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>subtract max</strong> — prevents exp() overflow; softmax is shift-invariant so the answer is unchanged.</div>
+            <div class="tl"><strong>exp then sum</strong> — the reduction, in SRAM.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>one store</strong> — the whole op touched DRAM twice total.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat widget -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Fused vs Unfused — Watch the DRAM Traffic</h2>
+      <p>Step through what happens to a row under each approach. This is the narration interviewers want when they ask "why is fusion faster?"</p>
+      <div class="chat-window animate-in" id="chat-tm4">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Unfused" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">U</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Unfused (PyTorch eager)</span>
+              <p>I run <code>max</code>, then <code>exp</code>, then <code>sum</code>, then <code>div</code> — four separate kernels. Each reads the row from DRAM and writes it back. The row crosses the memory bus ~8 times.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="DRAM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">D</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">DRAM</span>
+              <p>Softmax barely does any math per element — it's memory-bound. So all that round-tripping <em>is</em> the runtime. I'm the bottleneck, not the ALUs.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Fused" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">F</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">Fused (Triton)</span>
+              <p>I load the row into SRAM <em>once</em>, do max/exp/sum/div all on-chip, and write <em>once</em>. Two DRAM touches total instead of eight — about 4&times; less traffic, so about 4&times; faster.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Note" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-text-muted);">!</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-text-muted);">Caveat</span>
+              <p>This one-block-per-row design needs the whole row to fit in SRAM. For very large <code>n_cols</code> you tile the row — the same idea that leads to Flash Attention.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm4">
+        <div class="quiz-question-block" data-correct="shift" data-explanation-right="Correct. exp(x - max) prevents overflow (large x → inf), and softmax is shift-invariant: softmax(x) = softmax(x - c) because the constant factor cancels in numerator and denominator. So subtracting the max is both safe and exact." data-explanation-wrong="Two reasons: overflow prevention (exp of large x → inf) AND correctness is preserved because softmax is shift-invariant — the constant cancels top and bottom.">
+          <p class="quiz-question">1. Why subtract the row max before <code>exp</code>, and why is it still correct?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="shift" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prevents overflow; softmax is shift-invariant so the answer is unchanged</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes exp() run faster</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's an approximation that's close enough</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="membound" data-explanation-right="Correct. Softmax does little arithmetic per element — it's memory-bound. Separate exp/sum/div kernels each re-read and re-write the tensor to DRAM; fusing keeps the row in SRAM and touches DRAM once in, once out." data-explanation-wrong="Softmax is memory-bound. The win from fusion is eliminating repeated DRAM round-trips, not doing less math.">
+          <p class="quiz-question">2. Why is a fused softmax faster than <code>exp</code>/<code>sum</code>/<code>div</code> as three ops?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="membound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's memory-bound; fusion avoids repeated DRAM round-trips</span></button>
+            <button class="quiz-option" data-value="fewerflops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It does fewer floating-point operations</span></button>
+            <button class="quiz-option" data-value="tensorcore" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses tensor cores</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; One-block-per-row requires the row to fit in SRAM — fails for huge <code>n_cols</code>.<br>
+          &bull; Forgetting <code>other=-inf</code> (Module 3 bug).<br>
+          &bull; Reducing over the wrong <code>axis</code>.<br>
+          &bull; <code>BLOCK_SIZE = next_power_of_2(n_cols)</code> — reductions want power-of-two width, extra lanes masked.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Autotuning &amp; Performance</h1>
+      <p class="module-subtitle">Autotuning itself is engineering practice, but the concepts get tested: "what does <code>num_stages</code> do?" and "when does Triton recompile?" Don't confuse pipelining depth with warp count.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The meaning of the tuning knobs — especially the classic mix-up: <strong><code>num_stages</code> = software-pipelining depth</strong>, <strong><code>num_warps</code> = threads per program (÷32)</strong>. And what triggers recompilation.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Autotune Decorator</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@triton.autotune</span>(</span>
+<span class="code-line">  configs=[</span>
+<span class="code-line">    triton.Config({<span class="code-string">'BLOCK_SIZE'</span>: <span class="code-number">128</span>}, num_warps=<span class="code-number">4</span>),</span>
+<span class="code-line">    triton.Config({<span class="code-string">'BLOCK_SIZE'</span>: <span class="code-number">1024</span>}, num_warps=<span class="code-number">8</span>)],</span>
+<span class="code-line">  key=[<span class="code-string">'n_elements'</span>])</span>
+<span class="code-line"><span class="code-keyword">@triton.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">kernel</span>(...): ...</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The knobs</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>configs</strong> — candidate tile shapes + warp/stage counts; Triton benchmarks all and caches the winner.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>num_warps</strong> — threads per program = 32 &times; num_warps.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>key</strong> — arg names whose value change re-triggers benchmarking (e.g. shapes).</div>
+          </div>
+        </div>
+      </div>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="num_stages sets the software-pipelining depth for loops: how many loop iterations' worth of loads are prefetched and overlapped with compute. Higher = more latency hiding but more shared-memory pressure. It is NOT the warp count.">num_stages</span></span>
+          <span class="badge-desc">Software-pipelining depth — how many iterations of loads overlap with compute. More = more latency hiding, more SMEM pressure. <strong>Not warps.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">reset_to_zero / restore_value</span>
+          <span class="badge-desc">Every config runs during tuning — reset accumulator outputs, or restore mutated inputs, or results corrupt.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Wrong Results During Tuning</h2>
+      <p>A kernel accumulates into an output buffer in place. It's correct without autotuning, but produces garbage once <code>@triton.autotune</code> is added. Click the fix it's missing.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The configs list is fine."><code>@triton.autotune(configs=[cfg_a, cfg_b],</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: missing reset_to_zero. During tuning EVERY config runs against the same buffer. A kernel that does out += ... keeps adding into the accumulator across all benchmarked configs, so the final result is summed many times. Add reset_to_zero=['out_ptr'] so the buffer is zeroed before each config runs."><code>&nbsp;&nbsp;key=['M','N'])&nbsp;&nbsp;# no reset_to_zero for the accumulator</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The kernel body's in-place accumulate is intentional — the tuning harness is what needs the reset."><code>@triton.jit
+def kernel(out_ptr, ...): # does out += partial</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm5">
+        <div class="quiz-question-block" data-correct="pipeline" data-explanation-right="Correct. num_stages is the software-pipelining depth — how many iterations of loads are prefetched and overlapped with compute to hide memory latency. num_warps is the separate knob for threads per program. Mixing them up is the classic error." data-explanation-wrong="num_stages = software-pipelining (prefetch) depth for loops. num_warps controls threads per program. They are different knobs.">
+          <p class="quiz-question">1. What does <code>num_stages</code> control?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pipeline" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Software-pipelining depth (prefetch overlap)</span></button>
+            <button class="quiz-option" data-value="warps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The number of warps per program</span></button>
+            <button class="quiz-option" data-value="grid" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The grid size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="key" data-explanation-right="Correct. Autotuning re-runs when any argument named in key takes a new value (e.g. a new matrix shape). Same key values → the cached best config is reused. Omitting a dimension from key means a stale config is used for new shapes." data-explanation-wrong="Re-tuning happens when a value of an argument listed in key changes. If you omit a shape dim from key, new shapes reuse a stale config.">
+          <p class="quiz-question">2. When does Triton re-run autotuning?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="key" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>When an argument named in <code>key</code> takes a new value</span></button>
+            <button class="quiz-option" data-value="always" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>On every single call</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never after the first call</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Missing a shape dim from <code>key</code> &rarr; stale config for new shapes.<br>
+          &bull; First call is slow (tuning cost); <code>TRITON_PRINT_AUTOTUNING=1</code> shows the winner.<br>
+          &bull; <code>num_stages</code> too high overflows shared memory &rarr; compile failure.<br>
+          &bull; <code>triton.heuristics</code> must come <em>before</em> <code>triton.autotune</code>, not after.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Blocked Matrix Multiply</h1>
+      <p class="module-subtitle">The block matmul: a 2D grid of C-tiles, a K-loop with <code>tl.dot</code>, an fp32 accumulator, and L2-friendly grouped ordering. The concepts here are the bridge to Flash Attention.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why the accumulator is <strong>fp32</strong> even with fp16 in/out, and what <code>GROUP_SIZE_M</code> buys you (L2 reuse) — the kind of "why is this arranged this way" question that separates candidates.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Each Program Owns One C-Tile</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton (K-loop core)</span>
+          <pre><code><span class="code-line">acc = tl.zeros((BM, BN), dtype=tl.float32)</span>
+<span class="code-line"><span class="code-keyword">for</span> k <span class="code-keyword">in</span> range(<span class="code-number">0</span>, tl.cdiv(K, BK)):</span>
+<span class="code-line">  a = tl.load(a_ptrs, mask=k_mask, other=<span class="code-number">0.0</span>)</span>
+<span class="code-line">  b = tl.load(b_ptrs, mask=k_mask, other=<span class="code-number">0.0</span>)</span>
+<span class="code-line">  acc = tl.dot(a, b, acc)   <span class="code-comment"># fp32 accumulate</span></span>
+<span class="code-line">  a_ptrs += BK * stride_ak</span>
+<span class="code-line">  b_ptrs += BK * stride_bk</span>
+<span class="code-line">c = acc.to(tl.float16)      <span class="code-comment"># cast once at the end</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key facts</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>acc is fp32</strong> — summing many fp16 products loses precision fast; tensor cores natively accumulate in fp32.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>tl.dot(a, b, acc)</strong> = block matmul added into acc. Use <code>input_precision=</code> (not the deprecated <code>allow_tf32</code>).</div>
+            <div class="tl"><strong>K-loop mask</strong> handles K not divisible by BK.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>cast once</strong> at the end.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: grouped ordering + DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Matmul Concept to Its Purpose</h2>
+      <p>Drag each piece onto what it's for.</p>
+      <div class="dnd-container animate-in" id="dnd-tm6">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="fp32"><code>fp32 accumulator</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="group"><code>GROUP_SIZE_M ordering</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="kmask"><code>K-loop mask</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="dot"><code>tl.dot</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="fp32">
+            <div class="dnd-zone-label">Preserve precision when summing many fp16 products</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="group">
+            <div class="dnd-zone-label">Reorder tile traversal for better L2 cache reuse</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="kmask">
+            <div class="dnd-zone-label">Handle K not divisible by the block size</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="dot">
+            <div class="dnd-zone-label">Block matmul mapped onto tensor cores</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-tm6')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-tm6')">Reset</button>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Grouped ordering, concretely</span>
+          <p><code>GROUP_SIZE_M</code> finishes a group of row-tiles before moving across columns, so the same A/B tiles stay hot in L2. Triton's 9&times;9 example: row-major needs 90 tile-loads for the first 9 outputs; grouped needs 54 — a real ~10% gain. It changes only <em>order</em>, never the math.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm6">
+        <div class="quiz-question-block" data-correct="precision" data-explanation-right="Correct. Summing thousands of fp16 products in fp16 accumulates rounding error fast. fp32 accumulation keeps the K-length reduction accurate; you cast once at the end. Tensor cores natively accumulate in fp32 for exactly this reason." data-explanation-wrong="fp32 accumulation preserves precision across the long K-reduction — fp16 would lose accuracy quickly. Cast to fp16 only at the end.">
+          <p class="quiz-question">1. Why accumulate in fp32 when inputs and output are fp16?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>fp16 loses precision summing many products; fp32 keeps the reduction accurate</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>fp32 is faster on tensor cores</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses less memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="order" data-explanation-right="Correct. GROUP_SIZE_M only changes the ORDER programs traverse output tiles, improving L2 locality. Each program still computes the same tile, so results are identical — only throughput changes." data-explanation-wrong="Grouped ordering changes only the traversal order for L2 reuse; the computed result is identical. It's a pure throughput optimization.">
+          <p class="quiz-question">2. Does <code>GROUP_SIZE_M</code> change the result?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="order" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No — it only changes traversal order for L2 reuse</span></button>
+            <button class="quiz-option" data-value="yes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes — it changes which elements are summed</span></button>
+            <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only the numerical precision</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Off-by-one in the <code>pid</code> &rarr; <code>(pid_m, pid_n)</code> decomposition.<br>
+          &bull; Forgetting the K-loop mask when K isn't divisible by <code>BLOCK_K</code>.<br>
+          &bull; Applying a fused activation <em>after</em> the fp16 cast instead of on the fp32 accumulator.<br>
+          &bull; Using deprecated <code>allow_tf32</code> — use <code>input_precision="tf32"</code>. For the CUDA-level version of this, see <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Flash Attention in Triton</h1>
+      <p class="module-subtitle">The highest-value module in the course. "Explain online softmax and how Flash Attention avoids the N&times;N matrix" is a staple ML-breadth question — and the #1 misconception is thinking it reduces FLOPs. It doesn't.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That Flash Attention trades <strong>memory for recompute</strong>: same (or more) FLOPs, far less HBM traffic, O(N) memory instead of O(N&sup2;). Candidates who say "it's faster because fewer operations" fail. The bottleneck was memory movement, not math.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Never Materialize the N&times;N Score Matrix</h2>
+      <p>Standard attention computes the full <code>T&times;T</code> score matrix <code>QK&#7488;</code>, softmaxes it, then multiplies by V — that matrix is O(N&sup2;) in HBM. Flash Attention keeps a Q-tile in SRAM and <strong>streams</strong> over K/V tiles, maintaining running statistics so it never stores the scores.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Running max of the attention scores seen so far for each query row, initialized to -inf. Used to keep the streaming softmax numerically stable as new K/V tiles arrive.">m_i</span> (running max)</span>
+          <span class="badge-desc">Init <code>-inf</code>. Tracks the max score per query row across tiles seen so far.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="Running sum of exp(score - running_max) — the softmax denominator, accumulated tile by tile and rescaled whenever the running max increases.">l_i</span> (running denom)</span>
+          <span class="badge-desc">The softmax denominator, accumulated tile by tile.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">acc (output)</span>
+          <span class="badge-desc">The running weighted sum of V. Rescaled when the max grows.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat — online softmax rescaling -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Rescaling Trick — Why It's Exact</h2>
+      <p>The subtle part: when a new K/V tile raises the running max, all prior contributions must be retroactively rescaled. Step through why this equals the true full-row softmax.</p>
+      <div class="chat-window animate-in" id="chat-tm7">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Q" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">Q</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Q-tile</span>
+              <p>I stay resident in SRAM. K/V arrive in tiles of <code>BLOCK_N</code>. For each tile I compute <code>qk = Q&middot;K&#7488;</code> — just this tile's scores, never the whole row at once.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Max" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">m</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Running max m_i</span>
+              <p>A new tile has a bigger score than anything before. I update: <code>m_new = max(m_old, max(qk))</code>. But now every earlier <code>exp(x - m_old)</code> term is referenced to the wrong max!</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Alpha" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">&alpha;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Rescale factor &alpha;</span>
+              <p>I fix it: <code>&alpha; = exp(m_old - m_new)</code>. Since <code>exp(x - m_new) = exp(x - m_old)&middot;&alpha;</code>, I multiply the running output <code>acc</code> and denominator <code>l_i</code> by <code>&alpha;</code>. Now everything is referenced to the new max — exactly.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Out" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&Sigma;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">Epilogue</span>
+              <p>After the last tile I divide <code>acc / l_i</code> — once. The result is bit-for-bit the true softmax(QK&#7488;)V, but I never stored an N&times;N matrix. Peak memory is O(N), not O(N&sup2;).</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Signature ML-Breadth Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm7">
+        <div class="quiz-question-block" data-correct="memory" data-explanation-right="Correct. Flash Attention does the SAME (or slightly more) FLOPs — it recomputes rather than stores. Its win is drastically less HBM traffic: O(N) memory instead of materializing the O(N²) score matrix. Memory movement, not compute, was the bottleneck." data-explanation-wrong="Flash Attention does NOT reduce FLOPs — it reduces memory traffic. It avoids writing/reading the O(N²) score matrix, achieving O(N) memory. Saying 'fewer operations' is the classic wrong answer.">
+          <p class="quiz-question">1. Why is Flash Attention faster?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Less HBM traffic — O(N) memory, never materializes the N&times;N scores</span></button>
+            <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It does far fewer floating-point operations</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It approximates attention to skip work</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="rescale" data-explanation-right="Correct. Earlier exp(x - m_old) terms were normalized to the old max. When the max grows to m_new, exp(x - m_new) = exp(x - m_old)·exp(m_old - m_new), so scaling acc and l_i by α = exp(m_old - m_new) retroactively re-references them. The final acc/l_i then equals true softmax." data-explanation-wrong="When the running max increases, prior terms must be rescaled by α = exp(m_old - m_new) so they're referenced to the new max. Without it, the accumulated output and denominator are wrong.">
+          <p class="quiz-question">2. Why multiply <code>acc</code> and <code>l_i</code> by <code>&alpha; = exp(m_old &minus; m_new)</code> when the max grows?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="rescale" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To re-reference prior terms to the new max — keeps the result exact</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To make exp() faster</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's an approximation to save memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Initializing <code>m_i</code> to 0 instead of <code>-inf</code>.<br>
+          &bull; Forgetting to rescale <code>acc</code> (or <code>l_i</code>) &rarr; wrong normalization.<br>
+          &bull; Doing the final <code>/l_i</code> inside the loop instead of once in the epilogue.<br>
+          &bull; The modern Triton tutorial uses <code>exp2</code> (base-2, faster) with the scale folded by <code>1/ln2</code>, and TensorDescriptor loads — teach the algorithm with the portable block-pointer form first.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">Where this leads</span>
+          <p>Online softmax is the bridge to the LLM-inference world — KV cache, prefill/decode, PagedAttention. See <a href="/learn-ai/vllm-distributed-kernels-interview/">vLLM &amp; Distributed Kernels</a> for the serving side.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Integration with PyTorch &amp; torch.compile</h1>
+      <p class="module-subtitle">Mostly engineering practice — but the <strong>autograd</strong> question ("how do you make your kernel differentiable?") is a common senior follow-up, and knowing <code>TRITON_INTERPRET=1</code> shows real hands-on experience.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Framed as methodology, not a quiz: "you wrote a fast kernel — how do you make it differentiable, composable with <code>torch.compile</code>, and how do you debug it?" Naming <code>register_autograd</code> and <code>TRITON_INTERPRET=1</code> is the signal.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Three Levels of Integration</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Call from <code>@torch.compile</code> (PyTorch &ge; 2.3)</strong>
+            <p>Inductor traces through the grid launch and fuses/optimizes around your kernel. Simplest path.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Composable op: <code>triton_op</code> + <code>wrap_triton</code> (&ge; 2.6)</strong>
+            <p>Makes a raw kernel a first-class PyTorch op — composable with tensor subclasses, FlopCounter, CPU fallback, AOTInductor, and <code>torch.compile</code> can trace <em>into</em> it (unlike opaque <code>custom_op</code>).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Autograd: prefer <code>register_autograd</code></strong>
+            <p>Over <code>torch.autograd.Function</code> (which has composability footguns under <code>torch.compile</code>). Provide <code>backward</code> + <code>setup_context</code>; backward must be PyTorch ops.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: autograd code -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Making a Kernel Differentiable</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.library (&ge; 2.6)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.library <span class="code-keyword">import</span> triton_op, wrap_triton</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">@triton_op</span>(<span class="code-string">"mylib::mysin"</span>, mutates_args={})</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">mysin</span>(x): </span>
+<span class="code-line">  out = torch.empty_like(x)</span>
+<span class="code-line">  wrap_triton(sin_kernel)[(x.numel(),)](x, out, ...)</span>
+<span class="code-line">  <span class="code-keyword">return</span> out</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">backward</span>(ctx, grad):</span>
+<span class="code-line">  (x,) = ctx.saved_tensors</span>
+<span class="code-line">  <span class="code-keyword">return</span> grad * x.cos()</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">setup_context</span>(ctx, inputs, output):</span>
+<span class="code-line">  (x,) = inputs; ctx.save_for_backward(x)</span>
+<span class="code-line">mysin.register_autograd(backward, setup_context=setup_context)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why this way</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>triton_op</strong> makes it a real op subsystems can see.</div>
+            <div class="tl"><strong>wrap_triton</strong> at the launch site.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward</strong> in PyTorch ops (or its own triton_op).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>setup_context</strong> saves what backward needs.</div>
+            <div class="tl"><strong>register_autograd</strong> — not <code>autograd.Function</code>, which breaks under compile.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm8">
+        <div class="quiz-question-block" data-correct="composable" data-explanation-right="Correct. triton_op makes the kernel a real PyTorch operator: composable with tensor subclasses, FlopCounterMode, CPU fallback, and AOTInductor — and torch.compile can trace INTO it to optimize. A bare kernel or custom_op stays opaque." data-explanation-wrong="triton_op turns the kernel into a first-class op that composes with subsystems and that torch.compile can trace into — unlike a bare launch or an opaque custom_op.">
+          <p class="quiz-question">1. Why wrap a kernel in <code>triton_op</code> vs just calling it in a compiled function?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="composable" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It becomes a first-class op: composable + traceable by torch.compile</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The kernel itself runs faster</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's mandatory — kernels can't be called otherwise</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="interpret" data-explanation-right="Correct. TRITON_INTERPRET=1 runs the kernel on CPU sequentially per program, so you can print() tensors or drop a pdb.set_trace() inside the kernel. Remember it doesn't support bf16 (cast to fp32 first) or indirect pointer-of-pointer loads." data-explanation-wrong="Set TRITON_INTERPRET=1 to run the kernel on CPU sequentially, enabling print/pdb inside the kernel — the fastest way to inspect intermediates.">
+          <p class="quiz-question">2. Your kernel gives wrong results and you can't attach a GPU debugger. Fastest way to inspect tensors?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="interpret" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span><code>TRITON_INTERPRET=1</code> — run on CPU, then print/pdb inside the kernel</span></button>
+            <button class="quiz-option" data-value="rewrite" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Rewrite the whole thing in CUDA</span></button>
+            <button class="quiz-option" data-value="guess" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Comment out lines until it works</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed Triton Kernel Mastery</span>
+          <p>Programming model &rarr; first kernel &rarr; memory &amp; masking &rarr; fused softmax &rarr; autotuning &rarr; blocked matmul &rarr; Flash Attention &rarr; PyTorch integration. The interview through-line: <strong>Triton abstracts away threads so you reason at the tile level about memory movement</strong> — and memory movement is what makes kernels fast.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; <code>tl.dot</code>: use <code>input_precision=</code>, not deprecated <code>allow_tf32</code>.<br>
+          &bull; <code>triton_op</code>/<code>wrap_triton</code> need PyTorch &ge; 2.6; basic kernels in <code>torch.compile</code> &ge; 2.3.<br>
+          &bull; Prefer <code>register_autograd</code> over <code>torch.autograd.Function</code> for compile-safety.<br>
+          &bull; For the "is my kernel memory- or compute-bound" question, apply the <a href="/learn-ai/gpu-performance-engineering/">roofline model</a>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,96 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">Why Matmul &amp; the Roofline</h1>
+      <p class="module-subtitle">GEMM is the canonical "show me you can optimize a GPU kernel" exercise. First, the numbers you must know cold: FLOPs, arithmetic intensity, and what "% of peak" actually means.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you compute GEMM FLOPs, decide memory- vs compute-bound at a given size, and explain why we measure against cuBLAS? This whole course is "walk me through optimizing a matmul" — the highest-yield GPU systems question.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Numbers</h2>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128207;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{FLOPs} = 2 \cdot M \cdot N \cdot K \qquad \text{AI} = \frac{\text{FLOPs}}{\text{bytes moved}}$$</span>
+          <p>Each output is a K-length dot product = K multiplies + K adds &rarr; the factor of <strong>2</strong>. For a 4092&sup3; FP32 matmul: <code>2&middot;4092&sup3; &asymp; 137 GFLOP</code>; minimum traffic (read A,B,C + write C) &asymp; 268 MB.</p>
+        </div>
+      </div>
+      <p>Roofline check on an A6000 (~30 TFLOP/s FP32, ~768 GB/s): compute takes <code>137e9/30e12 &asymp; 4.5 ms</code>; minimum memory <code>268e6/768e9 &asymp; 0.34 ms</code>. Compute is ~10&times; longer &rarr; a <em>well-written</em> GEMM at this size <strong>should be compute-bound</strong>. The whole course is a march to make that true.</p>
+    </div>
+
+    <!-- SCREEN 2: the ladder preview -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Optimization Ladder (Preview)</h2>
+      <p>Every step raises arithmetic intensity, marching rightward toward the compute roof. Real measured numbers (Boehm, A6000, FP32, 4092&sup3;):</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-1);">Naive</span><span class="badge-desc">309 GFLOP/s &mdash; <strong>1.3%</strong> of cuBLAS (Module 2)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-4);">Coalescing</span><span class="badge-desc">1987 &mdash; <strong>8.5%</strong> (Module 3)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-3);">SMEM tiling</span><span class="badge-desc">2980 &mdash; <strong>12.8%</strong> (Module 4)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-2);">2D blocktiling</span><span class="badge-desc">15972 &mdash; <strong>68.7%</strong> (Module 5)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-5);">Warptiling + autotune</span><span class="badge-desc">21779 &mdash; <strong>93.7%</strong> (Module 8)</span></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Estimation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm1">
+        <div class="quiz-question-block" data-correct="compute" data-explanation-right="Correct. Ridge = 20e12/1.5e12 ≈ 13.3 FLOP/byte. A tiled GEMM easily exceeds ~100 FLOP/byte, so it's compute-bound. (A naive kernel that re-streams operands can still land memory-bound — the point of Modules 2-5.)" data-explanation-wrong="Ridge point = peak/bandwidth ≈ 13.3 FLOP/byte. A well-tiled GEMM's AI far exceeds that → compute-bound. Only a naive re-streaming kernel is memory-bound.">
+          <p class="quiz-question">1. 4096&sup3; FP32 GEMM on a 20 TFLOP/s, 1.5 TB/s GPU. Bound (well-tiled)?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound (ridge &asymp; 13.3; tiled AI &gt;&gt; that)</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound at any implementation</span></button>
+            <button class="quiz-option" data-value="latency" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Latency-bound</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="realistic" data-explanation-right="Correct. Silicon 'peak' is often unreachable (clock throttling, non-ideal instruction mix). cuBLAS is the realistic, reproducible reference; reaching ~90-95% of it means you've captured essentially all attainable performance." data-explanation-wrong="cuBLAS is the practical, reproducible ceiling — silicon peak is often unattainable. % of cuBLAS is the honest metric.">
+          <p class="quiz-question">2. Why measure % of cuBLAS instead of % of silicon peak?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="realistic" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>cuBLAS is the realistic, reproducible ceiling</span></button>
+            <button class="quiz-option" data-value="easier" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The numbers look bigger</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They're always identical</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">This is the roofline, applied</span>
+          <p>If the roofline model is new, do <a href="/learn-ai/gpu-performance-engineering/">GPU Performance Engineering</a> first — this course is that model made concrete, one measured optimization at a time.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Don't forget the factor of 2 in <code>2&middot;M&middot;N&middot;K</code> (multiply <em>and</em> add).<br>
+          &bull; "Peak" is precision-specific — FP32 and tensor-core FP16 differ &gt;10&times;.<br>
+          &bull; Small/skinny matrices are latency/launch-bound, not roofline-bound (Module 8 revisits the decode-phase GEMV regime).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

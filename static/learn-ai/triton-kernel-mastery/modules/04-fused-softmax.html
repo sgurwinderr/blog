@@ -1,0 +1,141 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Fused Softmax</h1>
+      <p class="module-subtitle">The canonical Triton coding exercise. "Write a fused softmax kernel" tests masking, numerical stability, and single-pass reduction all at once — and sets up Flash Attention.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Two things: <strong>why subtract the row max</strong> (numerical stability + shift-invariance), and <strong>why fusion is faster</strong> (softmax is memory-bound; separate ops round-trip DRAM per op).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">One Pass, On-Chip</h2>
+      <p>Load a whole row into SRAM, then do max &rarr; subtract &rarr; exp &rarr; sum &rarr; divide <em>on-chip in one pass</em>, and write once. The naive PyTorch softmax round-trips DRAM per op (~<code>5MN</code> read + <code>3MN</code> write); the fused kernel touches DRAM ~once in / once out (~<code>2MN</code>) &rarr; roughly 4&times; less traffic.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line">row = tl.load(row_ptr + cols,</span>
+<span class="code-line">    mask=cols &lt; n_cols, other=-float(<span class="code-string">'inf'</span>))</span>
+<span class="code-line">row = row - tl.max(row, axis=<span class="code-number">0</span>)   <span class="code-comment"># stability</span></span>
+<span class="code-line">num = tl.exp(row)</span>
+<span class="code-line">den = tl.sum(num, axis=<span class="code-number">0</span>)</span>
+<span class="code-line">tl.store(out_ptr + cols, num / den,</span>
+<span class="code-line">    mask=cols &lt; n_cols)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why each line</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>other=-inf</strong> so padded lanes never win the max.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>subtract max</strong> — prevents exp() overflow; softmax is shift-invariant so the answer is unchanged.</div>
+            <div class="tl"><strong>exp then sum</strong> — the reduction, in SRAM.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>one store</strong> — the whole op touched DRAM twice total.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat widget -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Fused vs Unfused — Watch the DRAM Traffic</h2>
+      <p>Step through what happens to a row under each approach. This is the narration interviewers want when they ask "why is fusion faster?"</p>
+      <div class="chat-window animate-in" id="chat-tm4">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Unfused" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">U</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Unfused (PyTorch eager)</span>
+              <p>I run <code>max</code>, then <code>exp</code>, then <code>sum</code>, then <code>div</code> — four separate kernels. Each reads the row from DRAM and writes it back. The row crosses the memory bus ~8 times.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="DRAM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">D</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">DRAM</span>
+              <p>Softmax barely does any math per element — it's memory-bound. So all that round-tripping <em>is</em> the runtime. I'm the bottleneck, not the ALUs.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Fused" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">F</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">Fused (Triton)</span>
+              <p>I load the row into SRAM <em>once</em>, do max/exp/sum/div all on-chip, and write <em>once</em>. Two DRAM touches total instead of eight — about 4&times; less traffic, so about 4&times; faster.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Note" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-text-muted);">!</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-text-muted);">Caveat</span>
+              <p>This one-block-per-row design needs the whole row to fit in SRAM. For very large <code>n_cols</code> you tile the row — the same idea that leads to Flash Attention.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm4">
+        <div class="quiz-question-block" data-correct="shift" data-explanation-right="Correct. exp(x - max) prevents overflow (large x → inf), and softmax is shift-invariant: softmax(x) = softmax(x - c) because the constant factor cancels in numerator and denominator. So subtracting the max is both safe and exact." data-explanation-wrong="Two reasons: overflow prevention (exp of large x → inf) AND correctness is preserved because softmax is shift-invariant — the constant cancels top and bottom.">
+          <p class="quiz-question">1. Why subtract the row max before <code>exp</code>, and why is it still correct?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="shift" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prevents overflow; softmax is shift-invariant so the answer is unchanged</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes exp() run faster</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's an approximation that's close enough</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="membound" data-explanation-right="Correct. Softmax does little arithmetic per element — it's memory-bound. Separate exp/sum/div kernels each re-read and re-write the tensor to DRAM; fusing keeps the row in SRAM and touches DRAM once in, once out." data-explanation-wrong="Softmax is memory-bound. The win from fusion is eliminating repeated DRAM round-trips, not doing less math.">
+          <p class="quiz-question">2. Why is a fused softmax faster than <code>exp</code>/<code>sum</code>/<code>div</code> as three ops?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="membound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's memory-bound; fusion avoids repeated DRAM round-trips</span></button>
+            <button class="quiz-option" data-value="fewerflops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It does fewer floating-point operations</span></button>
+            <button class="quiz-option" data-value="tensorcore" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses tensor cores</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; One-block-per-row requires the row to fit in SRAM — fails for huge <code>n_cols</code>.<br>
+          &bull; Forgetting <code>other=-inf</code> (Module 3 bug).<br>
+          &bull; Reducing over the wrong <code>axis</code>.<br>
+          &bull; <code>BLOCK_SIZE = next_power_of_2(n_cols)</code> — reductions want power-of-two width, extra lanes masked.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

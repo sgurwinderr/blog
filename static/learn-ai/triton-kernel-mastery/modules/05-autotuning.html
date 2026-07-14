@@ -1,0 +1,116 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Autotuning &amp; Performance</h1>
+      <p class="module-subtitle">Autotuning itself is engineering practice, but the concepts get tested: "what does <code>num_stages</code> do?" and "when does Triton recompile?" Don't confuse pipelining depth with warp count.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The meaning of the tuning knobs — especially the classic mix-up: <strong><code>num_stages</code> = software-pipelining depth</strong>, <strong><code>num_warps</code> = threads per program (÷32)</strong>. And what triggers recompilation.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Autotune Decorator</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@triton.autotune</span>(</span>
+<span class="code-line">  configs=[</span>
+<span class="code-line">    triton.Config({<span class="code-string">'BLOCK_SIZE'</span>: <span class="code-number">128</span>}, num_warps=<span class="code-number">4</span>),</span>
+<span class="code-line">    triton.Config({<span class="code-string">'BLOCK_SIZE'</span>: <span class="code-number">1024</span>}, num_warps=<span class="code-number">8</span>)],</span>
+<span class="code-line">  key=[<span class="code-string">'n_elements'</span>])</span>
+<span class="code-line"><span class="code-keyword">@triton.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">kernel</span>(...): ...</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The knobs</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>configs</strong> — candidate tile shapes + warp/stage counts; Triton benchmarks all and caches the winner.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>num_warps</strong> — threads per program = 32 &times; num_warps.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>key</strong> — arg names whose value change re-triggers benchmarking (e.g. shapes).</div>
+          </div>
+        </div>
+      </div>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="num_stages sets the software-pipelining depth for loops: how many loop iterations' worth of loads are prefetched and overlapped with compute. Higher = more latency hiding but more shared-memory pressure. It is NOT the warp count.">num_stages</span></span>
+          <span class="badge-desc">Software-pipelining depth — how many iterations of loads overlap with compute. More = more latency hiding, more SMEM pressure. <strong>Not warps.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">reset_to_zero / restore_value</span>
+          <span class="badge-desc">Every config runs during tuning — reset accumulator outputs, or restore mutated inputs, or results corrupt.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Wrong Results During Tuning</h2>
+      <p>A kernel accumulates into an output buffer in place. It's correct without autotuning, but produces garbage once <code>@triton.autotune</code> is added. Click the fix it's missing.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The configs list is fine."><code>@triton.autotune(configs=[cfg_a, cfg_b],</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: missing reset_to_zero. During tuning EVERY config runs against the same buffer. A kernel that does out += ... keeps adding into the accumulator across all benchmarked configs, so the final result is summed many times. Add reset_to_zero=['out_ptr'] so the buffer is zeroed before each config runs."><code>&nbsp;&nbsp;key=['M','N'])&nbsp;&nbsp;# no reset_to_zero for the accumulator</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The kernel body's in-place accumulate is intentional — the tuning harness is what needs the reset."><code>@triton.jit
+def kernel(out_ptr, ...): # does out += partial</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm5">
+        <div class="quiz-question-block" data-correct="pipeline" data-explanation-right="Correct. num_stages is the software-pipelining depth — how many iterations of loads are prefetched and overlapped with compute to hide memory latency. num_warps is the separate knob for threads per program. Mixing them up is the classic error." data-explanation-wrong="num_stages = software-pipelining (prefetch) depth for loops. num_warps controls threads per program. They are different knobs.">
+          <p class="quiz-question">1. What does <code>num_stages</code> control?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pipeline" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Software-pipelining depth (prefetch overlap)</span></button>
+            <button class="quiz-option" data-value="warps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The number of warps per program</span></button>
+            <button class="quiz-option" data-value="grid" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The grid size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="key" data-explanation-right="Correct. Autotuning re-runs when any argument named in key takes a new value (e.g. a new matrix shape). Same key values → the cached best config is reused. Omitting a dimension from key means a stale config is used for new shapes." data-explanation-wrong="Re-tuning happens when a value of an argument listed in key changes. If you omit a shape dim from key, new shapes reuse a stale config.">
+          <p class="quiz-question">2. When does Triton re-run autotuning?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="key" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>When an argument named in <code>key</code> takes a new value</span></button>
+            <button class="quiz-option" data-value="always" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>On every single call</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never after the first call</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Missing a shape dim from <code>key</code> &rarr; stale config for new shapes.<br>
+          &bull; First call is slow (tuning cost); <code>TRITON_PRINT_AUTOTUNING=1</code> shows the winner.<br>
+          &bull; <code>num_stages</code> too high overflows shared memory &rarr; compile failure.<br>
+          &bull; <code>triton.heuristics</code> must come <em>before</em> <code>triton.autotune</code>, not after.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

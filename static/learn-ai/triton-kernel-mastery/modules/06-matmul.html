@@ -1,0 +1,136 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Blocked Matrix Multiply</h1>
+      <p class="module-subtitle">The block matmul: a 2D grid of C-tiles, a K-loop with <code>tl.dot</code>, an fp32 accumulator, and L2-friendly grouped ordering. The concepts here are the bridge to Flash Attention.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why the accumulator is <strong>fp32</strong> even with fp16 in/out, and what <code>GROUP_SIZE_M</code> buys you (L2 reuse) — the kind of "why is this arranged this way" question that separates candidates.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Each Program Owns One C-Tile</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton (K-loop core)</span>
+          <pre><code><span class="code-line">acc = tl.zeros((BM, BN), dtype=tl.float32)</span>
+<span class="code-line"><span class="code-keyword">for</span> k <span class="code-keyword">in</span> range(<span class="code-number">0</span>, tl.cdiv(K, BK)):</span>
+<span class="code-line">  a = tl.load(a_ptrs, mask=k_mask, other=<span class="code-number">0.0</span>)</span>
+<span class="code-line">  b = tl.load(b_ptrs, mask=k_mask, other=<span class="code-number">0.0</span>)</span>
+<span class="code-line">  acc = tl.dot(a, b, acc)   <span class="code-comment"># fp32 accumulate</span></span>
+<span class="code-line">  a_ptrs += BK * stride_ak</span>
+<span class="code-line">  b_ptrs += BK * stride_bk</span>
+<span class="code-line">c = acc.to(tl.float16)      <span class="code-comment"># cast once at the end</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key facts</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>acc is fp32</strong> — summing many fp16 products loses precision fast; tensor cores natively accumulate in fp32.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>tl.dot(a, b, acc)</strong> = block matmul added into acc. Use <code>input_precision=</code> (not the deprecated <code>allow_tf32</code>).</div>
+            <div class="tl"><strong>K-loop mask</strong> handles K not divisible by BK.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>cast once</strong> at the end.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: grouped ordering + DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Matmul Concept to Its Purpose</h2>
+      <p>Drag each piece onto what it's for.</p>
+      <div class="dnd-container animate-in" id="dnd-tm6">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="fp32"><code>fp32 accumulator</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="group"><code>GROUP_SIZE_M ordering</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="kmask"><code>K-loop mask</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="dot"><code>tl.dot</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="fp32">
+            <div class="dnd-zone-label">Preserve precision when summing many fp16 products</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="group">
+            <div class="dnd-zone-label">Reorder tile traversal for better L2 cache reuse</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="kmask">
+            <div class="dnd-zone-label">Handle K not divisible by the block size</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="dot">
+            <div class="dnd-zone-label">Block matmul mapped onto tensor cores</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-tm6')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-tm6')">Reset</button>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Grouped ordering, concretely</span>
+          <p><code>GROUP_SIZE_M</code> finishes a group of row-tiles before moving across columns, so the same A/B tiles stay hot in L2. Triton's 9&times;9 example: row-major needs 90 tile-loads for the first 9 outputs; grouped needs 54 — a real ~10% gain. It changes only <em>order</em>, never the math.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm6">
+        <div class="quiz-question-block" data-correct="precision" data-explanation-right="Correct. Summing thousands of fp16 products in fp16 accumulates rounding error fast. fp32 accumulation keeps the K-length reduction accurate; you cast once at the end. Tensor cores natively accumulate in fp32 for exactly this reason." data-explanation-wrong="fp32 accumulation preserves precision across the long K-reduction — fp16 would lose accuracy quickly. Cast to fp16 only at the end.">
+          <p class="quiz-question">1. Why accumulate in fp32 when inputs and output are fp16?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>fp16 loses precision summing many products; fp32 keeps the reduction accurate</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>fp32 is faster on tensor cores</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses less memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="order" data-explanation-right="Correct. GROUP_SIZE_M only changes the ORDER programs traverse output tiles, improving L2 locality. Each program still computes the same tile, so results are identical — only throughput changes." data-explanation-wrong="Grouped ordering changes only the traversal order for L2 reuse; the computed result is identical. It's a pure throughput optimization.">
+          <p class="quiz-question">2. Does <code>GROUP_SIZE_M</code> change the result?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="order" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No — it only changes traversal order for L2 reuse</span></button>
+            <button class="quiz-option" data-value="yes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes — it changes which elements are summed</span></button>
+            <button class="quiz-option" data-value="precision" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only the numerical precision</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Off-by-one in the <code>pid</code> &rarr; <code>(pid_m, pid_n)</code> decomposition.<br>
+          &bull; Forgetting the K-loop mask when K isn't divisible by <code>BLOCK_K</code>.<br>
+          &bull; Applying a fused activation <em>after</em> the fp16 cast instead of on the fp32 accumulator.<br>
+          &bull; Using deprecated <code>allow_tf32</code> — use <code>input_precision="tf32"</code>. For the CUDA-level version of this, see <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

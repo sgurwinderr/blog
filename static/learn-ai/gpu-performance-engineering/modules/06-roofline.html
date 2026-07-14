@@ -1,0 +1,101 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">The Roofline Model</h1>
+      <p class="module-subtitle">The highest-frequency mental model across every GPU interview loop. Compute arithmetic intensity, find the ridge point, and classify a kernel memory- vs compute-bound — then you know <em>what</em> to optimize.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Whether you can compute the ridge point from hardware specs, classify a kernel, and say what to optimize. Bonus signal: knowing ridge points <em>climb</em> each GPU generation, so more kernels are memory-bound over time.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Arithmetic Intensity &amp; the Ridge Point</h2>
+      <p><span class="term" data-definition="Arithmetic intensity (AI) = FLOPs performed ÷ bytes moved between memory levels. Low AI = memory-bound; high AI = compute-bound. Raising AI (via reuse/tiling/fusion) is how you move a kernel toward the compute roof.">Arithmetic intensity</span> = FLOPs ÷ bytes moved. Attainable performance is:</p>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128207;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{FLOP/s} = \min\left(\text{peak compute},\; \text{AI} \times \text{peak bandwidth}\right)$$</span>
+          <p>The <strong>ridge point</strong> = peak compute ÷ peak bandwidth [FLOP/byte]. AI <em>below</em> it &rarr; memory-bound (optimize data movement). AI <em>above</em> it &rarr; compute-bound (optimize math / use tensor cores).</p>
+        </div>
+      </div>
+      <p>Ridge points are <strong>rising</strong> each generation — H100 BF16 tensor-core ridge ≈ 295 FLOP/byte, up from A100's ≈ 156 — so kernels are increasingly memory-bound on newer hardware.</p>
+    </div>
+
+    <!-- SCREEN 2: worked example -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Worked Example: SAXPY vs SGEMM</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128201;</div>
+          <div class="pattern-title">SAXPY: hopelessly memory-bound</div>
+          <p class="pattern-desc"><code>y = a*x + y</code>: 2 FLOPs, 12 bytes (read x, read y, write y) &rarr; AI &asymp; 0.17. On H100 (ridge 295) that's far left &rarr; max ~0.56 TFLOP/s of 989 peak. Only <em>fewer bytes</em> (fusion, lower precision) helps — never more compute.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128200;</div>
+          <div class="pattern-title">SGEMM: crosses into compute-bound</div>
+          <p class="pattern-desc">2N&sup3; FLOPs, ~16N&sup2; bytes &rarr; AI = N/8, <em>grows with N</em>. Large matmuls cross the ridge &rarr; compute-bound &rarr; map beautifully onto tensor cores. This is why matmul dominates ML.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Estimation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe6">
+        <div class="quiz-question-block" data-correct="mem" data-explanation-right="Correct. AI = 10 is far below the H100 ridge of 295 → memory-bound. Attainable ≈ 10 × 3.35 TB/s = 33.5 TFLOP/s, ~3% of peak. Optimize memory traffic (coalescing, reuse, fewer bytes), not FLOPs." data-explanation-wrong="10 ≪ 295 (ridge) → memory-bound. Attainable ≈ AI × bandwidth ≈ 33.5 TFLOP/s. Optimize data movement, not arithmetic.">
+          <p class="quiz-question">1. Kernel AI = 10 FLOP/byte on H100 (ridge 295). Bound + action?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="mem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound — optimize data movement, not FLOPs</span></button>
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound — use faster math</span></button>
+            <button class="quiz-option" data-value="peak" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At peak already — nothing to do</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="reuse" data-explanation-right="Correct. Raise AI by reusing loaded data (tiling/blocking in shared memory + registers), fusing ops to avoid DRAM round-trips, and using lower precision (fewer bytes). This moves the point rightward toward the compute roof." data-explanation-wrong="Increase AI by reusing data (tiling, register blocking), fusing operations, and lowering precision — all reduce bytes moved per FLOP.">
+          <p class="quiz-question">2. How do you <em>increase</em> a kernel's arithmetic intensity?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="reuse" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Reuse data (tiling), fuse ops, lower precision</span></button>
+            <button class="quiz-option" data-value="threads" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Launch more threads</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raise the clock speed</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">This model is everywhere</span>
+          <p>The roofline reappears in <a href="/learn-ai/gemm-from-scratch/">GEMM from Scratch</a> (each optimization raises AI) and in <a href="/learn-ai/triton-kernel-mastery/">Triton</a> ("is my kernel memory- or compute-bound?"). Learn it once here; reuse it everywhere. It's arguably the highest-frequency thread across every GPU interview.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; "Peak" is precision-specific — FP32 vs FP16 tensor-core peak differ &gt;10&times;. Always state precision.<br>
+          &bull; Small/skinny problems are latency- or launch-bound, not roofline-bound.<br>
+          &bull; AI is measured between specific memory levels — be clear which (HBM vs SMEM).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

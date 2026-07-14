@@ -1,0 +1,90 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Register Blocking — 12.8% &rarr; 68.7%</h1>
+      <p class="module-subtitle">The crux of the whole course. Each thread computes a TM&times;TN micro-tile of outputs held in registers, so each SMEM load feeds many FMAs. This is where the kernel becomes genuinely compute-bound.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why a TM&times;TN <em>square</em> beats a TM&times;1 column (reuse in both dimensions), and what limits tile size (<strong>register pressure</strong> &rarr; spilling). This is the highest-signal GEMM optimization.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Outer Product: TM+TN Loads &rarr; TM&times;TN FMAs</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — 2D blocktiling inner loop</span>
+          <pre><code><span class="code-keyword">for</span> (<span class="code-keyword">int</span> d = <span class="code-number">0</span>; d &lt; BK; ++d) {</span>
+<span class="code-line">  <span class="code-keyword">for</span> (i: <span class="code-number">0</span>..TM) regM[i] = As[...];  <span class="code-comment">// TM loads</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (i: <span class="code-number">0</span>..TN) regN[i] = Bs[...];  <span class="code-comment">// TN loads</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (m: <span class="code-number">0</span>..TM)</span>
+<span class="code-line">    <span class="code-keyword">for</span> (n: <span class="code-number">0</span>..TN)</span>
+<span class="code-line">      acc[m][n] += regM[m]*regN[n]; <span class="code-comment">// TM*TN FMAs</span></span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Per-result memory accesses</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Kernel 3</strong> (1 result/thread): K/16 GMEM, <strong>K&middot;2 SMEM</strong></div>
+            <div class="tl"><strong>Kernel 4</strong> (8 results, 1D): K/32 GMEM, K&middot;9/8 SMEM</div>
+            <div class="tl"><strong>Kernel 5</strong> (64 results, 2D): K/64 GMEM, <strong>K/4 SMEM</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>TM+TN=16 loads &rarr; TM&times;TN=64 FMAs</strong> &rarr; SMEM AI &asymp; 4 FLOP/load, up from 0.5. Each step ~halves per-result traffic &rarr; the ~2&times; jumps (2980 &rarr; 8475 &rarr; 15972).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Crux Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm5">
+        <div class="quiz-question-block" data-correct="square" data-explanation-right="Correct. A TM×TN square reuses TM+TN loaded operands to compute TM·TN products (quadratic work per linear load); a column reuses along only one axis. AI scales with the square's area-to-perimeter ratio — that's why 2D blocktiling is the big jump." data-explanation-wrong="A square reuses operands in BOTH dimensions: TM+TN loads → TM·TN FMAs. A column only reuses along one axis, so its arithmetic intensity is much lower.">
+          <p class="quiz-question">1. Why does a TM&times;TN square beat a TM&times;1 column for the same thread count?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="square" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It reuses operands in both dims: TM+TN loads &rarr; TM&times;TN FMAs</span></button>
+            <button class="quiz-option" data-value="threads" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses fewer threads</span></button>
+            <button class="quiz-option" data-value="coalesce" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It coalesces better</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="regpressure" data-explanation-right="Correct. threadResults needs TM·TN registers plus regM/regN; exceeding ~255 regs/thread spills to local memory (GMEM-backed) or crushes occupancy. 8×8=64 accumulators is the A6000 sweet spot. Register pressure is the ceiling." data-explanation-wrong="Register pressure limits tile size: TM·TN accumulators + operand registers. Too big → spilling to local memory or collapsed occupancy.">
+          <p class="quiz-question">2. What limits how big TM&times;TN can go?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="regpressure" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Register pressure — too many accumulators spill to local memory</span></button>
+            <button class="quiz-option" data-value="smem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Shared memory runs out</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — bigger is always better</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Register spilling is <strong>silent</strong> — check <code>-Xptxas -v</code> for spill stores/loads.<br>
+          &bull; TM/TN must be compile-time so the compiler unrolls and keeps accumulators in registers; dynamic bounds defeat it.<br>
+          &bull; Occupancy drops as regs/thread rises, but ILP compensates (this is the Volta lesson from <a href="/learn-ai/gpu-performance-engineering/">GPU Perf Engineering</a> Module 5).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

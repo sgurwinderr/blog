@@ -1,0 +1,115 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Reaching cuBLAS &amp; the Skinny-GEMM Regime</h1>
+      <p class="module-subtitle">The last ~15% comes from autotuning + warptiling — exactly what CUTLASS codifies. Plus the regime that dominates LLM inference: skinny/decode-phase GEMV, which is memory-bound.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why there's no universal tile size (autotune per GPU), how CUTLASS uses <strong>software pipelining</strong> to hide latency despite low occupancy, and — the LLM link — why <strong>decode-phase matmul is memory-bound</strong>.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Warptiling + Autotuning &rarr; 93.7%</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">Autotuning (&rarr; 84.8%)</span>
+          <span class="badge-desc">Sweep <code>BM,BN,BK,TM,TN</code>. A6000 optimum <code>128/128/16/8/8</code>; A100's was <code>64/64/16/4/4</code>. <strong>Tiles are not portable.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Warptiling (&rarr; 93.7%)</span>
+          <span class="badge-desc">Add a warp-tile level between block and thread: blocks&rarr;SMs, warps&rarr;schedulers, threads&rarr;ILP. Better register/SMEM locality per warp.</span>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#129513;</span>
+        <div class="callout-content">
+          <span class="callout-title">How CUTLASS composes it all</span>
+          <p>A hierarchical tiled loop nest mirroring hardware: threadblock tile (GMEM&rarr;SMEM), warp tile (SMEM&rarr;registers via <code>mma.sync</code>), thread/instruction tile, plus <strong>software pipelining</strong> (double-buffered SMEM + register fragments), threadblock swizzle for L2, split-K, and — on Hopper — <strong>warp specialization</strong> (producer TMA warps + consumer <code>wgmma</code> warps).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: skinny GEMM regime -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Regime That Runs LLM Inference</h2>
+      <p>Everything so far assumed large square matrices (compute-bound). But <strong>LLM decode</strong> multiplies a weight matrix by a <em>single</em> token vector each step — a tall-skinny GEMV. That flips the roofline:</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128202;</div>
+          <div class="pattern-title">Large square GEMM</div>
+          <p class="pattern-desc">AI = N/8, grows with N &rarr; compute-bound &rarr; tensor cores shine. This is training / prefill.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128201;</div>
+          <div class="pattern-title">Skinny GEMV (decode)</div>
+          <p class="pattern-desc">Batch=1 &rarr; low AI &rarr; <strong>memory-bound</strong>: you re-read all the weights to produce one token. This is why decode is bandwidth-bound and why quantization (fewer weight bytes) helps.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">The inference connection</span>
+          <p>This ties directly to <a href="/learn-ai/vllm-distributed-kernels-interview/">vLLM &amp; Distributed Kernels</a>, where "why is decode memory-bound?" is a core question. Same roofline, different regime.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Staff-Level Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm8">
+        <div class="quiz-question-block" data-correct="hwspecific" data-explanation-right="Correct. Optimal tiling depends on SM count, register file size, SMEM capacity, and bandwidth ratios — all GPU-specific. The A6000 optimum (128/128/16/8/8) underperforms on A100 (64/64/16/4/4); tuning must be re-run per architecture." data-explanation-wrong="Optimal tile sizes are hardware-specific (register file, SMEM, SM count, bandwidth). There's no universal config — autotune per GPU.">
+          <p class="quiz-question">1. Why isn't there one universal tile config?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hwspecific" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Optimal tiling depends on GPU-specific resources</span></button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tile size doesn't actually matter</span></button>
+            <button class="quiz-option" data-value="cublas" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only cuBLAS knows the secret config</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="pipeline" data-explanation-right="Correct. Big accumulator tiles consume most registers, capping occupancy — so CUTLASS hides latency with software pipelining: double-buffered SMEM tiles and register fragments overlap loads with compute WITHIN each thread (ILP), not by having many resident warps." data-explanation-wrong="Software pipelining (double buffering of SMEM tiles and register fragments) overlaps loads with compute per-thread, hiding latency via ILP rather than occupancy.">
+          <p class="quiz-question">2. Accumulators eat most registers, killing occupancy. How does CUTLASS still hide latency?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pipeline" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Software pipelining — double-buffered loads overlap compute (ILP)</span></button>
+            <button class="quiz-option" data-value="moreblocks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It launches more blocks</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It can't — low occupancy always means slow</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed GEMM from Scratch</span>
+          <p>Naive (1.3%) &rarr; coalescing (8.5%) &rarr; SMEM tiling (12.8%) &rarr; register blocking (68.7%) &rarr; vectorized (78.4%) &rarr; tensor cores &rarr; warptiling + autotune (93.7%). The through-line, and the answer to "walk me through optimizing a matmul": <strong>every step raises arithmetic intensity to march up the roofline</strong> — quantify the reuse at each stage.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">When to just call the library</span>
+          <p>For standard dense GEMM, <strong>call cuBLAS/CUTLASS</strong> — matching them by hand took the reference author ~6 weekends. Write your own only for fusion (epilogue/activation), unusual shapes/dtypes, or learning. And know: swizzling for L2 only helps if L2 hit rate is <em>low</em> (a documented negative result), and the last 14% costs far more effort than the first 80%.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

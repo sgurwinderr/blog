@@ -1,0 +1,142 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Shared-Memory Tiling — 8.5% &rarr; 12.8%</h1>
+      <p class="module-subtitle">The core GEMM interview idea: stage tiles of A and B in shared memory and reuse them. Explaining the tiling arithmetic — and why the gain here is modest — is a top signal.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The tiling mechanism (load tile &rarr; <code>__syncthreads</code> &rarr; reuse), the arithmetic-intensity improvement it buys, and the subtle point: why SMEM tiling alone only gives +50% (the bottleneck shifts to SMEM bandwidth).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Stage in Shared Memory, Reuse</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — tiled K-loop</span>
+          <pre><code><span class="code-line"><span class="code-keyword">for</span> (<span class="code-keyword">int</span> bk = <span class="code-number">0</span>; bk &lt; K; bk += BS) {</span>
+<span class="code-line">  As[tr*BS+tc] = A[tr*K + tc];</span>
+<span class="code-line">  Bs[tr*BS+tc] = B[tr*N + tc];</span>
+<span class="code-line">  __syncthreads();          <span class="code-comment">// loads land</span></span>
+<span class="code-line">  A += BS; B += BS*N;</span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">int</span> d = <span class="code-number">0</span>; d &lt; BS; ++d)</span>
+<span class="code-line">    tmp += As[tr*BS+d] * Bs[d*BS+tc];</span>
+<span class="code-line">  __syncthreads();          <span class="code-comment">// before overwrite</span></span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The AI math</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Load a BS&times;BS tile once</strong> from GMEM into SMEM.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>First sync:</strong> all loads complete before compute.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each loaded element is reused by BS threads</strong> &rarr; GMEM traffic drops ~BS&times; (32&times; for BS=32).</div>
+            <div class="tl"><strong>Second sync:</strong> don't overwrite a tile still being read.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why Only +50%? Watch the Bottleneck Move</h2>
+      <p>Interviewers love this: tiling cut GMEM traffic 32&times; but only gave +50%. Step through why.</p>
+      <div class="chat-window animate-in" id="chat-gm4">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="GMEM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">G</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Global Memory</span>
+              <p>Great news — tiling means each of my elements is now loaded once and reused by 32 threads. My traffic dropped ~32&times;. I'm no longer the bottleneck.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="SMEM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Shared Memory</span>
+              <p>...but now every thread issues <em>2 loads from me per single FMA</em>. So I became the new limiter. The profiler shows "MIO throttle" — warps stalling on the shared-memory pipe.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="L1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">L</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">L1 cache</span>
+              <p>Also — I was already catching a lot of that reuse before tiling, so the jump from explicit SMEM is smaller than the 32&times; traffic cut suggests. Net: only ~+50%.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Fix" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&rarr;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">The next move</span>
+              <p>To beat the SMEM-bandwidth wall, each thread must do <em>more FMAs per SMEM load</em> — hold a micro-tile of outputs in <strong>registers</strong>. That's register blocking (Module 5), where the big jumps come from.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm4">
+        <div class="quiz-question-block" data-correct="race" data-explanation-right="Correct. Without the second __syncthreads, fast threads race ahead and overwrite As/Bs for the next K-tile while slower threads are still reading the current one — data corruption. Both barriers are required." data-explanation-wrong="Deleting the second barrier lets fast threads overwrite the shared tiles while others still read them → race/corruption.">
+          <p class="quiz-question">1. What breaks if you delete the second <code>__syncthreads()</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="race" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Race: fast threads overwrite tiles others are still reading</span></button>
+            <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — it just runs slower</span></button>
+            <button class="quiz-option" data-value="deadlock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The block deadlocks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="smembound" data-explanation-right="Correct. SMEM traffic is now the limiter — each thread does 2 SMEM loads per 1 FMA (AI ≈ 0.5 vs shared memory), and L1 was already catching much of the reuse. The fix is register reuse (Module 5), not more SMEM." data-explanation-wrong="After tiling the bottleneck is shared-memory bandwidth (2 loads per FMA) plus L1 already caching reuse. Register blocking, not more SMEM, is the fix.">
+          <p class="quiz-question">2. SMEM tiling only gave +50%. Why so little?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="smembound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>SMEM bandwidth is now the limiter (2 loads / FMA)</span></button>
+            <button class="quiz-option" data-value="occupancy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Occupancy dropped to zero</span></button>
+            <button class="quiz-option" data-value="coalesce" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The loads became uncoalesced</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; SMEM per block caps occupancy — but here occupancy isn't the bottleneck (the MIO/SMEM stall is).<br>
+          &bull; Tile dim must divide K cleanly or you need boundary guards.<br>
+          &bull; Both <code>__syncthreads</code> are load-bearing — one guards reads-after-writes, one guards overwrites.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

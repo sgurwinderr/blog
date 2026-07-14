@@ -1,0 +1,115 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">The Memory Model &amp; Masking</h1>
+      <p class="module-subtitle">Where candidates break in live coding. Triton manipulates <em>pointers into tensors</em>, not tensors — strides, broadcasting, and the right <code>other=</code> value for a masked reduction are the details that separate strong from weak.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Whether you build addresses from <strong>strides</strong> (never assume contiguity) and pick the correct <code>other=</code> fill for masked lanes — <code>-inf</code> for a max, <code>0.0</code> for a sum. This is a top boundary-handling separator.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Pointers, Strides, Broadcasting</h2>
+      <p>An address is <code>base + i*stride_i + j*stride_j</code>. Build 2D pointer blocks by broadcasting <code>offs_i[:, None]</code> against <code>offs_j[None, :]</code>. Strides come from PyTorch's <code>.stride()</code> and are in <strong>elements</strong>, not bytes.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Strided 2D tile load</span>
+          <pre><code><span class="code-line">offs_m = pid_m*BM + tl.arange(<span class="code-number">0</span>, BM)</span>
+<span class="code-line">offs_n = pid_n*BN + tl.arange(<span class="code-number">0</span>, BN)</span>
+<span class="code-line">ptrs = base + offs_m[:, <span class="code-keyword">None</span>]*stride_m \</span>
+<span class="code-line">            + offs_n[<span class="code-keyword">None</span>, :]*stride_n</span>
+<span class="code-line">mask = (offs_m[:, <span class="code-keyword">None</span>] &lt; M) &amp; \</span>
+<span class="code-line">       (offs_n[<span class="code-keyword">None</span>, :] &lt; N)</span>
+<span class="code-line">tile = tl.load(ptrs, mask=mask, other=<span class="code-number">0.0</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key ideas</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Broadcasting</strong> [:, None] &times; [None, :] builds the 2D address grid.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>2D mask</strong> guards both dimensions at once.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>other=</strong> is the value masked-off lanes return — <em>choose it for your reduction.</em></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: The Wrong Fill Value</h2>
+      <p>This kernel computes a row max but returns wrong answers for rows with all-negative values. Click the mistake.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Building the column offsets is correct."><code>&nbsp;&nbsp;offs = tl.arange(0, BLOCK_SIZE)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: other=0.0 for a MAX reduction. Padded lanes contribute 0.0; if every real value in the row is negative, tl.max returns 0 (a padded lane wins). Use other=-float('inf') so padding can never beat a real value in a max."><code>&nbsp;&nbsp;row = tl.load(p + offs, mask=offs&lt;n, other=0.0)&nbsp;&nbsp;# max reduction!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The reduction itself is correct — the fill value above poisoned it."><code>&nbsp;&nbsp;m = tl.max(row, axis=0)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The rule</span>
+          <p>Pick the <strong>neutral element</strong> for your reduction: <code>other=-float('inf')</code> for max, <code>other=0.0</code> for sum, <code>other=float('inf')</code> for min. The fill must never affect the result.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm3">
+        <div class="quiz-question-block" data-correct="strides" data-explanation-right="Correct. Never assume contiguity — pass the actual .stride(d) values from PyTorch and compute addresses with them. A transposed or sliced tensor has non-trivial strides; hardcoding row-major arithmetic silently reads wrong memory." data-explanation-wrong="Index with the tensor's actual .stride() values. Assuming contiguity breaks on transposed/sliced inputs.">
+          <p class="quiz-question">1. How do you correctly index a transposed/strided tensor in Triton?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="strides" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Pass the real <code>.stride()</code> values and build addresses from them</span></button>
+            <button class="quiz-option" data-value="contig" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Assume row-major and use <code>i*ncols + j</code></span></button>
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Always <code>.contiguous()</code> first — strides never matter</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="elements" data-explanation-right="Correct. Triton strides are in ELEMENTS (matching PyTorch's .stride()), not bytes. Multiplying by dtype size is a classic double-counting bug." data-explanation-wrong="Strides in Triton are in elements, exactly like PyTorch's .stride() — not bytes. Don't multiply by the dtype size.">
+          <p class="quiz-question">2. Triton strides are measured in...?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="bytes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Bytes</span></button>
+            <button class="quiz-option" data-value="elements" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Elements (like PyTorch <code>.stride()</code>)</span></button>
+            <button class="quiz-option" data-value="bits" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Bits</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Wrong <code>other=</code> for the reduction (the bug above).<br>
+          &bull; Broadcasting mistakes — <code>[:, None]</code> vs <code>[None, :]</code> transposed.<br>
+          &bull; Forgetting the mask on <code>tl.store</code> &rarr; out-of-bounds writes.<br>
+          &bull; Assuming contiguity instead of threading strides through.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

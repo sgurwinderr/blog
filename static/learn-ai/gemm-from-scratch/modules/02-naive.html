@@ -1,0 +1,94 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">The Naive Kernel — 1.3% of Peak</h1>
+      <p class="module-subtitle">One thread per output element. It does the exact same FLOPs as cuBLAS yet runs ~70&times; slower — because it loses on data movement, not math. This is the "why is this slow?" starting point.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That identical FLOPs can be 70&times; slower — the loss is <strong>operand re-reads from global memory</strong> plus uncoalesced access. This reframes the whole problem as data movement.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">One Thread Per Output</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — naive</span>
+          <pre><code><span class="code-line"><span class="code-keyword">int</span> x = blockIdx.x*blockDim.x + threadIdx.x;</span>
+<span class="code-line"><span class="code-keyword">int</span> y = blockIdx.y*blockDim.y + threadIdx.y;</span>
+<span class="code-line"><span class="code-keyword">if</span> (x &lt; M &amp;&amp; y &lt; N) {</span>
+<span class="code-line">  <span class="code-keyword">float</span> tmp = <span class="code-number">0</span>;</span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">int</span> i = <span class="code-number">0</span>; i &lt; K; ++i)</span>
+<span class="code-line">    tmp += A[x*K+i] * B[i*N+y];  <span class="code-comment">// re-read from GMEM</span></span>
+<span class="code-line">  C[x*N+y] = alpha*tmp + beta*C[x*N+y];</span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it's memory-bound</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each thread reads 2K+1 floats</strong> straight from global memory.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Across 4092&sup2; threads &rarr; <strong>~548 GB</strong> of traffic vs the 268 MB minimum — a &gt;2000&times; blowup from re-fetching with zero reuse.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Measured GMEM throughput ~15 GB/s (uncoalesced) &rarr; ~1.3% of cuBLAS.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm2">
+        <div class="quiz-question-block" data-correct="movement" data-explanation-right="Correct. FLOP count is identical to cuBLAS — it loses entirely on data movement: massive operand re-reads (no reuse) plus uncoalesced loads at ~15 GB/s. The lesson: GEMM performance is a memory-reuse problem, not a FLOP problem." data-explanation-wrong="Same FLOPs — the difference is data movement: operand re-reads with no reuse and uncoalesced access. Not the arithmetic.">
+          <p class="quiz-question">1. The naive kernel does the same 137 GFLOP as cuBLAS. Why 70&times; slower?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="movement" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Data movement — operand re-reads + uncoalesced access</span></button>
+            <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It secretly does more FLOPs</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>cuBLAS runs at a higher clock</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="marginal" data-explanation-right="Correct. __restrict__/const help aliasing but the problem is algorithmic reuse (arithmetic intensity), not aliasing hints. The real fix is coalescing (Module 3) then tiling for reuse (Modules 4-5)." data-explanation-wrong="Aliasing hints give marginal gains at best — the bottleneck is lack of data reuse (low AI), fixed by coalescing and tiling, not __restrict__.">
+          <p class="quiz-question">2. Does adding <code>__restrict__</code> / <code>const</code> fix the naive kernel?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="marginal" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Marginally — the real issue is reuse (AI), not aliasing</span></button>
+            <button class="quiz-option" data-value="yes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes — it reaches cuBLAS speed</span></button>
+            <button class="quiz-option" data-value="worse" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No — it makes it slower</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Mapping <code>threadIdx.x</code> &rarr; row (as above, <code>A[x*K+i]</code>) is the <em>bad</em> layout for coalescing — fixed next module.<br>
+          &bull; <code>blockDim(32,32)</code> = 1024 threads is the max per block; fine here but no headroom.<br>
+          &bull; The insight to carry forward: GEMM is a <strong>data-reuse</strong> problem.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

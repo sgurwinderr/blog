@@ -1,0 +1,138 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Integration with PyTorch &amp; torch.compile</h1>
+      <p class="module-subtitle">Mostly engineering practice — but the <strong>autograd</strong> question ("how do you make your kernel differentiable?") is a common senior follow-up, and knowing <code>TRITON_INTERPRET=1</code> shows real hands-on experience.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Framed as methodology, not a quiz: "you wrote a fast kernel — how do you make it differentiable, composable with <code>torch.compile</code>, and how do you debug it?" Naming <code>register_autograd</code> and <code>TRITON_INTERPRET=1</code> is the signal.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Three Levels of Integration</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Call from <code>@torch.compile</code> (PyTorch &ge; 2.3)</strong>
+            <p>Inductor traces through the grid launch and fuses/optimizes around your kernel. Simplest path.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Composable op: <code>triton_op</code> + <code>wrap_triton</code> (&ge; 2.6)</strong>
+            <p>Makes a raw kernel a first-class PyTorch op — composable with tensor subclasses, FlopCounter, CPU fallback, AOTInductor, and <code>torch.compile</code> can trace <em>into</em> it (unlike opaque <code>custom_op</code>).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Autograd: prefer <code>register_autograd</code></strong>
+            <p>Over <code>torch.autograd.Function</code> (which has composability footguns under <code>torch.compile</code>). Provide <code>backward</code> + <code>setup_context</code>; backward must be PyTorch ops.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: autograd code -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Making a Kernel Differentiable</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.library (&ge; 2.6)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.library <span class="code-keyword">import</span> triton_op, wrap_triton</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">@triton_op</span>(<span class="code-string">"mylib::mysin"</span>, mutates_args={})</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">mysin</span>(x): </span>
+<span class="code-line">  out = torch.empty_like(x)</span>
+<span class="code-line">  wrap_triton(sin_kernel)[(x.numel(),)](x, out, ...)</span>
+<span class="code-line">  <span class="code-keyword">return</span> out</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">backward</span>(ctx, grad):</span>
+<span class="code-line">  (x,) = ctx.saved_tensors</span>
+<span class="code-line">  <span class="code-keyword">return</span> grad * x.cos()</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">setup_context</span>(ctx, inputs, output):</span>
+<span class="code-line">  (x,) = inputs; ctx.save_for_backward(x)</span>
+<span class="code-line">mysin.register_autograd(backward, setup_context=setup_context)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why this way</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>triton_op</strong> makes it a real op subsystems can see.</div>
+            <div class="tl"><strong>wrap_triton</strong> at the launch site.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward</strong> in PyTorch ops (or its own triton_op).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>setup_context</strong> saves what backward needs.</div>
+            <div class="tl"><strong>register_autograd</strong> — not <code>autograd.Function</code>, which breaks under compile.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm8">
+        <div class="quiz-question-block" data-correct="composable" data-explanation-right="Correct. triton_op makes the kernel a real PyTorch operator: composable with tensor subclasses, FlopCounterMode, CPU fallback, and AOTInductor — and torch.compile can trace INTO it to optimize. A bare kernel or custom_op stays opaque." data-explanation-wrong="triton_op turns the kernel into a first-class op that composes with subsystems and that torch.compile can trace into — unlike a bare launch or an opaque custom_op.">
+          <p class="quiz-question">1. Why wrap a kernel in <code>triton_op</code> vs just calling it in a compiled function?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="composable" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It becomes a first-class op: composable + traceable by torch.compile</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The kernel itself runs faster</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's mandatory — kernels can't be called otherwise</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="interpret" data-explanation-right="Correct. TRITON_INTERPRET=1 runs the kernel on CPU sequentially per program, so you can print() tensors or drop a pdb.set_trace() inside the kernel. Remember it doesn't support bf16 (cast to fp32 first) or indirect pointer-of-pointer loads." data-explanation-wrong="Set TRITON_INTERPRET=1 to run the kernel on CPU sequentially, enabling print/pdb inside the kernel — the fastest way to inspect intermediates.">
+          <p class="quiz-question">2. Your kernel gives wrong results and you can't attach a GPU debugger. Fastest way to inspect tensors?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="interpret" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span><code>TRITON_INTERPRET=1</code> — run on CPU, then print/pdb inside the kernel</span></button>
+            <button class="quiz-option" data-value="rewrite" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Rewrite the whole thing in CUDA</span></button>
+            <button class="quiz-option" data-value="guess" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Comment out lines until it works</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed Triton Kernel Mastery</span>
+          <p>Programming model &rarr; first kernel &rarr; memory &amp; masking &rarr; fused softmax &rarr; autotuning &rarr; blocked matmul &rarr; Flash Attention &rarr; PyTorch integration. The interview through-line: <strong>Triton abstracts away threads so you reason at the tile level about memory movement</strong> — and memory movement is what makes kernels fast.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; <code>tl.dot</code>: use <code>input_precision=</code>, not deprecated <code>allow_tf32</code>.<br>
+          &bull; <code>triton_op</code>/<code>wrap_triton</code> need PyTorch &ge; 2.6; basic kernels in <code>torch.compile</code> &ge; 2.3.<br>
+          &bull; Prefer <code>register_autograd</code> over <code>torch.autograd.Function</code> for compile-safety.<br>
+          &bull; For the "is my kernel memory- or compute-bound" question, apply the <a href="/learn-ai/gpu-performance-engineering/">roofline model</a>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,139 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Flash Attention in Triton</h1>
+      <p class="module-subtitle">The highest-value module in the course. "Explain online softmax and how Flash Attention avoids the N&times;N matrix" is a staple ML-breadth question — and the #1 misconception is thinking it reduces FLOPs. It doesn't.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That Flash Attention trades <strong>memory for recompute</strong>: same (or more) FLOPs, far less HBM traffic, O(N) memory instead of O(N&sup2;). Candidates who say "it's faster because fewer operations" fail. The bottleneck was memory movement, not math.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Never Materialize the N&times;N Score Matrix</h2>
+      <p>Standard attention computes the full <code>T&times;T</code> score matrix <code>QK&#7488;</code>, softmaxes it, then multiplies by V — that matrix is O(N&sup2;) in HBM. Flash Attention keeps a Q-tile in SRAM and <strong>streams</strong> over K/V tiles, maintaining running statistics so it never stores the scores.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Running max of the attention scores seen so far for each query row, initialized to -inf. Used to keep the streaming softmax numerically stable as new K/V tiles arrive.">m_i</span> (running max)</span>
+          <span class="badge-desc">Init <code>-inf</code>. Tracks the max score per query row across tiles seen so far.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="Running sum of exp(score - running_max) — the softmax denominator, accumulated tile by tile and rescaled whenever the running max increases.">l_i</span> (running denom)</span>
+          <span class="badge-desc">The softmax denominator, accumulated tile by tile.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">acc (output)</span>
+          <span class="badge-desc">The running weighted sum of V. Rescaled when the max grows.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat — online softmax rescaling -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Rescaling Trick — Why It's Exact</h2>
+      <p>The subtle part: when a new K/V tile raises the running max, all prior contributions must be retroactively rescaled. Step through why this equals the true full-row softmax.</p>
+      <div class="chat-window animate-in" id="chat-tm7">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Q" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">Q</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Q-tile</span>
+              <p>I stay resident in SRAM. K/V arrive in tiles of <code>BLOCK_N</code>. For each tile I compute <code>qk = Q&middot;K&#7488;</code> — just this tile's scores, never the whole row at once.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Max" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">m</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Running max m_i</span>
+              <p>A new tile has a bigger score than anything before. I update: <code>m_new = max(m_old, max(qk))</code>. But now every earlier <code>exp(x - m_old)</code> term is referenced to the wrong max!</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Alpha" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">&alpha;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Rescale factor &alpha;</span>
+              <p>I fix it: <code>&alpha; = exp(m_old - m_new)</code>. Since <code>exp(x - m_new) = exp(x - m_old)&middot;&alpha;</code>, I multiply the running output <code>acc</code> and denominator <code>l_i</code> by <code>&alpha;</code>. Now everything is referenced to the new max — exactly.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Out" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&Sigma;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">Epilogue</span>
+              <p>After the last tile I divide <code>acc / l_i</code> — once. The result is bit-for-bit the true softmax(QK&#7488;)V, but I never stored an N&times;N matrix. Peak memory is O(N), not O(N&sup2;).</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Signature ML-Breadth Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm7">
+        <div class="quiz-question-block" data-correct="memory" data-explanation-right="Correct. Flash Attention does the SAME (or slightly more) FLOPs — it recomputes rather than stores. Its win is drastically less HBM traffic: O(N) memory instead of materializing the O(N²) score matrix. Memory movement, not compute, was the bottleneck." data-explanation-wrong="Flash Attention does NOT reduce FLOPs — it reduces memory traffic. It avoids writing/reading the O(N²) score matrix, achieving O(N) memory. Saying 'fewer operations' is the classic wrong answer.">
+          <p class="quiz-question">1. Why is Flash Attention faster?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Less HBM traffic — O(N) memory, never materializes the N&times;N scores</span></button>
+            <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It does far fewer floating-point operations</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It approximates attention to skip work</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="rescale" data-explanation-right="Correct. Earlier exp(x - m_old) terms were normalized to the old max. When the max grows to m_new, exp(x - m_new) = exp(x - m_old)·exp(m_old - m_new), so scaling acc and l_i by α = exp(m_old - m_new) retroactively re-references them. The final acc/l_i then equals true softmax." data-explanation-wrong="When the running max increases, prior terms must be rescaled by α = exp(m_old - m_new) so they're referenced to the new max. Without it, the accumulated output and denominator are wrong.">
+          <p class="quiz-question">2. Why multiply <code>acc</code> and <code>l_i</code> by <code>&alpha; = exp(m_old &minus; m_new)</code> when the max grows?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="rescale" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To re-reference prior terms to the new max — keeps the result exact</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To make exp() faster</span></button>
+            <button class="quiz-option" data-value="approx" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's an approximation to save memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Initializing <code>m_i</code> to 0 instead of <code>-inf</code>.<br>
+          &bull; Forgetting to rescale <code>acc</code> (or <code>l_i</code>) &rarr; wrong normalization.<br>
+          &bull; Doing the final <code>/l_i</code> inside the loop instead of once in the epilogue.<br>
+          &bull; The modern Triton tutorial uses <code>exp2</code> (base-2, faster) with the scale folded by <code>1/ln2</code>, and TensorDescriptor loads — teach the algorithm with the portable block-pointer form first.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">Where this leads</span>
+          <p>Online softmax is the bridge to the LLM-inference world — KV cache, prefill/decode, PagedAttention. See <a href="/learn-ai/vllm-distributed-kernels-interview/">vLLM &amp; Distributed Kernels</a> for the serving side.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

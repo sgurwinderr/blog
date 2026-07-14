@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEMM from Scratch: How a Matmul Reaches 90% of Peak</title>
+  <meta name="description" content="Optimize a GPU matrix multiply step by step — naive kernel, coalescing, shared-memory tiling, register blocking, vectorized loads, tensor cores, and closing the gap to cuBLAS. The canonical GPU-systems deep dive.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/gemm-from-scratch/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="GEMM from Scratch: How a Matmul Reaches 90% of Peak">
+  <meta property="og:description" content="Optimize a GPU matrix multiply step by step, from a naive kernel to tensor cores and cuBLAS-level performance.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/gemm-from-scratch/">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #EA580C;
+      --color-accent-hover: #C2410C;
+      --color-accent-light: #FFEDD5;
+      --color-accent-muted: #FB923C;
+    }
+  </style>
+
+  <!-- MathJax for the arithmetic-intensity / % of peak math -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">GEMM from Scratch</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Why Matmul & Roofline" role="tab" aria-label="Module 1: Why Matmul & the Roofline"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Naive Kernel" role="tab" aria-label="Module 2: The Naive Kernel"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Coalescing" role="tab" aria-label="Module 3: Global Memory Coalescing"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Shared-Mem Tiling" role="tab" aria-label="Module 4: Shared Memory Tiling"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Register Blocking" role="tab" aria-label="Module 5: Register Blocking"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Vectorized Loads" role="tab" aria-label="Module 6: Advanced Memory Optimizations"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Tensor Cores" role="tab" aria-label="Module 7: Tensor Cores"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Reaching cuBLAS" role="tab" aria-label="Module 8: Reaching cuBLAS"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">Why Matmul &amp; the Roofline</h1>
+      <p class="module-subtitle">GEMM is the canonical "show me you can optimize a GPU kernel" exercise. First, the numbers you must know cold: FLOPs, arithmetic intensity, and what "% of peak" actually means.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you compute GEMM FLOPs, decide memory- vs compute-bound at a given size, and explain why we measure against cuBLAS? This whole course is "walk me through optimizing a matmul" — the highest-yield GPU systems question.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Numbers</h2>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128207;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{FLOPs} = 2 \cdot M \cdot N \cdot K \qquad \text{AI} = \frac{\text{FLOPs}}{\text{bytes moved}}$$</span>
+          <p>Each output is a K-length dot product = K multiplies + K adds &rarr; the factor of <strong>2</strong>. For a 4092&sup3; FP32 matmul: <code>2&middot;4092&sup3; &asymp; 137 GFLOP</code>; minimum traffic (read A,B,C + write C) &asymp; 268 MB.</p>
+        </div>
+      </div>
+      <p>Roofline check on an A6000 (~30 TFLOP/s FP32, ~768 GB/s): compute takes <code>137e9/30e12 &asymp; 4.5 ms</code>; minimum memory <code>268e6/768e9 &asymp; 0.34 ms</code>. Compute is ~10&times; longer &rarr; a <em>well-written</em> GEMM at this size <strong>should be compute-bound</strong>. The whole course is a march to make that true.</p>
+    </div>
+
+    <!-- SCREEN 2: the ladder preview -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Optimization Ladder (Preview)</h2>
+      <p>Every step raises arithmetic intensity, marching rightward toward the compute roof. Real measured numbers (Boehm, A6000, FP32, 4092&sup3;):</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-1);">Naive</span><span class="badge-desc">309 GFLOP/s &mdash; <strong>1.3%</strong> of cuBLAS (Module 2)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-4);">Coalescing</span><span class="badge-desc">1987 &mdash; <strong>8.5%</strong> (Module 3)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-3);">SMEM tiling</span><span class="badge-desc">2980 &mdash; <strong>12.8%</strong> (Module 4)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-2);">2D blocktiling</span><span class="badge-desc">15972 &mdash; <strong>68.7%</strong> (Module 5)</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-5);">Warptiling + autotune</span><span class="badge-desc">21779 &mdash; <strong>93.7%</strong> (Module 8)</span></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Estimation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm1">
+        <div class="quiz-question-block" data-correct="compute" data-explanation-right="Correct. Ridge = 20e12/1.5e12 ≈ 13.3 FLOP/byte. A tiled GEMM easily exceeds ~100 FLOP/byte, so it's compute-bound. (A naive kernel that re-streams operands can still land memory-bound — the point of Modules 2-5.)" data-explanation-wrong="Ridge point = peak/bandwidth ≈ 13.3 FLOP/byte. A well-tiled GEMM's AI far exceeds that → compute-bound. Only a naive re-streaming kernel is memory-bound.">
+          <p class="quiz-question">1. 4096&sup3; FP32 GEMM on a 20 TFLOP/s, 1.5 TB/s GPU. Bound (well-tiled)?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="compute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Compute-bound (ridge &asymp; 13.3; tiled AI &gt;&gt; that)</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Memory-bound at any implementation</span></button>
+            <button class="quiz-option" data-value="latency" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Latency-bound</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="realistic" data-explanation-right="Correct. Silicon 'peak' is often unreachable (clock throttling, non-ideal instruction mix). cuBLAS is the realistic, reproducible reference; reaching ~90-95% of it means you've captured essentially all attainable performance." data-explanation-wrong="cuBLAS is the practical, reproducible ceiling — silicon peak is often unattainable. % of cuBLAS is the honest metric.">
+          <p class="quiz-question">2. Why measure % of cuBLAS instead of % of silicon peak?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="realistic" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>cuBLAS is the realistic, reproducible ceiling</span></button>
+            <button class="quiz-option" data-value="easier" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The numbers look bigger</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They're always identical</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">This is the roofline, applied</span>
+          <p>If the roofline model is new, do <a href="/learn-ai/gpu-performance-engineering/">GPU Performance Engineering</a> first — this course is that model made concrete, one measured optimization at a time.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Don't forget the factor of 2 in <code>2&middot;M&middot;N&middot;K</code> (multiply <em>and</em> add).<br>
+          &bull; "Peak" is precision-specific — FP32 and tensor-core FP16 differ &gt;10&times;.<br>
+          &bull; Small/skinny matrices are latency/launch-bound, not roofline-bound (Module 8 revisits the decode-phase GEMV regime).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">The Naive Kernel — 1.3% of Peak</h1>
+      <p class="module-subtitle">One thread per output element. It does the exact same FLOPs as cuBLAS yet runs ~70&times; slower — because it loses on data movement, not math. This is the "why is this slow?" starting point.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That identical FLOPs can be 70&times; slower — the loss is <strong>operand re-reads from global memory</strong> plus uncoalesced access. This reframes the whole problem as data movement.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">One Thread Per Output</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — naive</span>
+          <pre><code><span class="code-line"><span class="code-keyword">int</span> x = blockIdx.x*blockDim.x + threadIdx.x;</span>
+<span class="code-line"><span class="code-keyword">int</span> y = blockIdx.y*blockDim.y + threadIdx.y;</span>
+<span class="code-line"><span class="code-keyword">if</span> (x &lt; M &amp;&amp; y &lt; N) {</span>
+<span class="code-line">  <span class="code-keyword">float</span> tmp = <span class="code-number">0</span>;</span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">int</span> i = <span class="code-number">0</span>; i &lt; K; ++i)</span>
+<span class="code-line">    tmp += A[x*K+i] * B[i*N+y];  <span class="code-comment">// re-read from GMEM</span></span>
+<span class="code-line">  C[x*N+y] = alpha*tmp + beta*C[x*N+y];</span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it's memory-bound</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each thread reads 2K+1 floats</strong> straight from global memory.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Across 4092&sup2; threads &rarr; <strong>~548 GB</strong> of traffic vs the 268 MB minimum — a &gt;2000&times; blowup from re-fetching with zero reuse.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">Measured GMEM throughput ~15 GB/s (uncoalesced) &rarr; ~1.3% of cuBLAS.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm2">
+        <div class="quiz-question-block" data-correct="movement" data-explanation-right="Correct. FLOP count is identical to cuBLAS — it loses entirely on data movement: massive operand re-reads (no reuse) plus uncoalesced loads at ~15 GB/s. The lesson: GEMM performance is a memory-reuse problem, not a FLOP problem." data-explanation-wrong="Same FLOPs — the difference is data movement: operand re-reads with no reuse and uncoalesced access. Not the arithmetic.">
+          <p class="quiz-question">1. The naive kernel does the same 137 GFLOP as cuBLAS. Why 70&times; slower?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="movement" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Data movement — operand re-reads + uncoalesced access</span></button>
+            <button class="quiz-option" data-value="flops" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It secretly does more FLOPs</span></button>
+            <button class="quiz-option" data-value="clock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>cuBLAS runs at a higher clock</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="marginal" data-explanation-right="Correct. __restrict__/const help aliasing but the problem is algorithmic reuse (arithmetic intensity), not aliasing hints. The real fix is coalescing (Module 3) then tiling for reuse (Modules 4-5)." data-explanation-wrong="Aliasing hints give marginal gains at best — the bottleneck is lack of data reuse (low AI), fixed by coalescing and tiling, not __restrict__.">
+          <p class="quiz-question">2. Does adding <code>__restrict__</code> / <code>const</code> fix the naive kernel?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="marginal" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Marginally — the real issue is reuse (AI), not aliasing</span></button>
+            <button class="quiz-option" data-value="yes" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes — it reaches cuBLAS speed</span></button>
+            <button class="quiz-option" data-value="worse" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No — it makes it slower</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Mapping <code>threadIdx.x</code> &rarr; row (as above, <code>A[x*K+i]</code>) is the <em>bad</em> layout for coalescing — fixed next module.<br>
+          &bull; <code>blockDim(32,32)</code> = 1024 threads is the max per block; fine here but no headroom.<br>
+          &bull; The insight to carry forward: GEMM is a <strong>data-reuse</strong> problem.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">Global Memory Coalescing — 1.3% &rarr; 8.5%</h1>
+      <p class="module-subtitle">The single biggest "free" speedup: <strong>6.4&times;</strong> with no change to FLOPs or reuse. Just remap which thread computes which output so a warp reads consecutive addresses.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That a 6&times; speedup can come purely from access <em>pattern</em> — same bytes, same math. And which index should map to <code>threadIdx.x</code> for a row-major output (the contiguous one).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Remap for Consecutive Addresses</h2>
+      <p>Threads run in <span class="term" data-definition="32 threads issuing in lockstep. If they access 32 consecutive aligned 4-byte words (128 bytes), the hardware coalesces into the minimum number of transactions. The naive indexing made adjacent threads stride across memory, fragmenting each load.">warps of 32</span>. The naive layout made adjacent threads in a warp stride across non-consecutive addresses. Remap so consecutive <code>threadIdx.x</code> produce consecutive output columns:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — coalesced mapping</span>
+          <pre><code><span class="code-line"><span class="code-comment">// consecutive threadIdx.x -&gt; consecutive col</span></span>
+<span class="code-line"><span class="code-keyword">int</span> x = blockIdx.x*BS + (threadIdx.x / BS);</span>
+<span class="code-line"><span class="code-keyword">int</span> y = blockIdx.y*BS + (threadIdx.x % BS);</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The result</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>GMEM throughput 15 &rarr; 110 GB/s.</strong></div>
+            <div class="tl"><strong>~300 &rarr; ~2000 GFLOP/s (6.4&times;)</strong> — no change in FLOPs or reuse, purely access-pattern efficiency. The biggest free win in the whole ladder.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Which Line Kills Coalescing?</h2>
+      <p>A candidate "optimized" the indexing but throughput stayed at ~15 GB/s. Click the line that fragments memory access.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Reading the block index is fine."><code>int bx = blockIdx.x, by = blockIdx.y;</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: consecutive threadIdx.x map to consecutive ROWS (col = tid/BS is constant across a warp's low bits, row = tid%BS varies). So a warp writes C[row*N + col] striding by N between lanes — scattered, uncoalesced. Swap so threadIdx.x drives the contiguous column: col = tid % BS."><code>int row = by*BS + (threadIdx.x % BS), col = bx*BS + (threadIdx.x / BS);</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The store itself is correct once the mapping above puts the column on threadIdx.x."><code>C[row*N + col] = tmp;</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The rule</span>
+          <p>For row-major <code>C[row*N + col]</code>, map <code>threadIdx.x</code> to <strong>col</strong> (the contiguous, innermost axis), so a warp writes consecutive addresses.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm3">
+        <div class="quiz-question-block" data-correct="coalesce" data-explanation-right="Correct. Same FLOPs, same total bytes — but the fast one issues ~128-byte transactions per warp while the slow one issues up to 32 separate transactions, wasting most of each cache line. Pure access-pattern efficiency." data-explanation-wrong="Coalescing: the fast kernel packs a warp's accesses into few 128-byte transactions; the slow one fragments into many. Same data, very different transaction count.">
+          <p class="quiz-question">1. Same FLOPs and bytes, one 6&times; faster. Why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="coalesce" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Coalescing — far fewer memory transactions per warp</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It fits in L2</span></button>
+            <button class="quiz-option" data-value="reuse" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Better data reuse</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="col" data-explanation-right="Correct. For row-major C, the column (innermost, contiguous) index should map to threadIdx.x so a warp writes/reads consecutive addresses. Mapping the row axis to threadIdx.x strides by N and fragments access." data-explanation-wrong="Map the contiguous column axis to threadIdx.x for a row-major C, so consecutive threads touch consecutive addresses.">
+          <p class="quiz-question">2. Which axis maps to <code>threadIdx.x</code> for row-major C?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="col" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The column (contiguous/innermost) axis</span></button>
+            <button class="quiz-option" data-value="row" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The row axis</span></button>
+            <button class="quiz-option" data-value="either" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Either — it doesn't matter</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Coalescing needs alignment, not just contiguity.<br>
+          &bull; A single swapped <code>/</code> vs <code>%</code> silently destroys it (the bug above).<br>
+          &bull; This bought 8.5% — we're still memory-bound because there's <em>no reuse</em> yet. Tiling is next.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Shared-Memory Tiling — 8.5% &rarr; 12.8%</h1>
+      <p class="module-subtitle">The core GEMM interview idea: stage tiles of A and B in shared memory and reuse them. Explaining the tiling arithmetic — and why the gain here is modest — is a top signal.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The tiling mechanism (load tile &rarr; <code>__syncthreads</code> &rarr; reuse), the arithmetic-intensity improvement it buys, and the subtle point: why SMEM tiling alone only gives +50% (the bottleneck shifts to SMEM bandwidth).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Stage in Shared Memory, Reuse</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — tiled K-loop</span>
+          <pre><code><span class="code-line"><span class="code-keyword">for</span> (<span class="code-keyword">int</span> bk = <span class="code-number">0</span>; bk &lt; K; bk += BS) {</span>
+<span class="code-line">  As[tr*BS+tc] = A[tr*K + tc];</span>
+<span class="code-line">  Bs[tr*BS+tc] = B[tr*N + tc];</span>
+<span class="code-line">  __syncthreads();          <span class="code-comment">// loads land</span></span>
+<span class="code-line">  A += BS; B += BS*N;</span>
+<span class="code-line">  <span class="code-keyword">for</span> (<span class="code-keyword">int</span> d = <span class="code-number">0</span>; d &lt; BS; ++d)</span>
+<span class="code-line">    tmp += As[tr*BS+d] * Bs[d*BS+tc];</span>
+<span class="code-line">  __syncthreads();          <span class="code-comment">// before overwrite</span></span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The AI math</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Load a BS&times;BS tile once</strong> from GMEM into SMEM.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>First sync:</strong> all loads complete before compute.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each loaded element is reused by BS threads</strong> &rarr; GMEM traffic drops ~BS&times; (32&times; for BS=32).</div>
+            <div class="tl"><strong>Second sync:</strong> don't overwrite a tile still being read.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why Only +50%? Watch the Bottleneck Move</h2>
+      <p>Interviewers love this: tiling cut GMEM traffic 32&times; but only gave +50%. Step through why.</p>
+      <div class="chat-window animate-in" id="chat-gm4">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="GMEM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">G</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Global Memory</span>
+              <p>Great news — tiling means each of my elements is now loaded once and reused by 32 threads. My traffic dropped ~32&times;. I'm no longer the bottleneck.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="SMEM" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">S</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Shared Memory</span>
+              <p>...but now every thread issues <em>2 loads from me per single FMA</em>. So I became the new limiter. The profiler shows "MIO throttle" — warps stalling on the shared-memory pipe.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="L1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">L</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">L1 cache</span>
+              <p>Also — I was already catching a lot of that reuse before tiling, so the jump from explicit SMEM is smaller than the 32&times; traffic cut suggests. Net: only ~+50%.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Fix" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&rarr;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">The next move</span>
+              <p>To beat the SMEM-bandwidth wall, each thread must do <em>more FMAs per SMEM load</em> — hold a micro-tile of outputs in <strong>registers</strong>. That's register blocking (Module 5), where the big jumps come from.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm4">
+        <div class="quiz-question-block" data-correct="race" data-explanation-right="Correct. Without the second __syncthreads, fast threads race ahead and overwrite As/Bs for the next K-tile while slower threads are still reading the current one — data corruption. Both barriers are required." data-explanation-wrong="Deleting the second barrier lets fast threads overwrite the shared tiles while others still read them → race/corruption.">
+          <p class="quiz-question">1. What breaks if you delete the second <code>__syncthreads()</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="race" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Race: fast threads overwrite tiles others are still reading</span></button>
+            <button class="quiz-option" data-value="slow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — it just runs slower</span></button>
+            <button class="quiz-option" data-value="deadlock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The block deadlocks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="smembound" data-explanation-right="Correct. SMEM traffic is now the limiter — each thread does 2 SMEM loads per 1 FMA (AI ≈ 0.5 vs shared memory), and L1 was already catching much of the reuse. The fix is register reuse (Module 5), not more SMEM." data-explanation-wrong="After tiling the bottleneck is shared-memory bandwidth (2 loads per FMA) plus L1 already caching reuse. Register blocking, not more SMEM, is the fix.">
+          <p class="quiz-question">2. SMEM tiling only gave +50%. Why so little?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="smembound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>SMEM bandwidth is now the limiter (2 loads / FMA)</span></button>
+            <button class="quiz-option" data-value="occupancy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Occupancy dropped to zero</span></button>
+            <button class="quiz-option" data-value="coalesce" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The loads became uncoalesced</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; SMEM per block caps occupancy — but here occupancy isn't the bottleneck (the MIO/SMEM stall is).<br>
+          &bull; Tile dim must divide K cleanly or you need boundary guards.<br>
+          &bull; Both <code>__syncthreads</code> are load-bearing — one guards reads-after-writes, one guards overwrites.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Register Blocking — 12.8% &rarr; 68.7%</h1>
+      <p class="module-subtitle">The crux of the whole course. Each thread computes a TM&times;TN micro-tile of outputs held in registers, so each SMEM load feeds many FMAs. This is where the kernel becomes genuinely compute-bound.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why a TM&times;TN <em>square</em> beats a TM&times;1 column (reuse in both dimensions), and what limits tile size (<strong>register pressure</strong> &rarr; spilling). This is the highest-signal GEMM optimization.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Outer Product: TM+TN Loads &rarr; TM&times;TN FMAs</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — 2D blocktiling inner loop</span>
+          <pre><code><span class="code-keyword">for</span> (<span class="code-keyword">int</span> d = <span class="code-number">0</span>; d &lt; BK; ++d) {</span>
+<span class="code-line">  <span class="code-keyword">for</span> (i: <span class="code-number">0</span>..TM) regM[i] = As[...];  <span class="code-comment">// TM loads</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (i: <span class="code-number">0</span>..TN) regN[i] = Bs[...];  <span class="code-comment">// TN loads</span></span>
+<span class="code-line">  <span class="code-keyword">for</span> (m: <span class="code-number">0</span>..TM)</span>
+<span class="code-line">    <span class="code-keyword">for</span> (n: <span class="code-number">0</span>..TN)</span>
+<span class="code-line">      acc[m][n] += regM[m]*regN[n]; <span class="code-comment">// TM*TN FMAs</span></span>
+<span class="code-line">}</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Per-result memory accesses</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Kernel 3</strong> (1 result/thread): K/16 GMEM, <strong>K&middot;2 SMEM</strong></div>
+            <div class="tl"><strong>Kernel 4</strong> (8 results, 1D): K/32 GMEM, K&middot;9/8 SMEM</div>
+            <div class="tl"><strong>Kernel 5</strong> (64 results, 2D): K/64 GMEM, <strong>K/4 SMEM</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>TM+TN=16 loads &rarr; TM&times;TN=64 FMAs</strong> &rarr; SMEM AI &asymp; 4 FLOP/load, up from 0.5. Each step ~halves per-result traffic &rarr; the ~2&times; jumps (2980 &rarr; 8475 &rarr; 15972).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Crux Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm5">
+        <div class="quiz-question-block" data-correct="square" data-explanation-right="Correct. A TM×TN square reuses TM+TN loaded operands to compute TM·TN products (quadratic work per linear load); a column reuses along only one axis. AI scales with the square's area-to-perimeter ratio — that's why 2D blocktiling is the big jump." data-explanation-wrong="A square reuses operands in BOTH dimensions: TM+TN loads → TM·TN FMAs. A column only reuses along one axis, so its arithmetic intensity is much lower.">
+          <p class="quiz-question">1. Why does a TM&times;TN square beat a TM&times;1 column for the same thread count?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="square" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It reuses operands in both dims: TM+TN loads &rarr; TM&times;TN FMAs</span></button>
+            <button class="quiz-option" data-value="threads" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses fewer threads</span></button>
+            <button class="quiz-option" data-value="coalesce" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It coalesces better</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="regpressure" data-explanation-right="Correct. threadResults needs TM·TN registers plus regM/regN; exceeding ~255 regs/thread spills to local memory (GMEM-backed) or crushes occupancy. 8×8=64 accumulators is the A6000 sweet spot. Register pressure is the ceiling." data-explanation-wrong="Register pressure limits tile size: TM·TN accumulators + operand registers. Too big → spilling to local memory or collapsed occupancy.">
+          <p class="quiz-question">2. What limits how big TM&times;TN can go?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="regpressure" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Register pressure — too many accumulators spill to local memory</span></button>
+            <button class="quiz-option" data-value="smem" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Shared memory runs out</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — bigger is always better</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Register spilling is <strong>silent</strong> — check <code>-Xptxas -v</code> for spill stores/loads.<br>
+          &bull; TM/TN must be compile-time so the compiler unrolls and keeps accumulators in registers; dynamic bounds defeat it.<br>
+          &bull; Occupancy drops as regs/thread rises, but ILP compensates (this is the Volta lesson from <a href="/learn-ai/gpu-performance-engineering/">GPU Perf Engineering</a> Module 5).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Advanced Memory Optimizations — &rarr; 78.4%</h1>
+      <p class="module-subtitle">Vectorized <code>float4</code> loads, transposing the A tile, and bank-conflict avoidance. Mostly engineering practice, but the <code>float4</code> alignment insight and bank-conflict fixes are real interview material.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why casting to <code>float4*</code> speeds things up (it's the alignment <em>promise</em>, not just fewer instructions), and how to detect + fix a bank conflict. Framed as "how would you squeeze the last 10%?"</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Vectorized Loads via <code>float4</code></h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// one 128-bit transaction = 4 floats</span></span>
+<span class="code-line">float4 t = reinterpret_cast&lt;float4*&gt;(</span>
+<span class="code-line">    &amp;A[row*K + col*<span class="code-number">4</span>])[<span class="code-number">0</span>];</span>
+<span class="code-line"><span class="code-comment">// transposing store into As</span></span>
+<span class="code-line">As[(col*<span class="code-number">4</span>+<span class="code-number">0</span>)*BM + row] = t.x;</span>
+<span class="code-line">As[(col*<span class="code-number">4</span>+<span class="code-number">1</span>)*BM + row] = t.y; <span class="code-comment">// ...z, .w</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why the cast matters</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>The compiler can't prove a plain <code>float*</code> is 16-byte aligned</strong>, so it won't emit 128-bit loads.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The <code>float4*</code> cast asserts alignment</strong> &rarr; unlocks <code>LDG.E.128</code>, quartering memory instructions.</div>
+            <div class="tl"><strong>Transposing A in SMEM</strong> lets the inner loop read A contiguously (vectorized <code>LDS.128</code>). Net: 15972 &rarr; 18237 GFLOP/s.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Optimization to Its Mechanism</h2>
+      <div class="dnd-container animate-in" id="dnd-gm6">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="f4"><code>reinterpret_cast&lt;float4*&gt;</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="pad"><code>pad SMEM leading dim</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="transpose"><code>transpose A tile in SMEM</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="double"><code>double buffering</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="f4">
+            <div class="dnd-zone-label">Assert 16-byte alignment to emit 128-bit loads</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="pad">
+            <div class="dnd-zone-label">Spread a warp's addresses across distinct banks</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="transpose">
+            <div class="dnd-zone-label">Make the inner loop read A contiguously (vectorized LDS)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="double">
+            <div class="dnd-zone-label">Overlap next tile's load with current tile's compute</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-gm6')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-gm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm6">
+        <div class="quiz-question-block" data-correct="alignment" data-explanation-right="Correct. It's the alignment PROMISE: without the cast the compiler falls back to 32-bit LDG.E; with it, one LDG.E.128 fetches 4 floats — quartering memory instructions and maximizing bytes per transaction. It's more than just fewer instructions." data-explanation-wrong="The float4* cast asserts 16-byte alignment, which is what lets the compiler emit a single 128-bit load instead of four 32-bit ones.">
+          <p class="quiz-question">1. Why does casting to <code>float4*</code> help beyond fewer instructions?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="alignment" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's the alignment promise that unlocks 128-bit loads</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float4 is cached differently</span></button>
+            <button class="quiz-option" data-value="registers" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses fewer registers</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="padswizzle" data-explanation-right="Correct. Nsight Compute reports shared load/store bank conflicts. Fix by padding the SMEM leading dimension (e.g. [BK][BM+4]) or permuting (swizzling) indices so a warp's addresses span distinct banks." data-explanation-wrong="Detect with Nsight's bank-conflict metric; fix by padding the SMEM leading dimension or swizzling indices to spread addresses across banks.">
+          <p class="quiz-question">2. How do you detect and fix a 2-way bank conflict?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="padswizzle" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nsight bank-conflict metric; pad the SMEM leading dim or swizzle</span></button>
+            <button class="quiz-option" data-value="more" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Add more shared memory</span></button>
+            <button class="quiz-option" data-value="sync" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Add another <code>__syncthreads</code></span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; <code>float4</code> needs 16-byte-aligned base pointers and tile dims divisible by 4 — a hard constraint on legal BM/BN/BK.<br>
+          &bull; Transposing A adds SMEM store complexity and can <em>introduce</em> bank conflicts if not padded.<br>
+          &bull; Double buffering doubles SMEM usage, pressuring occupancy.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">Tensor Cores — Why They Dominate Peak</h1>
+      <p class="module-subtitle">Dedicated matrix-multiply units on a separate, ~17&times; higher FLOP ceiling. Low-precision inputs, FP32 accumulate. Rising fast in interviews as FP8/BF16 take over.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why FP16 inputs but FP32 accumulator, and that a WMMA call is executed by the <strong>whole warp</strong> cooperatively (not per-thread). The peak-FLOP gap over CUDA cores is the "why bother" answer.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">A Separate, Much Higher Ceiling</h2>
+      <p><span class="term" data-definition="Tensor Cores are dedicated matrix-multiply-accumulate units. A warp cooperatively computes D = A·B + C on small tiles (e.g. 16×16×16) with low-precision inputs (FP16/BF16/TF32/FP8) and higher-precision accumulate (FP32). They sit on a separate, much higher FLOP ceiling than the FP32 CUDA cores.">Tensor Cores</span> compute a small matrix-multiply-accumulate in a few instructions. H100 peaks (why libraries target them):</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-4);">FP32 CUDA cores</span><span class="badge-desc">60 TFLOP/s — the baseline.</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-3);">TF32 tensor</span><span class="badge-desc">500 TFLOP/s (near-drop-in FP32 replacement).</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-2);">FP16 / BF16 tensor</span><span class="badge-desc">1000 TFLOP/s — <strong>~17&times;</strong> the FP32 cores.</span></div>
+        <div class="badge-item"><span class="badge-code" style="color: var(--color-actor-1);">FP8 tensor</span><span class="badge-desc">2000 TFLOP/s.</span></div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA — WMMA (warp cooperative)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">using namespace</span> nvcuda;</span>
+<span class="code-line">wmma::fragment&lt;matrix_a, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, half, row_major&gt; a;</span>
+<span class="code-line">wmma::fragment&lt;matrix_b, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, half, col_major&gt; b;</span>
+<span class="code-line">wmma::fragment&lt;accumulator, <span class="code-number">16</span>,<span class="code-number">16</span>,<span class="code-number">16</span>, <span class="code-keyword">float</span>&gt; acc;</span>
+<span class="code-line">wmma::load_matrix_sync(a, A+..., lda);</span>
+<span class="code-line">wmma::mma_sync(acc, a, b, acc);  <span class="code-comment">// D = A*B + C</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Key facts</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>half in, float accumulate</strong> — declared in the fragment types.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The whole warp (32 threads)</strong> cooperates on one 16&times;16&times;16 MMA; the fragment is spread across the warp's registers.</div>
+            <div class="tl"><strong>mma_sync</strong> does the multiply-accumulate in place.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm7">
+        <div class="quiz-question-block" data-correct="accumulate" data-explanation-right="Correct. FP16 multiply is cheap and fast, but summing thousands of products in FP16 loses precision catastrophically. FP32 accumulation keeps the K-length reduction accurate. Hardware does 'FP16 multiply, full-precision product, FP32 accumulate.'" data-explanation-wrong="FP16 inputs are fast but summing many products in FP16 is inaccurate; FP32 accumulation preserves the K-length reduction's precision.">
+          <p class="quiz-question">1. Why FP16 inputs but FP32 accumulator?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="accumulate" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FP16 multiply is fast; FP32 accumulation keeps the reduction accurate</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FP32 accumulators use less memory</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tensor cores only support FP32 output</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="warp" data-explanation-right="Correct. Though WMMA is written as per-thread calls, the whole WARP (32 threads) cooperates on one 16×16×16 MMA; the fragment is distributed across the warp's registers. Calling it with a divergent or partial warp is illegal." data-explanation-wrong="A WMMA op is executed cooperatively by the entire warp — the fragment is spread across all 32 threads' registers. Every lane must participate.">
+          <p class="quiz-question">2. WMMA is written per-thread — what actually executes it?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="warp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The whole warp cooperates on one MMA</span></button>
+            <button class="quiz-option" data-value="thread" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Each thread does its own independent MMA</span></button>
+            <button class="quiz-option" data-value="block" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The entire block together</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; The WMMA fragment layout is <strong>opaque</strong> — don't index it manually; use load/store/mma.<br>
+          &bull; Every active lane must participate — no divergence.<br>
+          &bull; BF16 keeps FP32's exponent range (safer than FP16 for training); TF32 truncates the mantissa — wrong for full-precision HPC.<br>
+          &bull; Below WMMA, <code>mma.sync</code> (PTX) + <code>ldmatrix</code> and Hopper's <code>wgmma</code> give finer control — what libraries use.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Reaching cuBLAS &amp; the Skinny-GEMM Regime</h1>
+      <p class="module-subtitle">The last ~15% comes from autotuning + warptiling — exactly what CUTLASS codifies. Plus the regime that dominates LLM inference: skinny/decode-phase GEMV, which is memory-bound.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why there's no universal tile size (autotune per GPU), how CUTLASS uses <strong>software pipelining</strong> to hide latency despite low occupancy, and — the LLM link — why <strong>decode-phase matmul is memory-bound</strong>.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Warptiling + Autotuning &rarr; 93.7%</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">Autotuning (&rarr; 84.8%)</span>
+          <span class="badge-desc">Sweep <code>BM,BN,BK,TM,TN</code>. A6000 optimum <code>128/128/16/8/8</code>; A100's was <code>64/64/16/4/4</code>. <strong>Tiles are not portable.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Warptiling (&rarr; 93.7%)</span>
+          <span class="badge-desc">Add a warp-tile level between block and thread: blocks&rarr;SMs, warps&rarr;schedulers, threads&rarr;ILP. Better register/SMEM locality per warp.</span>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#129513;</span>
+        <div class="callout-content">
+          <span class="callout-title">How CUTLASS composes it all</span>
+          <p>A hierarchical tiled loop nest mirroring hardware: threadblock tile (GMEM&rarr;SMEM), warp tile (SMEM&rarr;registers via <code>mma.sync</code>), thread/instruction tile, plus <strong>software pipelining</strong> (double-buffered SMEM + register fragments), threadblock swizzle for L2, split-K, and — on Hopper — <strong>warp specialization</strong> (producer TMA warps + consumer <code>wgmma</code> warps).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: skinny GEMM regime -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Regime That Runs LLM Inference</h2>
+      <p>Everything so far assumed large square matrices (compute-bound). But <strong>LLM decode</strong> multiplies a weight matrix by a <em>single</em> token vector each step — a tall-skinny GEMV. That flips the roofline:</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128202;</div>
+          <div class="pattern-title">Large square GEMM</div>
+          <p class="pattern-desc">AI = N/8, grows with N &rarr; compute-bound &rarr; tensor cores shine. This is training / prefill.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128201;</div>
+          <div class="pattern-title">Skinny GEMV (decode)</div>
+          <p class="pattern-desc">Batch=1 &rarr; low AI &rarr; <strong>memory-bound</strong>: you re-read all the weights to produce one token. This is why decode is bandwidth-bound and why quantization (fewer weight bytes) helps.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128279;</span>
+        <div class="callout-content">
+          <span class="callout-title">The inference connection</span>
+          <p>This ties directly to <a href="/learn-ai/vllm-distributed-kernels-interview/">vLLM &amp; Distributed Kernels</a>, where "why is decode memory-bound?" is a core question. Same roofline, different regime.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Staff-Level Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm8">
+        <div class="quiz-question-block" data-correct="hwspecific" data-explanation-right="Correct. Optimal tiling depends on SM count, register file size, SMEM capacity, and bandwidth ratios — all GPU-specific. The A6000 optimum (128/128/16/8/8) underperforms on A100 (64/64/16/4/4); tuning must be re-run per architecture." data-explanation-wrong="Optimal tile sizes are hardware-specific (register file, SMEM, SM count, bandwidth). There's no universal config — autotune per GPU.">
+          <p class="quiz-question">1. Why isn't there one universal tile config?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="hwspecific" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Optimal tiling depends on GPU-specific resources</span></button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tile size doesn't actually matter</span></button>
+            <button class="quiz-option" data-value="cublas" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only cuBLAS knows the secret config</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="pipeline" data-explanation-right="Correct. Big accumulator tiles consume most registers, capping occupancy — so CUTLASS hides latency with software pipelining: double-buffered SMEM tiles and register fragments overlap loads with compute WITHIN each thread (ILP), not by having many resident warps." data-explanation-wrong="Software pipelining (double buffering of SMEM tiles and register fragments) overlaps loads with compute per-thread, hiding latency via ILP rather than occupancy.">
+          <p class="quiz-question">2. Accumulators eat most registers, killing occupancy. How does CUTLASS still hide latency?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="pipeline" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Software pipelining — double-buffered loads overlap compute (ILP)</span></button>
+            <button class="quiz-option" data-value="moreblocks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It launches more blocks</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It can't — low occupancy always means slow</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: recap -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed GEMM from Scratch</span>
+          <p>Naive (1.3%) &rarr; coalescing (8.5%) &rarr; SMEM tiling (12.8%) &rarr; register blocking (68.7%) &rarr; vectorized (78.4%) &rarr; tensor cores &rarr; warptiling + autotune (93.7%). The through-line, and the answer to "walk me through optimizing a matmul": <strong>every step raises arithmetic intensity to march up the roofline</strong> — quantify the reuse at each stage.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">When to just call the library</span>
+          <p>For standard dense GEMM, <strong>call cuBLAS/CUTLASS</strong> — matching them by hand took the reference author ~6 weekends. Write your own only for fusion (epilogue/activation), unusual shapes/dtypes, or learning. And know: swizzling for L2 only helps if L2 hit rate is <em>low</em> (a documented negative result), and the last 14% costs far more effort than the first 80%.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

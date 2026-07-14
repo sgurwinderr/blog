@@ -1,0 +1,105 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">Memory Coalescing &amp; Access Patterns</h1>
+      <p class="module-subtitle">One of <em>the</em> most-asked CUDA questions. Define coalescing, know what breaks it, and explain why SoA beats AoS on a GPU. It's the single biggest "free" speedup in most kernels.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That coalescing is a <strong>warp</strong> property (which thread touches which address), not caching — and that you can reason about transaction count for a given pattern. AoS-vs-SoA is a classic follow-up.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">128 Bytes at a Time</h2>
+      <p>Global memory is served in fixed-size transactions. If a warp's 32 threads read 32 consecutive, aligned 4-byte words (128 bytes), the hardware <span class="term" data-definition="Coalescing merges the memory accesses of a warp's 32 threads into the minimum number of aligned memory transactions (32-byte sectors, or a 128-byte line). Consecutive threads hitting consecutive aligned addresses = one efficient transfer; strided/misaligned access fragments into many transactions.">coalesces</span> them into the minimum number of transactions (100% efficiency). Any stride or misalignment wastes transactions:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Consecutive</span>
+          <span class="badge-desc">Thread <code>i</code> reads element <code>base+i</code> &rarr; four 32-byte sectors, ~100% efficiency.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">Stride-2</span>
+          <span class="badge-desc">8 sectors per warp &rarr; ~50% efficiency (half the bytes wasted).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);">Scattered / stride-32</span>
+          <span class="badge-desc">Up to 32 separate transactions &rarr; ~3% efficiency (worst case).</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Uncoalesced Access</h2>
+      <p>This kernel updates <code>.x</code> for every particle and runs at ~3% of memory bandwidth. Click the design decision responsible.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: Array-of-Structs. A warp reading .x for 32 particles strides by 12 bytes (sizeof struct), so each thread pulls a different 32-byte sector — ~32 transactions instead of 4. Fix: Struct-of-Arrays — a separate float x[] array — so the warp's .x reads are contiguous and coalesce."><code>struct Particle { float x, y, z; }; Particle p[N];&nbsp;&nbsp;// AoS</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The index computation is the standard coalesced mapping — the layout above is the problem."><code>int i = blockIdx.x*blockDim.x + threadIdx.x;</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The update itself is fine; it's slow only because of the AoS layout."><code>p[i].x += dt * v[i];&nbsp;&nbsp;// warp strides by 12 bytes</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The SoA fix</span>
+          <p>Store <code>float x[N], y[N], z[N]</code> separately. Now a warp's <code>x[i]</code> reads are contiguous &rarr; coalesced &rarr; ~100% efficiency. SoA is almost always the GPU-friendly layout.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-pe3">
+        <div class="quiz-question-block" data-correct="transactions" data-explanation-right="Correct. Same bytes, same FLOPs — but the fast one issues ~four 128-byte-worth transactions per warp; the slow one issues up to 32 separate transactions, using a fraction of each fetched sector. Coalescing is about bytes-used-per-byte-fetched." data-explanation-wrong="The difference is transaction efficiency: coalesced access uses most of each fetched sector; scattered access wastes most of it, issuing many more transactions for the same data.">
+          <p class="quiz-question">1. Two kernels, same bytes and FLOPs, one 6&times; faster. Why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="transactions" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Coalescing — the slow one issues many more memory transactions</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The fast one fits entirely in L2 cache</span></button>
+            <button class="quiz-option" data-value="warps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The fast one uses more warps</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="warp" data-explanation-right="Correct. Coalescing is a warp-level property: it's about how the 32 threads' addresses in a single warp map to memory transactions. It's distinct from L1/L2 caching, which candidates often conflate it with." data-explanation-wrong="Coalescing is about how a warp's 32 addresses map to transactions — a warp property, not the same as caching.">
+          <p class="quiz-question">2. Coalescing is fundamentally about...?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="warp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>How a warp's 32 addresses map to memory transactions</span></button>
+            <button class="quiz-option" data-value="caching" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The same thing as L1/L2 caching</span></button>
+            <button class="quiz-option" data-value="registers" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>How registers are allocated</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-pe3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-pe3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Coalescing needs <strong>alignment</strong>, not just contiguity — a misaligned base still fragments.<br>
+          &bull; It's easy to break with a transpose or a bad <code>/</code> vs <code>%</code> in the index.<br>
+          &bull; AoS is natural in CPU code but poison on GPU — prefer SoA.<br>
+          &bull; Same guidance in SYCL: adjacent work-items &rarr; adjacent addresses.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,132 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">Your First Kernel — Vector Add</h1>
+      <p class="module-subtitle">The warm-up. Every Triton kernel follows this skeleton: compute offsets, mask the boundary, load, compute, store. Get the masking right and you won't segfault in a live coding round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Rarely the actual bar — but the <strong>boundary mask</strong> is where candidates crash live. If <code>n_elements</code> isn't a multiple of <code>BLOCK_SIZE</code>, the last program runs out of bounds without it.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Universal Skeleton</h2>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>program_id &rarr; offsets</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>mask boundary</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>tl.load</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>compute</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">5</div><p>tl.store</p></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the kernel -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Complete Kernel</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Triton</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@triton.jit</span></span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">add_kernel</span>(x_ptr, y_ptr, out_ptr,</span>
+<span class="code-line">    n_elements, BLOCK_SIZE: tl.constexpr):</span>
+<span class="code-line">  pid = tl.program_id(axis=<span class="code-number">0</span>)</span>
+<span class="code-line">  start = pid * BLOCK_SIZE</span>
+<span class="code-line">  offs = start + tl.arange(<span class="code-number">0</span>, BLOCK_SIZE)</span>
+<span class="code-line">  mask = offs &lt; n_elements</span>
+<span class="code-line">  x = tl.load(x_ptr + offs, mask=mask)</span>
+<span class="code-line">  y = tl.load(y_ptr + offs, mask=mask)</span>
+<span class="code-line">  tl.store(out_ptr + offs, x + y, mask=mask)</span>
+<span class="code-line"></span>
+<span class="code-line">grid = <span class="code-keyword">lambda</span> m: (triton.cdiv(n, m[<span class="code-string">'BLOCK_SIZE'</span>]),)</span>
+<span class="code-line">add_kernel[grid](x, y, out, n, BLOCK_SIZE=<span class="code-number">1024</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Line by line</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Tensors pass as pointers</strong> to their first element.</div>
+            <div class="tl"><strong>BLOCK_SIZE is constexpr</strong> — compile-time, usable as a shape.</div>
+            <div class="tl"><strong>program_id</strong> — which tile this program owns.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>tl.arange</strong> builds the offset vector.</div>
+            <div class="tl"><strong>mask</strong> guards the ragged last block.</div>
+            <div class="tl"><strong>tl.load/store</strong> honor the mask — masked lanes skipped.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>grid lambda</strong> gets meta so cdiv sees BLOCK_SIZE. Launch is <strong>async</strong>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Illegal Memory Access</h2>
+      <p>This kernel crashes with "illegal memory access" when <code>n = 1000, BLOCK_SIZE = 1024</code>. Click the line at fault.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Computing offsets is correct."><code>&nbsp;&nbsp;offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: no mask. With n=1000 and BLOCK_SIZE=1024, the single program addresses offsets 0-1023 — reading/writing 24 elements out of bounds. Add mask = offs < n_elements and pass mask= to load and store."><code>&nbsp;&nbsp;x = tl.load(x_ptr + offs)&nbsp;&nbsp;# no mask!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The store would be fine IF the load above were masked."><code>&nbsp;&nbsp;tl.store(out_ptr + offs, x + 1.0)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-tm2">
+        <div class="quiz-question-block" data-correct="shape" data-explanation-right="Correct. BLOCK_SIZE is used as a shape in tl.arange(0, BLOCK_SIZE); shapes must be known at compile time, so it must be tl.constexpr. Changing it triggers a recompile (a new specialization)." data-explanation-wrong="BLOCK_SIZE is used as a compile-time shape (tl.arange(0, BLOCK_SIZE)), so it must be tl.constexpr. That's why changing it recompiles the kernel.">
+          <p class="quiz-question">1. Why must <code>BLOCK_SIZE</code> be <code>tl.constexpr</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="shape" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's used as a compile-time shape in tl.arange</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Runtime ints are too slow</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To fit it in a register</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="async" data-explanation-right="Correct. The launch is asynchronous — it returns before the GPU finishes. To read the result correctly you rely on the stream ordering (a later .cpu()/print synchronizes), but the launch call itself doesn't block." data-explanation-wrong="Triton kernel launches are asynchronous; the call returns immediately and the GPU runs it on the stream. A subsequent read synchronizes.">
+          <p class="quiz-question">2. Does <code>add_kernel[grid](...)</code> block until the GPU finishes?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="blocks" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes, it blocks until complete</span></button>
+            <button class="quiz-option" data-value="async" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No, the launch is asynchronous</span></button>
+            <button class="quiz-option" data-value="depends" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Only if BLOCK_SIZE > 512</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-tm2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-tm2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5 -->
+    <div class="screen">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; Forgetting the mask when size isn't a multiple of the block.<br>
+          &bull; Passing <code>BLOCK_SIZE</code> positionally — meta-params must be keyword args.<br>
+          &bull; This uses plain pointer arithmetic (<code>x_ptr + offs</code>), <em>not</em> <code>tl.make_block_ptr</code> — block pointers appear in matmul/attention. Don't conflate them.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,5 +1,38 @@
 [
   {
+    "title": "Triton Kernel Mastery: From tl.load to Flash Attention",
+    "url": "/learn-ai/triton-kernel-mastery/",
+    "category": "GPU Kernels",
+    "summary": "Write custom GPU kernels in Triton from first principles — the block programming model, masking, fused softmax, autotuning, blocked matmul, and Flash Attention with online softmax, then PyTorch and torch.compile integration. Interview-framed with quizzes and spot-the-bug challenges.",
+    "gradient": "linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)",
+    "icon": "🔺",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "4-6 Hours"
+  },
+  {
+    "title": "GPU Performance Engineering: CUDA & SYCL",
+    "url": "/learn-ai/gpu-performance-engineering/",
+    "category": "GPU Kernels",
+    "summary": "How GPUs actually execute code and how to make kernels fast — the execution model, memory hierarchy, coalescing, bank conflicts, occupancy, the roofline model, warp divergence and reductions, and a profiler-driven optimization workflow. The interview backbone for GPU/perf roles.",
+    "gradient": "linear-gradient(135deg, #0EA5E9 0%, #075985 100%)",
+    "icon": "⚡",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "4-6 Hours"
+  },
+  {
+    "title": "GEMM from Scratch: How a Matmul Reaches 90% of Peak",
+    "url": "/learn-ai/gemm-from-scratch/",
+    "category": "GPU Kernels",
+    "summary": "Optimize a GPU matrix multiply step by step — naive kernel, coalescing, shared-memory tiling, register blocking, vectorized loads, tensor cores, and closing the gap to cuBLAS. The canonical 'walk me through optimizing a kernel' interview exercise, with the real speedup numbers.",
+    "gradient": "linear-gradient(135deg, #EA580C 0%, #9A3412 100%)",
+    "icon": "🧮",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "4-6 Hours"
+  },
+  {
     "title": "vLLM & Distributed Kernels: Interview Prep",
     "url": "/learn-ai/vllm-distributed-kernels-interview/",
     "category": "Interview Prep",

@@ -1,0 +1,123 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Advanced Memory Optimizations — &rarr; 78.4%</h1>
+      <p class="module-subtitle">Vectorized <code>float4</code> loads, transposing the A tile, and bank-conflict avoidance. Mostly engineering practice, but the <code>float4</code> alignment insight and bank-conflict fixes are real interview material.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Why casting to <code>float4*</code> speeds things up (it's the alignment <em>promise</em>, not just fewer instructions), and how to detect + fix a bank conflict. Framed as "how would you squeeze the last 10%?"</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Vectorized Loads via <code>float4</code></h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">CUDA</span>
+          <pre><code><span class="code-line"><span class="code-comment">// one 128-bit transaction = 4 floats</span></span>
+<span class="code-line">float4 t = reinterpret_cast&lt;float4*&gt;(</span>
+<span class="code-line">    &amp;A[row*K + col*<span class="code-number">4</span>])[<span class="code-number">0</span>];</span>
+<span class="code-line"><span class="code-comment">// transposing store into As</span></span>
+<span class="code-line">As[(col*<span class="code-number">4</span>+<span class="code-number">0</span>)*BM + row] = t.x;</span>
+<span class="code-line">As[(col*<span class="code-number">4</span>+<span class="code-number">1</span>)*BM + row] = t.y; <span class="code-comment">// ...z, .w</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why the cast matters</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>The compiler can't prove a plain <code>float*</code> is 16-byte aligned</strong>, so it won't emit 128-bit loads.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The <code>float4*</code> cast asserts alignment</strong> &rarr; unlocks <code>LDG.E.128</code>, quartering memory instructions.</div>
+            <div class="tl"><strong>Transposing A in SMEM</strong> lets the inner loop read A contiguously (vectorized <code>LDS.128</code>). Net: 15972 &rarr; 18237 GFLOP/s.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Optimization to Its Mechanism</h2>
+      <div class="dnd-container animate-in" id="dnd-gm6">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="f4"><code>reinterpret_cast&lt;float4*&gt;</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="pad"><code>pad SMEM leading dim</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="transpose"><code>transpose A tile in SMEM</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="double"><code>double buffering</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="f4">
+            <div class="dnd-zone-label">Assert 16-byte alignment to emit 128-bit loads</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="pad">
+            <div class="dnd-zone-label">Spread a warp's addresses across distinct banks</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="transpose">
+            <div class="dnd-zone-label">Make the inner loop read A contiguously (vectorized LDS)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="double">
+            <div class="dnd-zone-label">Overlap next tile's load with current tile's compute</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-gm6')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-gm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-gm6">
+        <div class="quiz-question-block" data-correct="alignment" data-explanation-right="Correct. It's the alignment PROMISE: without the cast the compiler falls back to 32-bit LDG.E; with it, one LDG.E.128 fetches 4 floats — quartering memory instructions and maximizing bytes per transaction. It's more than just fewer instructions." data-explanation-wrong="The float4* cast asserts 16-byte alignment, which is what lets the compiler emit a single 128-bit load instead of four 32-bit ones.">
+          <p class="quiz-question">1. Why does casting to <code>float4*</code> help beyond fewer instructions?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="alignment" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It's the alignment promise that unlocks 128-bit loads</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float4 is cached differently</span></button>
+            <button class="quiz-option" data-value="registers" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It uses fewer registers</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="padswizzle" data-explanation-right="Correct. Nsight Compute reports shared load/store bank conflicts. Fix by padding the SMEM leading dimension (e.g. [BK][BM+4]) or permuting (swizzling) indices so a warp's addresses span distinct banks." data-explanation-wrong="Detect with Nsight's bank-conflict metric; fix by padding the SMEM leading dimension or swizzling indices to spread addresses across banks.">
+          <p class="quiz-question">2. How do you detect and fix a 2-way bank conflict?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="padswizzle" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nsight bank-conflict metric; pad the SMEM leading dim or swizzle</span></button>
+            <button class="quiz-option" data-value="more" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Add more shared memory</span></button>
+            <button class="quiz-option" data-value="sync" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Add another <code>__syncthreads</code></span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-gm6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-gm6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common gotchas</span>
+          <p>&bull; <code>float4</code> needs 16-byte-aligned base pointers and tile dims divisible by 4 — a hard constraint on legal BM/BN/BK.<br>
+          &bull; Transposing A adds SMEM store complexity and can <em>introduce</em> bank conflicts if not padded.<br>
+          &bull; Double buffering doubles SMEM usage, pressuring occupancy.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
