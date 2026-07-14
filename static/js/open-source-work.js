@@ -57,9 +57,14 @@
     };
     var activeFilter = "all";
     var allItems = [];
+    var expandedRepos = {};
 
     if (!resultsEl || !statusEl) {
         return;
+    }
+
+    function repoPanelId(repo) {
+        return "osw-panel-" + String(repo).replace(/[^A-Za-z0-9]+/g, "-");
     }
 
     function escapeHtml(value) {
