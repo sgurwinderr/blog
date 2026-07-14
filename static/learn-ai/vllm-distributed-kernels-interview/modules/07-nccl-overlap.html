@@ -1,0 +1,153 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">NCCL, Topology &amp; Compute/Comm Overlap</h1>
+      <p class="module-subtitle">The hardware-reality module. Bus vs algorithm bandwidth, the NVLink/PCIe/InfiniBand hierarchy, and DDP gradient bucketing — plus the roofline test for when communication is your bottleneck.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That "bandwidth" is ambiguous — <strong>bus bandwidth</strong> is what you compare to hardware peak — and that overlap needs <em>independent</em> compute to hide behind. Topology awareness (inter-node IB is the bottleneck) is the senior signal.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Interconnect Hierarchy</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128279;</div>
+          <div class="pattern-title"><span class="term" data-definition="NVLink/NVSwitch: the highest-bandwidth, lowest-latency intra-node GPU interconnect. NVLink 4 (H100) is ~900 GB/s aggregate per GPU. Tensor parallelism belongs here.">NVLink</span> (intra-node)</div>
+          <p class="pattern-desc">Hundreds of GB/s per pair; H100 NVLink 4 ~900 GB/s aggregate/GPU. Highest bandwidth, lowest latency. <strong>Put TP here.</strong></p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4);">
+          <div class="pattern-icon" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">&#128268;</div>
+          <div class="pattern-title">PCIe (intra-node fallback)</div>
+          <p class="pattern-desc">Gen4 x16 ~32 GB/s, Gen5 ~64 GB/s. An order of magnitude slower than NVLink.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127760;</div>
+          <div class="pattern-title"><span class="term" data-definition="InfiniBand / RoCE: the inter-node network. NDR 400 Gb/s ≈ 50 GB/s per NIC. With GPUDirect RDMA the NIC DMAs straight to GPU memory, bypassing the host CPU bounce.">InfiniBand</span> (inter-node)</div>
+          <p class="pattern-desc">NDR 400 Gb/s &asymp; 50 GB/s/NIC. GPUDirect RDMA lets the NIC hit GPU memory directly. <strong>~10–20&times; slower than NVLink.</strong></p>
+        </div>
+      </div>
+      <p>Implication: hierarchical collectives (reduce-scatter within node → all-reduce across nodes → all-gather within node) keep bulk traffic on NVLink.</p>
+    </div>
+
+    <!-- SCREEN 2: bus vs algo bandwidth -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Bus Bandwidth vs Algorithm Bandwidth</h2>
+      <p>A favorite "did you actually run nccl-tests" question. The two are <em>not</em> the same:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="algbw = message_size / time. Simple, but its theoretical peak changes with rank count, so it can't be compared to a fixed hardware number.">algbw</span> = S / t</span>
+          <span class="badge-desc">Simple, but its peak <em>changes with rank count</em> — doesn't map to hardware.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);"><span class="term" data-definition="busbw = algbw × collective-specific factor (e.g. 2(N-1)/N for all-reduce). The factor cancels rank-count dependence so busbw reflects actual link utilization and is comparable across N and against hardware peak.">busbw</span> = algbw &times; factor</span>
+          <span class="badge-desc">Factor cancels the rank-count dependence → reflects real link utilization. <strong>This is what you compare to NVLink peak.</strong></span>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128200;</span>
+        <div class="callout-content">
+          <span class="callout-title">Worked number</span>
+          <p>1 GB all-reduce over 8 GPUs, measured algbw = 100 GB/s. Factor = 2(N&minus;1)/N = 2&times;7/8 = 1.75. So <strong>busbw = 175 GB/s</strong> — that's what you judge against the NVLink peak, not the 100. Factors: all-reduce 2(N&minus;1)/N; reduce-scatter/all-gather/all-to-all (N&minus;1)/N; broadcast/reduce = 1.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: DDP bucketing + overlap -->
+    <div class="screen">
+      <h2 class="screen-heading">Overlapping Compute &amp; Communication</h2>
+      <p>DDP's canonical trick: <span class="term" data-definition="DDP's Reducer groups gradients into buckets (~bucket_cap_mb, default 25 MB) in reverse parameter order. When a whole bucket is ready, it fires an async all-reduce on it while backward keeps computing earlier layers — overlapping communication with compute.">gradient bucketing</span>. The Reducer groups gradients into buckets in <em>reverse</em> parameter order and fires an async all-reduce as soon as each bucket fills — while backward keeps computing earlier layers.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Async collective + overlap</span>
+          <pre><code><span class="code-line">work = dist.all_reduce(</span>
+<span class="code-line">    bucket, async_op=<span class="code-keyword">True</span>)</span>
+<span class="code-line"><span class="code-comment"># ... independent compute overlaps ...</span></span>
+<span class="code-line">work.wait()  <span class="code-comment"># CUDA: stream dep, not CPU block</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why reverse order</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Backward produces gradients last-layer-first.</strong> Reverse bucketing means the first buckets to fill are the last layers — their all-reduce launches immediately and overlaps with earlier-layer backward.</div>
+            <div class="tl"><strong>Launch in bucket-index order</strong> on all ranks, not ready order, or you desync.</div>
+            <div class="tl"><strong>work.wait()</strong> on CUDA inserts a stream dependency, so main-stream compute keeps overlapping.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Throughput Collapse at Scale</h2>
+      <p>A model runs 8-GPU TP fine on one node. Scaling TP to 16 across two nodes tanks throughput. Click the design mistake.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Two 8-GPU nodes is a reasonable cluster."><code># 2 nodes, 8 GPUs each, connected by InfiniBand</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: tensor_parallel_size=16 spans BOTH nodes, so TP's heavy per-layer all-reduce now crosses the ~10-20x slower inter-node InfiniBand link every layer. TP is blocking and on the critical path — it needs NVLink. Fix: keep TP=8 (intra-node, on NVLink) and use pipeline_parallel_size=2 across nodes, which communicates far less."><code>llm = LLM(model=..., tensor_parallel_size=16)&nbsp;&nbsp;# TP across nodes!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Requests arriving is expected load — the placement above is the real problem."><code># TP all-reduce fires every transformer layer</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The rule</span>
+          <p><strong>TP = GPUs per node (NVLink); PP = number of nodes (slow link).</strong> TP's all-reduce is heavy and per-layer, so it must stay on the fast intra-node fabric. Pipeline parallel passes only activations between stages — cheap enough for inter-node.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m7">
+        <div class="quiz-question-block" data-correct="lastfirst" data-explanation-right="Correct. Backward computes gradients last-layer-first. Reverse-order buckets fill in that same order, so the earliest-ready bucket's all-reduce can launch immediately and overlap with the still-running earlier-layer backward." data-explanation-wrong="Backward produces gradients last-layer-first; reverse bucketing aligns bucket-fill order with gradient-ready order, maximizing overlap of comm with the remaining backward compute.">
+          <p class="quiz-question">1. Why does DDP bucket gradients in <em>reverse</em> parameter order?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="lastfirst" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Backward yields grads last-layer-first → earliest buckets overlap soonest</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To save memory on the last layers</span></button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Order doesn't matter, it's arbitrary</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="commbound" data-explanation-right="Correct. Convert algbw to busbw and compare to link peak; if t_comm > t_compute you're comm-bound (inter-node IB + O(N) ring latency). Fixes: gradient accumulation, hierarchical/tree all-reduce, bf16/fp8 grads, bigger buckets." data-explanation-wrong="At 512 GPUs the all-reduce spans slow inter-node IB and ring latency grows with N, so comm time exceeds compute time — comm-bound. Reduce bytes or increase compute per step.">
+          <p class="quiz-question">2. DDP throughput/GPU collapses going 8 → 512 GPUs. Diagnosis?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="commbound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Comm-bound: t_comm &gt; t_compute over slow inter-node links</span></button>
+            <button class="quiz-option" data-value="cpu" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The CPU can't launch kernels fast enough</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You ran out of GPU memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Roofline test for comm bottleneck?" — Compare <code>t_comm = bytes/busbw</code> vs <code>t_compute = FLOPs/peak</code>; if comm &gt; compute, overlap can't hide it.<br>
+          &bull; "What is GPUDirect RDMA?" — NIC DMAs straight to GPU memory, skipping the host bounce.<br>
+          &bull; "Does async_op=True block the CPU?" — On CUDA, <code>wait()</code> is a stream dependency, not a CPU block.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,208 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 02</span>
+      <h1 class="module-title">Autograd Deep Dive</h1>
+      <p class="module-subtitle">The single most-tested PyTorch topic in ML-engineer loops. If you can explain the dynamic graph, gradient accumulation, and when to disable tracking — clearly, out loud — you pass the core round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>They want the mental model: <strong>define-by-run</strong>. Every op on a tensor with <code>requires_grad=True</code> is recorded into a graph that is rebuilt each forward pass. <code>.backward()</code> walks it in reverse via the chain rule and <em>accumulates</em> into <code>.grad</code>. The word "accumulates" is where careers are made.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Graph Is Built on Every Forward Pass</h2>
+      <p>Unlike TensorFlow 1.x's static graph, PyTorch is <span class="term" data-definition="Define-by-run (dynamic graph): the computational graph is constructed on the fly as operations execute, and rebuilt from scratch on every forward pass. This is why ordinary Python control flow (if/for) works naturally inside forward().">define-by-run</span>. This is why a plain Python <code>if</code> works inside <code>forward()</code> — the graph simply records whichever branch ran.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">w = torch.randn(<span class="code-number">5</span>, <span class="code-number">3</span>, requires_grad=<span class="code-keyword">True</span>)</span>
+<span class="code-line">b = torch.randn(<span class="code-number">3</span>, requires_grad=<span class="code-keyword">True</span>)</span>
+<span class="code-line">x = torch.ones(<span class="code-number">5</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">z = x @ w + b           <span class="code-comment"># graph recorded here</span></span>
+<span class="code-line">loss = z.sum()</span>
+<span class="code-line">loss.backward()         <span class="code-comment"># reverse pass</span></span>
+<span class="code-line"></span>
+<span class="code-line">print(w.grad)           <span class="code-comment"># populated</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What autograd does</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Leaf tensors</strong> with requires_grad get a .grad slot.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each op</strong> attaches a grad_fn recording how to differentiate it.</div>
+            <div class="tl"><strong>Must be scalar</strong> to call backward() with no args.</div>
+            <div class="tl"><strong>Chain rule in reverse</strong> fills .grad on every leaf.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Gradient accumulates</strong> into .grad (adds, not overwrites).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat narration -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch the Graph Think</h2>
+      <p>Here's how the forward tensors, the loss, and the backward engine coordinate. Step through it — this is exactly the narration you'd give on a whiteboard.</p>
+
+      <div class="chat-window animate-in" id="chat-m2">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Forward" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">F</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">Forward Pass</span>
+              <p>I just computed <code>z = x @ w + b</code>. As I went, I tagged each result with a <code>grad_fn</code> — a note on how to reverse it. The graph now knows the recipe.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Loss" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">L</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Loss</span>
+              <p>I'm a scalar — <code>z.sum()</code>. Someone called <code>.backward()</code> on me. Seeding the reverse pass with d(loss)/d(loss) = 1.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Engine" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">E</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Autograd Engine</span>
+              <p>Walking the graph in reverse topological order, applying each <code>grad_fn</code>'s local derivative and multiplying by the incoming gradient. Chain rule, node by node.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Leaves" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">W</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">w &amp; b (leaves)</span>
+              <p>We received our gradients. Note: the engine <strong>added</strong> them to any existing <code>.grad</code>. If you didn't zero us first, you'd be summing across iterations!</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Engine" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">E</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Autograd Engine</span>
+              <p>And now I free the graph. Call <code>.backward()</code> again on the same graph and you'll get an error — unless you passed <code>retain_graph=True</code>.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: no_grad vs inference_mode vs detach -->
+    <div class="screen">
+      <h2 class="screen-heading">Three Ways to Stop Tracking — Know the Differences</h2>
+      <p>"What's the difference between <code>no_grad</code>, <code>inference_mode</code>, and <code>detach</code>?" is a staple. Here's the crisp answer:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="torch.no_grad() is a context manager that disables graph construction for all operations inside it. Results can still later be used in autograd. Standard choice for validation loops.">torch.no_grad()</span></strong>
+            <p>Context manager. Disables graph building for everything inside. Use for validation. Results can safely re-enter a training graph later.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="torch.inference_mode() is more aggressive than no_grad: it also skips version-counter and view tracking, so it's faster. Caveat: tensors CREATED inside inference_mode cannot later participate in autograd.">torch.inference_mode()</span></strong>
+            <p>Faster than no_grad — also skips version counters. But tensors <em>created</em> inside it can never enter an autograd graph. Use for pure, throwaway inference.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="tensor.detach() returns a new tensor sharing the same storage but detached from the graph (requires_grad=False). It acts on a single tensor rather than a whole block of code.">.detach()</span></strong>
+            <p>Acts on one tensor: returns a graph-free view sharing storage. Use to snip a tensor out of the graph mid-computation.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge — accumulation -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: The Silent Killer</h2>
+      <p>This loop "trains" but the model barely learns. Click the missing/wrong line.</p>
+
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Iterating batches is correct."><code>for x, y in loader:</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Forward + loss are fine."><code>&nbsp;&nbsp;loss = loss_fn(model(x), y)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: there is no optimizer.zero_grad(). PyTorch ACCUMULATES gradients into .grad across .backward() calls. Without zeroing each iteration, gradients from every previous batch pile up, giving huge, wrong updates. Add optimizer.zero_grad() once per iteration."><code>&nbsp;&nbsp;loss.backward()&nbsp;&nbsp;# grads accumulate...</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="step() itself is correct — the problem is that grads were never cleared."><code>&nbsp;&nbsp;optimizer.step()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The follow-up they love</span>
+          <p>"When would accumulation be a <em>feature</em>, not a bug?" — <strong>Gradient accumulation</strong> to simulate a larger batch: skip <code>zero_grad</code>/<code>step</code> for N micro-batches, then step once. Naming this unprompted signals real training experience.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: memory leak quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m2">
+        <div class="quiz-question-block" data-correct="item" data-explanation-right="Correct. total_loss += loss keeps the whole graph alive across the epoch (loss still references its grad_fn), leaking memory until OOM. Use loss.item() (or .detach()) to accumulate a plain Python float." data-explanation-wrong="Accumulating the loss TENSOR keeps its graph alive across iterations — a classic OOM. Use loss.item() to store a detached scalar.">
+          <p class="quiz-question">1. You log <code>total_loss += loss</code> each batch and OOM after a while. Fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="item" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Use <code>total_loss += loss.item()</code></span></button>
+            <button class="quiz-option" data-value="nograd" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Wrap the whole loop in <code>no_grad()</code></span></button>
+            <button class="quiz-option" data-value="smaller" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Reduce the batch size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="retain" data-explanation-right="Correct. The graph is freed after the first backward(). To backprop through it twice, pass retain_graph=True on the first call (or restructure to avoid it)." data-explanation-wrong="Calling backward() twice on the same graph fails because the graph is freed after the first pass. Pass retain_graph=True to keep it.">
+          <p class="quiz-question">2. Calling <code>loss.backward()</code> twice on the same graph raises. Why / fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="retain" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Graph freed after first pass; use <code>retain_graph=True</code></span></button>
+            <button class="quiz-option" data-value="zero" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You forgot <code>zero_grad()</code> between them</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You can never call backward twice, period</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why does validation use <code>no_grad</code>?" — No graph → less memory, faster; outputs identical.<br>
+          &bull; "Which tensors get <code>.grad</code>?" — Only leaf tensors with <code>requires_grad=True</code> (call <code>retain_grad()</code> for non-leaves).<br>
+          &bull; "Backward on a non-scalar?" — Must pass a <code>gradient=</code> vector, or reduce to a scalar first.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,190 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">Week 01</span>
+      <h1 class="module-title">Tensors &amp; the Memory Model</h1>
+      <p class="module-subtitle">The very first thing a FAANG screener probes: do you understand what a tensor actually <em>is</em> in memory? Views vs copies, strides, broadcasting, and device placement separate people who "used PyTorch" from people who <em>understand</em> it.</p>
+    </header>
+
+    <!-- ── SCREEN 1: What interviewers probe ───────────────────── -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Not "can you make a tensor" — but: <strong>does an operation share memory or copy it?</strong> Interviewers hand you a two-line snippet that mutates a view and ask what the original tensor now contains. Get strides and contiguity right and you signal systems-level understanding.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Three Attributes That Define a Tensor</h2>
+      <p>Every tensor is fully described by three things. If you can rattle these off and explain how each one bites you in practice, you've cleared the phone-screen bar.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128207;</div>
+          <div class="pattern-title">shape</div>
+          <p class="pattern-desc">The size along each dimension. <code>t.shape</code> &rarr; <code>torch.Size([2, 3])</code>. Drives broadcasting rules.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128290;</div>
+          <div class="pattern-title">dtype</div>
+          <p class="pattern-desc"><code>torch.tensor([1,2,3])</code> is <code>int64</code>, not float. A silent source of "why won't my model train" bugs.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3);">
+          <div class="pattern-icon" style="background: rgba(123,109,170,0.1); color: var(--color-actor-3);">&#128421;</div>
+          <div class="pattern-title">device</div>
+          <p class="pattern-desc">cpu / cuda / mps. Mixing devices in one op is a hard runtime error — a favorite gotcha question.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: view vs reshape (the classic) ─────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Classic: <code>view</code> vs <code>reshape</code></h2>
+      <p>This is <em>the</em> most-asked PyTorch tensor question. The answer hinges on <span class="term" data-definition="Contiguous means the tensor's elements are laid out in memory in row-major (C) order with no gaps. Operations like .T (transpose) produce a non-contiguous view — the data is unchanged but the strides no longer match row-major order.">contiguity</span>.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">x = torch.arange(<span class="code-number">6</span>).reshape(<span class="code-number">2</span>, <span class="code-number">3</span>)</span>
+<span class="code-line">y = x.T                 <span class="code-comment"># transpose: a VIEW</span></span>
+<span class="code-line"></span>
+<span class="code-line">y.view(<span class="code-number">6</span>)             <span class="code-comment"># RuntimeError!</span></span>
+<span class="code-line">y.reshape(<span class="code-number">6</span>)          <span class="code-comment"># OK — silently copies</span></span>
+<span class="code-line">y.contiguous().view(<span class="code-number">6</span>) <span class="code-comment"># OK — explicit copy</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What's happening</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>x is contiguous</strong> — row-major, no gaps.</div>
+            <div class="tl"><strong>.T swaps strides</strong> — same storage, different access pattern. Now non-contiguous.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>view() refuses</strong> — it <em>never</em> copies, and a flat view of non-contiguous data would misread memory. So it errors.</div>
+            <div class="tl"><strong>reshape() adapts</strong> — returns a view if it can, else silently makes a copy.</div>
+            <div class="tl"><strong>.contiguous()</strong> materializes a fresh row-major copy so view() works.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The senior-level follow-up</span>
+          <p>"When would you deliberately choose <code>view</code> over <code>reshape</code>?" — When you want a <strong>guaranteed no-copy contract</strong>. <code>view</code> failing loudly tells you a copy would have happened; <code>reshape</code> hides that cost. In a hot loop, an accidental copy per iteration is a real regression.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 3: Quiz (conceptual) ─────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Rapid-Fire Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m1">
+
+        <div class="quiz-question-block" data-correct="error" data-explanation-right="Correct. .T makes y non-contiguous, and view() never copies, so it raises a RuntimeError. Use reshape() or .contiguous().view()." data-explanation-wrong="Recall: view() requires a contiguous-compatible layout. .T produces a non-contiguous tensor, so view() raises rather than copying.">
+          <p class="quiz-question">1. <code>x = torch.arange(6).reshape(2,3); x.T.view(6)</code> — result?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="works" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Returns a 1-D tensor of 6 elements</span></button>
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raises a RuntimeError</span></button>
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Returns a copy, silently</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="int64" data-explanation-right="Correct. Python ints produce an int64 tensor. Feeding int64 to a model expecting float32, or dividing expecting floats, causes dtype errors or surprises." data-explanation-wrong="torch.tensor([1, 2, 3]) infers int64 from the Python integers — not float32.">
+          <p class="quiz-question">2. What dtype is <code>torch.tensor([1, 2, 3])</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="float32" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float32</span></button>
+            <button class="quiz-option" data-value="int64" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>int64</span></button>
+            <button class="quiz-option" data-value="int32" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>int32</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="shares" data-explanation-right="Correct. torch.from_numpy and .numpy() share the same CPU memory — mutating one mutates the other. Moving to GPU breaks the sharing (it copies)." data-explanation-wrong="On CPU, from_numpy shares storage with the ndarray. Mutating the tensor in place changes the NumPy array too.">
+          <p class="quiz-question">3. <code>a = np.array([1,2,3]); t = torch.from_numpy(a); t.add_(1)</code> — what is <code>a</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="unchanged" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>[1, 2, 3] — unchanged</span></button>
+            <button class="quiz-option" data-value="shares" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>[2, 3, 4] — memory is shared</span></button>
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raises — can't mutate a shared array</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Broadcasting ──────────────────────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Broadcasting — Explain It in One Sentence</h2>
+      <p>Interviewers love: "walk me through the broadcasting rules." The one-liner they want: <strong>align shapes from the right; each dimension must be equal or one of them must be 1; size-1 dims are virtually expanded.</strong></p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Broadcasting</span>
+          <pre><code><span class="code-line">a = torch.arange(<span class="code-number">3</span>).reshape(<span class="code-number">3</span>, <span class="code-number">1</span>)  <span class="code-comment"># (3,1)</span></span>
+<span class="code-line">b = torch.arange(<span class="code-number">4</span>).reshape(<span class="code-number">1</span>, <span class="code-number">4</span>)  <span class="code-comment"># (1,4)</span></span>
+<span class="code-line">c = a + b                          <span class="code-comment"># (3,4)</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why (3,4)</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Align right:</strong> (3,1) vs (1,4).</div>
+            <div class="tl"><strong>Dim -1:</strong> 1 vs 4 → 4 (the 1 expands).</div>
+            <div class="tl"><strong>Dim -2:</strong> 3 vs 1 → 3 (the 1 expands).</div>
+            <div class="tl"><strong>No data copied</strong> — expansion is virtual (stride 0).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Bug challenge (device mismatch) ───────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Device Mismatch</h2>
+      <p>You're asked to review a colleague's inference snippet on a GPU box. It crashes. Click the line that causes the runtime error.</p>
+
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="This correctly moves the model to the accelerator."><code>model = Net().to(device)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Creating the input tensor is fine on its own."><code>x = torch.randn(1, 3, 224, 224)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Here it is. `x` was never moved to `device`. The model's weights live on the GPU but `x` is on the CPU — a matmul across devices raises 'Expected all tensors to be on the same device'. Fix: x = x.to(device)."><code>out = model(x)&nbsp;&nbsp;# x is still on CPU!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="argmax on the output is fine once the forward pass succeeds."><code>pred = out.argmax(dim=1)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The modern, device-agnostic fix</span>
+          <p>Don't hardcode <code>"cuda"</code>. Current PyTorch (2.x) prefers <code>torch.accelerator</code>:</p>
+          <pre><code><span class="code-line">device = (torch.accelerator.current_accelerator()</span>
+<span class="code-line">          <span class="code-keyword">if</span> torch.accelerator.is_available() <span class="code-keyword">else</span> <span class="code-string">"cpu"</span>)</span>
+<span class="code-line">x = x.to(device)   <span class="code-comment"># .to() returns a NEW tensor — must reassign</span></span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 6: In-place & the follow-ups ─────────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">In-Place Ops: The Trap</h2>
+      <p>Operations ending in <code>_</code> (<code>add_</code>, <code>mul_</code>, <code>relu_</code>) mutate in place. They save memory — and can silently corrupt the autograd graph (Week 2). Interviewers use this to bridge into gradients.</p>
+
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does <code>t.to(device)</code> modify <code>t</code>?" — No, it returns a new tensor; you must reassign.<br>
+          &bull; "Does <code>reshape</code> always return a view?" — No, it copies when it must.<br>
+          &bull; "Why can in-place ops break backprop?" — They overwrite values the backward pass still needs; autograd detects this via version counters and raises.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

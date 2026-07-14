@@ -1,0 +1,173 @@
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">PagedAttention &amp; the KV Cache</h1>
+      <p class="module-subtitle">The opening question of every LLM-inference interview: "why is serving memory-bound, and how does vLLM fix it?" If you can compute KV-cache size and explain paging in OS terms, you clear the bar.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Do you understand that the <strong>KV cache</strong> — not FLOPs — is the serving bottleneck? And that PagedAttention doesn't make attention <em>faster</em>, it makes memory <em>dense</em> so you can batch more sequences?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Why the KV Cache Dominates</h2>
+      <p>During autoregressive decoding, the model caches the <span class="term" data-definition="Key and Value tensors for every past token, stored so attention doesn't recompute over the whole sequence each step. It grows with sequence length and is the primary consumer of GPU memory during serving.">Key/Value tensors</span> of every past token so it doesn't recompute attention each step. This cache is large and <em>grows</em> as generation proceeds. Naive servers reserve a contiguous chunk sized to <code>max_len</code> per request — wasting <strong>60–80%</strong> of KV memory to fragmentation and over-reservation.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#129520;</div>
+          <div class="pattern-title">Internal fragmentation</div>
+          <p class="pattern-desc">Reserve for <code>max_len</code>, but the sequence ends early — the tail sits unused.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4);">
+          <div class="pattern-icon" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">&#129704;</div>
+          <div class="pattern-title">External fragmentation</div>
+          <p class="pattern-desc">Variable-sized contiguous reservations leave unusable gaps between allocations.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128230;</div>
+          <div class="pattern-title">Over-reservation</div>
+          <p class="pattern-desc">Space held for tokens not yet generated — reserved now, used maybe later.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: paging analogy -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">PagedAttention = OS Virtual Memory</h2>
+      <p>The core idea borrows straight from operating systems. Interviewers love the analogy — state it explicitly:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">block &asymp; page</span>
+          <span class="badge-desc">KV cache is split into fixed-size <span class="term" data-definition="A fixed-size chunk of KV cache. vLLM V1's default block size for standard attention is 16 tokens. Blocks need not be physically contiguous in GPU memory.">blocks</span> (default <strong>16 tokens</strong>). Blocks need not be physically contiguous.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">block table &asymp; page table</span>
+          <span class="badge-desc">A per-sequence <span class="term" data-definition="A per-sequence map from logical block index to physical block location, exactly like an OS page table maps virtual pages to physical frames. Allocated on demand as the sequence grows.">block table</span> maps logical blocks &rarr; physical blocks, allocated on demand.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">waste &lt; 4%</span>
+          <span class="badge-desc">Waste now only occurs in the <strong>last partial block</strong> of each sequence — down from 60–80% to under 4%.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Copy-on-write for shared prefixes</span>
+          <p>Because sequences reference physical blocks <em>through</em> the block table, parallel samples / beam branches sharing a prompt can point at the <strong>same</strong> physical blocks (ref-counted). On a divergent write, vLLM clones the block first — <strong>copy-on-write</strong>. This cut parallel-sampling memory by up to ~55% and lifted throughput up to ~2.2&times;.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: the memory math (coding/config) -->
+    <div class="screen">
+      <h2 class="screen-heading">The KV-Cache Formula — Know It Cold</h2>
+      <p>You <em>will</em> be asked to size a KV cache on a whiteboard. Here's the derivation:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Per-token KV bytes</span>
+          <pre><code><span class="code-line"><span class="code-comment"># 2 = Key AND Value</span></span>
+<span class="code-line">per_token = <span class="code-number">2</span> * n_layers * n_kv_heads</span>
+<span class="code-line">            * head_dim * dtype_bytes</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Llama-3-8B, FP16, GQA:</span></span>
+<span class="code-line"><span class="code-comment"># 2 * 32 * 8 * 128 * 2 = 131072 B</span></span>
+<span class="code-line"><span class="code-comment"># = 128 KB / token</span></span>
+<span class="code-line"><span class="code-comment"># 2048-token ctx = ~256 MB / sequence</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What matters</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>The factor of 2</strong> — K and V both cached. Forgetting it halves your estimate.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>n_kv_heads, not n_attention_heads</strong> — GQA/MQA slashes this dramatically (8 KV heads vs 32 query heads here).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Num blocks</strong> &asymp; (gpu_mem &times; util &minus; weights &minus; activations) / per_block_bytes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: OOM at Startup</h2>
+      <p>A candidate's vLLM server refuses to start — "No available memory for the cache blocks." Click the misconfigured line.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Loading an 8B model on an 80GB GPU is fine."><code>llm = LLM(model="meta-llama/Llama-3.1-8B-Instruct",</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: gpu_memory_utilization=0.30 leaves almost nothing for the KV cache after weights (~16GB in FP16) and activations are subtracted. There's no room to allocate cache blocks, so startup fails. Raise it (default 0.9) — or if memory is genuinely tight, lower max_model_len / max_num_seqs instead."><code>&nbsp;&nbsp;gpu_memory_utilization=0.30,&nbsp;&nbsp;# too low!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="A 128K context is large but legal — the real issue is the memory budget above."><code>&nbsp;&nbsp;max_model_len=131072)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The mental model</span>
+          <p>KV blocks are carved from <code>gpu_memory &times; gpu_memory_utilization &minus; weights &minus; activations</code>. Set utilization <em>high</em> (0.9) to maximize cache; if you truly lack memory, shrink <code>max_model_len</code> or <code>max_num_seqs</code>, or add tensor parallelism — don't starve the cache.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m1">
+        <div class="quiz-question-block" data-correct="dense" data-explanation-right="Correct. PagedAttention doesn't speed the attention kernel — it eliminates contiguous over-reservation so memory is dense, letting you batch far more sequences. Higher batch → higher throughput." data-explanation-wrong="PagedAttention is a MEMORY technique. It makes KV memory dense (waste <4%) so more sequences fit and batch; it does not make the attention computation itself faster.">
+          <p class="quiz-question">1. What does PagedAttention actually improve?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes the attention kernel run faster</span></button>
+            <button class="quiz-option" data-value="dense" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes KV memory dense so you can batch more</span></button>
+            <button class="quiz-option" data-value="accuracy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It improves output quality</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="cow" data-explanation-right="Correct. Both sequences' block tables point at the same ref-counted physical blocks. On a divergent write, vLLM copies the block first (copy-on-write), so neither sequence corrupts the other." data-explanation-wrong="Shared prefixes use ref-counted physical blocks via the block tables; divergence triggers copy-on-write to clone the block before writing.">
+          <p class="quiz-question">2. Two sequences share a prompt prefix. How does vLLM avoid corruption when one diverges?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It duplicates the whole KV cache upfront</span></button>
+            <button class="quiz-option" data-value="cow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Ref-counted shared blocks + copy-on-write on divergence</span></button>
+            <button class="quiz-option" data-value="lock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A mutex serializes writes to shared blocks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "How does GQA/MQA change your KV math?" — Fewer <code>n_kv_heads</code> → proportionally smaller cache; that's why modern models use it.<br>
+          &bull; "Why is serving memory-bound, not compute-bound?" — Decode reads the whole KV cache + weights per single token (low arithmetic intensity).<br>
+          &bull; "What's left to optimize inside a block?" — Only the final partial block wastes space now.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127909;</span>
+        <div class="callout-content">
+          <span class="callout-title">Want the animated version?</span>
+          <p>For a WebGL walkthrough of vLLM's parallelism dimensions, see <a href="/learn-ai/vllm-multi-gpu-scaling/">How vLLM Scales Across GPUs</a>. This course is the interview-drill companion.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

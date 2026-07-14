@@ -1,5 +1,27 @@
 [
   {
+    "title": "vLLM & Distributed Kernels: Interview Prep",
+    "url": "/learn-ai/vllm-distributed-kernels-interview/",
+    "category": "Interview Prep",
+    "summary": "A FAANG interview bootcamp for LLM inference & distributed GPU systems — PagedAttention, continuous batching, and the vLLM scheduler, then collective communication, ring vs tree all-reduce, NCCL topology, and custom fused all-reduce kernels. Conceptual Q&A, spot-the-bug, and system-design rubrics.",
+    "gradient": "linear-gradient(135deg, #10A37F 0%, #0B6E56 100%)",
+    "icon": "🔀",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "4-6 Hours"
+  },
+  {
+    "title": "PyTorch Interview Prep: Amateur to Expert",
+    "url": "/learn-ai/pytorch-interview-prep/",
+    "category": "Interview Prep",
+    "summary": "An 8-week FAANG interview bootcamp for PyTorch — tensors and autograd through torch.compile, FSDP2, and ML system design. Conceptual Q&A, live-coding solutions, spot-the-bug challenges, and design rubrics, all on verified PyTorch 2.x APIs.",
+    "gradient": "linear-gradient(135deg, #EE4C2C 0%, #B5341C 100%)",
+    "icon": "🔥",
+    "iconType": "emoji",
+    "modules": "8 Modules",
+    "duration": "4-6 Hours"
+  },
+  {
     "title": "How vLLM Scales Across GPUs",
     "url": "/learn-ai/vllm-multi-gpu-scaling/",
     "category": "Distributed Inference",

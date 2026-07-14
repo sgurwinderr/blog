@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PyTorch Interview Prep: Amateur to Expert — A FAANG Bootcamp</title>
+  <meta name="description" content="An 8-week FAANG interview bootcamp for PyTorch — from tensors and autograd to torch.compile, FSDP2, and ML system design. Conceptual Q&amp;A, live-coding solutions, spot-the-bug challenges, and design rubrics on verified PyTorch 2.x APIs.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/pytorch-interview-prep/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="PyTorch Interview Prep: Amateur to Expert">
+  <meta property="og:description" content="An 8-week FAANG interview bootcamp for PyTorch — tensors and autograd through torch.compile, FSDP2, and ML system design.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/pytorch-interview-prep/">
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #EE4C2C;
+      --color-accent-hover: #C93B1E;
+      --color-accent-light: #FDE8E3;
+      --color-accent-muted: #F0785F;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">PyTorch Interview Prep</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Tensors &amp; Memory" role="tab" aria-label="Week 1: Tensors and Memory Model"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Autograd" role="tab" aria-label="Week 2: Autograd Deep Dive"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Training Loop" role="tab" aria-label="Week 3: Models, Losses & Training Loop"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Data Pipeline" role="tab" aria-label="Week 4: Data Pipeline & Reproducibility"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Blocks & Transfer" role="tab" aria-label="Week 5: Building Blocks & Transfer Learning"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="AMP & Perf" role="tab" aria-label="Week 6: Mixed Precision & Performance"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Compile & Distributed" role="tab" aria-label="Week 7: torch.compile & Distributed"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Expert & System Design" role="tab" aria-label="Week 8: Expert Internals & System Design"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->

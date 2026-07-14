@@ -1,0 +1,160 @@
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">Continuous Batching</h1>
+      <p class="module-subtitle">The other half of vLLM's throughput story. Interviewers want you to cleanly separate this <em>scheduling</em> technique from PagedAttention's <em>memory</em> technique — and explain why static batching is uniquely bad for LLMs.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you explain <strong>iteration-level scheduling</strong> and why output-length variance makes static batching waste the GPU? And do you keep continuous batching (scheduling) distinct from PagedAttention (memory)? They're complementary, not the same.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Static vs Continuous Batching</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#9203;</div>
+          <div class="pattern-title">Static batching</div>
+          <p class="pattern-desc">Group N requests, run to completion. Can't admit new work until the <strong>longest</strong> sequence finishes — short requests idle while one long generation runs. GPU starves.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128260;</div>
+          <div class="pattern-title"><span class="term" data-definition="Also called in-flight batching. The scheduler makes admit/evict decisions after every decode step (every generated token), so finished sequences are replaced immediately and the batch composition changes token-by-token.">Continuous batching</span></div>
+          <p class="pattern-desc">Schedule at the <strong>iteration level</strong>: after every decode step, evict finished sequences and admit waiting ones. The batch changes token-by-token, keeping the GPU saturated.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128202;</span>
+        <div class="callout-content">
+          <span class="callout-title">The headline numbers</span>
+          <p>vs HuggingFace Transformers: <strong>14–24&times;</strong> throughput. vs TGI: <strong>2.2–3.5&times;</strong>. This — combined with PagedAttention's dense memory letting more sequences fit — is where vLLM's throughput comes from.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: why LLMs specifically -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why Static Batching Is <em>Uniquely</em> Bad for LLMs</h2>
+      <p>The winning answer names the property: <strong>output lengths vary wildly and are unknown up front.</strong> One request generates 20 tokens, another 2,000 — and you can't tell which until it emits an end-of-sequence token.</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>Batch of 8 starts together</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>7 finish at token 50</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>1 runs to token 2000</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>7 slots idle for 1950 steps</p></div>
+      </div>
+      <p>Continuous batching refills those 7 slots the instant they free up — no waiting for the straggler.</p>
+    </div>
+
+    <!-- SCREEN 3: DnD -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Concept to Its Effect</h2>
+      <p>Drag each concept onto what it primarily delivers.</p>
+      <div class="dnd-container animate-in" id="dnd-m2">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="paged"><code>PagedAttention</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="cont"><code>Continuous batching</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="iter"><code>Iteration-level scheduling</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="static"><code>Static batching</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="paged">
+            <div class="dnd-zone-label">A memory technique: dense KV cache, waste &lt; 4%</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="cont">
+            <div class="dnd-zone-label">A scheduling technique: keeps the GPU saturated under length variance</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="iter">
+            <div class="dnd-zone-label">Admit/evict decision made every decode step</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="static">
+            <div class="dnd-zone-label">Batch held hostage by the longest sequence</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m2')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: config -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Two Knobs That Bound the Batch</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">vLLM config</span>
+          <pre><code><span class="code-line">LLM(model="...",</span>
+<span class="code-line">    max_num_seqs=<span class="code-number">256</span>,</span>
+<span class="code-line">    max_num_batched_tokens=<span class="code-number">16384</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What they cap</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>max_num_seqs</strong> — max concurrent sequences in the running batch.</div>
+            <div class="tl"><strong>max_num_batched_tokens</strong> — total token budget per forward step (bounds prefill + decode work).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m2">
+        <div class="quiz-question-block" data-correct="unknown" data-explanation-right="Correct. Output lengths vary hugely and aren't known until an EOS token appears, so a static batch is held hostage by its longest generation — most slots idle. That length uncertainty is what makes LLM serving different." data-explanation-wrong="The key property is that output lengths vary widely and are unknown in advance, so the longest sequence stalls the whole static batch.">
+          <p class="quiz-question">1. Why is static batching specifically bad for LLM decode?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="unknown" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Output lengths vary and are unknown; longest sequence stalls the batch</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>LLMs use too much memory to batch at all</span></button>
+            <button class="quiz-option" data-value="order" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tokens must be generated out of order</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="complement" data-explanation-right="Correct. PagedAttention is memory (dense KV cache → more sequences fit); continuous batching is scheduling (refill freed slots each step). They compose — neither is the other." data-explanation-wrong="They're complementary, not the same: PagedAttention is a memory technique, continuous batching is a scheduling technique. Conflating them is a common mistake.">
+          <p class="quiz-question">2. Relationship between PagedAttention and continuous batching?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They're two names for the same optimization</span></button>
+            <button class="quiz-option" data-value="complement" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Complementary: one is memory, one is scheduling</span></button>
+            <button class="quiz-option" data-value="exclusive" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Mutually exclusive — you pick one</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does continuous batching help latency?" — It boosts <em>throughput/utilization</em>; under heavy load individual-request latency can rise (queueing/preemption).<br>
+          &bull; "What refills a freed slot?" — The scheduler's waiting queue (Module 3).<br>
+          &bull; "Can prefill and decode share a batch?" — Yes, via chunked prefill (Module 3).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

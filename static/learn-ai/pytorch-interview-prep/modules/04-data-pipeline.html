@@ -1,0 +1,170 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 04</span>
+      <h1 class="module-title">Data Pipeline &amp; Reproducibility</h1>
+      <p class="module-subtitle">Data-loading questions look easy and trip up seniors. <code>num_workers</code>, <code>pin_memory</code>, worker seeding, and "why is your augmentation duplicated across workers" are exactly the details that reveal production experience.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The <code>Dataset</code>/<code>DataLoader</code> split (who does what), when workers <em>help</em> vs <em>hurt</em>, and reproducibility — the last one being a genuine differentiator because most candidates only seed the main process.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Dataset vs DataLoader — the Division of Labor</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="A map-style Dataset implements __getitem__(idx) and __len__(). It defines HOW to fetch and transform a single sample. It knows nothing about batching or shuffling.">Dataset</span></span>
+          <span class="badge-desc">Defines how to access <strong>one sample</strong>: <code>__getitem__</code> + <code>__len__</code>. All per-sample transforms live here.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="DataLoader wraps a Dataset and handles batching, shuffling, parallel loading via worker subprocesses (num_workers), and pinned memory. It calls the Dataset's __getitem__ and collates results into batches.">DataLoader</span></span>
+          <span class="badge-desc">Wraps a Dataset: <strong>batching, shuffling, parallelism</strong> (<code>num_workers</code>), pinned memory, and <code>collate_fn</code>.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: DataLoader knobs -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Knobs That Come Up</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">loader = DataLoader(</span>
+<span class="code-line">  ds, batch_size=<span class="code-number">64</span>, shuffle=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  num_workers=<span class="code-number">4</span>,</span>
+<span class="code-line">  pin_memory=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  persistent_workers=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  drop_last=<span class="code-keyword">True</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">x = x.to(device, non_blocking=<span class="code-keyword">True</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What each does</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>num_workers</strong> — subprocesses that prefetch batches. Helps when __getitem__ is I/O or CPU bound.</div>
+            <div class="tl"><strong>pin_memory</strong> — page-locked host memory → faster, async H2D copies.</div>
+            <div class="tl"><strong>persistent_workers</strong> — keep workers alive across epochs (avoids re-spawn cost).</div>
+            <div class="tl"><strong>drop_last</strong> — drop the ragged final batch (BatchNorm stability).</div>
+            <div class="tl"><strong>non_blocking</strong> — overlaps the copy — <em>only</em> effective with pinned memory.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The trap: "more workers = faster"</span>
+          <p>False for tiny, in-memory datasets — worker IPC/startup overhead dominates and <code>num_workers=0</code> wins. Workers pay off only when per-sample work (disk read, decode, augmentation) is heavy. Saying this unprompted scores points.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: transforms v2 -->
+    <div class="screen">
+      <h2 class="screen-heading">Transforms: Know the Deprecation</h2>
+      <p>A subtle "are you current?" signal: the modern API is <code>torchvision.transforms.v2</code>, and <code>ToTensor</code> is deprecated.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Modern (v2)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torchvision.transforms <span class="code-keyword">import</span> v2</span>
+<span class="code-line"></span>
+<span class="code-line">tf = v2.Compose([</span>
+<span class="code-line">  v2.ToImage(),</span>
+<span class="code-line">  v2.RandomResizedCrop(<span class="code-number">224</span>, antialias=<span class="code-keyword">True</span>),</span>
+<span class="code-line">  v2.ToDtype(torch.float32, scale=<span class="code-keyword">True</span>),</span>
+<span class="code-line">  v2.Normalize(mean=..., std=...)])</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why not ToTensor?</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ToImage()</strong> converts to a tensor image (no scaling).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ToDtype(..., scale=True)</strong> replaces ToTensor's [0,255]→[0,1] scaling — <code>v2.ToTensor</code> is deprecated. v2 is also faster and can transform images + boxes + masks jointly.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: reproducibility bug -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Duplicated Augmentations</h2>
+      <p>Training with <code>num_workers=4</code> and random augmentation. Every 4th sample looks augmented <em>identically</em>. Click the root cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Seeding torch/numpy in the MAIN process is correct — but insufficient."><code>torch.manual_seed(0); np.random.seed(0)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Root cause: worker subprocesses are forked and each inherits the SAME numpy/random seed, so all 4 workers generate identical random augmentations. Fix: pass worker_init_fn that reseeds each worker from torch.initial_seed(), plus a DataLoader generator."><code>loader = DataLoader(ds, num_workers=4)&nbsp;&nbsp;# no worker_init_fn</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Using np.random inside __getitem__ is fine — the problem is the workers share a seed."><code>def __getitem__(self, i): aug = np.random.rand()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The fix</span>
+          <pre><code><span class="code-line"><span class="code-keyword">def</span> <span class="code-function">seed_worker</span>(worker_id):</span>
+<span class="code-line">  s = torch.initial_seed() % <span class="code-number">2</span>**<span class="code-number">32</span></span>
+<span class="code-line">  np.random.seed(s); random.seed(s)</span>
+<span class="code-line">g = torch.Generator(); g.manual_seed(<span class="code-number">0</span>)</span>
+<span class="code-line">DataLoader(ds, num_workers=<span class="code-number">4</span>, worker_init_fn=seed_worker, generator=g)</span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: checkpointing quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Checkpointing — Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m4">
+        <div class="quiz-question-block" data-correct="statedict" data-explanation-right="Correct. state_dict() is a portable tensor dict. torch.save(model) pickles the class definition and file paths, breaking on refactor or environment change. Also, torch.load defaults to weights_only=True (2.6+), which won't unpickle arbitrary objects." data-explanation-wrong="Save state_dict(), not the whole model. Pickling the model object couples the checkpoint to the exact class/paths/environment and is fragile.">
+          <p class="quiz-question">1. Save <code>model.state_dict()</code> or <code>torch.save(model)</code>? Why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="statedict" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>state_dict — portable, decoupled from the class</span></button>
+            <button class="quiz-option" data-value="whole" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Whole model — simpler to reload</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No difference in practice</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="optim" data-explanation-right="Correct. To resume training faithfully you must restore the optimizer (and scheduler) state too — otherwise momentum/adaptive moments and the LR schedule reset, hurting the resumed run." data-explanation-wrong="Restoring only model weights resets optimizer momentum and the LR schedule. Save and restore optimizer.state_dict() (and scheduler) as well.">
+          <p class="quiz-question">2. You resume training but loss spikes. You restored weights only. Missing?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="optim" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Optimizer (and scheduler) state</span></button>
+            <button class="quiz-option" data-value="seed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The random seed</span></button>
+            <button class="quiz-option" data-value="lr" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — spikes are normal</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "When do you need <code>collate_fn</code>?" — Variable-length data (pad sequences); default collate can't stack unequal tensors.<br>
+          &bull; "<code>shuffle=True</code> and a custom <code>sampler</code> together?" — Illegal, mutually exclusive.<br>
+          &bull; "Is determinism guaranteed across machines?" — No — only within the same PyTorch version/platform; deterministic algorithms are also slower.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

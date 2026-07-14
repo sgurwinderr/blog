@@ -1,0 +1,167 @@
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Collective Algorithms: Ring vs Tree</h1>
+      <p class="module-subtitle">The whiteboard-derivation module. Interviewers ask you to derive ring all-reduce's <code>2(N&minus;1)/N</code> data volume and explain why it's bandwidth-optimal but latency-linear — and when tree wins instead.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you <em>derive</em> the ring all-reduce cost (not just recite "ring is fast"), explain its N-independence in bandwidth, and reason about the latency-vs-bandwidth flip that makes tree win for small messages / large N?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Ring All-Reduce — Two Phases</h2>
+      <p>Split the K-element buffer into N chunks. Arrange the N GPUs in a ring. Two phases, each N&minus;1 steps:</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p><span class="term" data-definition="Phase 1 of ring all-reduce: over N-1 steps, each GPU sends a chunk to its right neighbor, receives from the left, and accumulates (adds). After N-1 steps each GPU owns one fully-reduced chunk.">Scatter-reduce</span>: send-right, receive-left, <strong>accumulate</strong>. After N&minus;1 steps each GPU owns one fully-reduced chunk.</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p><span class="term" data-definition="Phase 2 of ring all-reduce: same ring motion but OVERWRITE instead of add, propagating each finished chunk around the ring. After N-1 steps every GPU has the complete result.">All-gather</span>: same ring motion but <strong>overwrite</strong>. After N&minus;1 steps everyone has the full result.</p></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat — ring narration -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch a 4-GPU Ring All-Reduce</h2>
+      <p>Step through the scatter-reduce phase across 4 ranks — this is the narration to give on a whiteboard.</p>
+      <div class="chat-window animate-in" id="chat-m6">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Setup" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">&#9881;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Setup</span>
+              <p>4 GPUs in a ring. Each buffer split into 4 chunks (c0..c3). Goal: every GPU ends with the sum of all four GPUs' buffers.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="GPU0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">GPU 0</span>
+              <p>Step 1: I send my chunk c0 to GPU 1, and receive c3 from GPU 3. I <em>add</em> the incoming c3 to my own c3. I'm accumulating, not overwriting.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="GPU1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">1</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">GPU 1</span>
+              <p>Same motion, shifted. Every GPU sends one chunk right, accumulates one from the left, each step. Only K/N bytes cross any link per step.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Ring" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">&#8635;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">After N&minus;1 = 3 steps</div>
+              <p>Each GPU now owns exactly one fully-summed chunk. Scatter-reduce done. Now the all-gather phase repeats the ring motion, but overwriting, to spread each finished chunk to everyone.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Cost" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&#931;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">The cost</span>
+              <p>Per GPU: 2 phases &times; (N&minus;1) steps &times; K/N bytes = <strong>2(N&minus;1)K/N</strong>. As N grows, that → 2K — independent of GPU count. Only the latency (number of hops) grows with N.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: the formula -->
+    <div class="screen">
+      <h2 class="screen-heading">The Formula to Memorize</h2>
+      <p>Data moved per GPU in ring all-reduce:</p>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128202;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{data per GPU} = 2\,(N-1)\,\frac{K}{N} \;\xrightarrow{N \to \infty}\; 2K$$</span>
+          <p>The <strong>2</strong> = two phases (scatter-reduce + all-gather). <strong>(N&minus;1)</strong> = steps per phase. <strong>K/N</strong> = chunk size. The product is <em>bounded by ~2K regardless of N</em> — that's what "bandwidth-optimal" means. Throughput is limited only by the slowest adjacent link.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9201;</span>
+        <div class="callout-content">
+          <span class="callout-title">The catch: latency is linear in N</span>
+          <p>You traverse the ring, so you pay ~2(N&minus;1) serial hops of startup latency. Fine for hundreds of GPUs; it breaks down at thousands.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: tree -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Tree All-Reduce — Latency-Optimal</h2>
+      <p>Reduce up a tree to a root, broadcast back down: latency is <strong>logarithmic</strong> in N. A naive single binary tree wastes bandwidth (leaves only send or only receive), so NCCL 2.4+ uses <span class="term" data-definition="NCCL's technique: build two complementary binary trees where leaves and internal nodes swap roles, running each tree on half the data. Achieves ring-like bandwidth AND logarithmic latency. Reported up to 180x latency improvement at 24,576 GPUs vs ring.">double binary trees</span> — ring-like bandwidth <em>and</em> log-N latency.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#8635;</div>
+          <div class="pattern-title">Ring: large messages</div>
+          <p class="pattern-desc">Bandwidth-bound regime. Saturates links; O(N) latency is amortized over big transfers.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127795;</div>
+          <div class="pattern-title">Tree: small messages / large N</div>
+          <p class="pattern-desc">Latency-bound regime. log(N) hops beat linear N. NCCL <strong>auto-switches</strong> — you don't hand-tune it, but you should know why.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Derivation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m6">
+        <div class="quiz-question-block" data-correct="cancel" data-explanation-right="Correct. More GPUs means more steps (N-1) but proportionally smaller chunks (K/N) — they cancel, so per-GPU bytes converge to 2K. Only the number of serial hops (latency) grows with N." data-explanation-wrong="The steps (N-1) and chunk size (K/N) cancel as N grows, so per-GPU data → 2K, independent of N. Latency (hop count) is what grows.">
+          <p class="quiz-question">1. Why is ring all-reduce's per-GPU data volume ~independent of N?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="cancel" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>More steps but smaller chunks — (N&minus;1) and K/N cancel</span></button>
+            <button class="quiz-option" data-value="compress" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The data is compressed as N grows</span></button>
+            <button class="quiz-option" data-value="wrong" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It isn't — it scales linearly with N</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="tree" data-explanation-right="Correct. A 4 KB tensor across 512 GPUs is latency-bound: ring's O(N) hop latency dominates while its bandwidth edge is irrelevant at tiny sizes. Tree's log(N) latency wins. (For a 1 GB bucket, ring wins.)" data-explanation-wrong="Small message + large N = latency-bound → tree (log N latency) beats ring (linear N latency). Ring only wins for large, bandwidth-bound messages.">
+          <p class="quiz-question">2. All-reducing a 4 KB tensor across 512 GPUs — ring or tree?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="tree" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tree — it's latency-bound at this size/scale</span></button>
+            <button class="quiz-option" data-value="ring" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Ring — always bandwidth-optimal</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Identical at this size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Cost model?" — Ring: <code>2(N&minus;1)&alpha; + 2(N&minus;1)/N&middot;K&beta;</code>; tree: <code>2&middot;log&#8322;(N)&middot;&alpha; + bandwidth term</code> (&alpha;=per-hop latency, &beta;=inverse bandwidth).<br>
+          &bull; "Who chooses ring vs tree?" — NCCL, adaptively by message size and world size.<br>
+          &bull; "Where does the '2' come from?" — The two phases: scatter-reduce then all-gather.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

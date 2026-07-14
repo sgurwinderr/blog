@@ -1,0 +1,197 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Custom Fused Comm Kernels &amp; System Design</h1>
+      <p class="module-subtitle">The staff-level capstone. Derive the one-all-reduce-per-block TP pattern, know why one-shot/two-shot fused kernels beat NCCL for small TP messages, then tie the whole course together in an MoE serving design.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you <em>derive</em> (not recite) the colwise→rowwise TP pattern that yields exactly one all-reduce per block? And do you know TP all-reduce is <strong>on the critical path and can't overlap</strong> — which is why fused one-shot kernels exist?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Tensor Parallelism: One All-Reduce Per Block</h2>
+      <p>The MLP is <code>Y = GeLU(X&middot;A)&middot;B</code>. The trick is sharding the two matmuls so no communication is needed <em>between</em> them:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Megatron sharding</span>
+          <pre><code><span class="code-line"><span class="code-comment"># A split COLUMN-wise: A = [A1, A2]</span></span>
+<span class="code-line">Y1_half = <span class="code-function">GeLU</span>(X @ A1)  <span class="code-comment"># local</span></span>
+<span class="code-line">Y2_half = <span class="code-function">GeLU</span>(X @ A2)  <span class="code-comment"># local</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># B split ROW-wise: B = [B1; B2]</span></span>
+<span class="code-line">Z1 = Y1_half @ B1</span>
+<span class="code-line">Z2 = Y2_half @ B2</span>
+<span class="code-line">Y  = <span class="code-function">all_reduce</span>(Z1 + Z2)  <span class="code-comment"># ONE all-reduce</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it works</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Column-split A</strong> → GeLU is elementwise, applies independently per shard. <em>No comm needed.</em></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Row-split B</strong> → each rank produces a partial sum of the full output.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>One all-reduce</strong> sums the partials. Reversing the order (row-then-col) would force an extra all-reduce <em>between</em> the matmuls.</div>
+          </div>
+        </div>
+      </div>
+      <p>Net: the conjugate operators <strong>f</strong> (identity fwd / all-reduce bwd) and <strong>g</strong> (all-reduce fwd / identity bwd) give <strong>one all-reduce in forward, one in backward, per block</strong>. Attention is analogous: QKV projection column-parallel, output projection row-parallel.</p>
+    </div>
+
+    <!-- SCREEN 2: one-shot vs two-shot -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why NCCL Isn't Enough for TP</h2>
+      <p>TP all-reduce messages are <strong>small, latency-bound, and on the critical path</strong> — the next matmul needs the result, so they <em>can't</em> overlap (unlike DDP). NCCL ring is suboptimal here. <span class="term" data-definition="PyTorch's torch.distributed._symmetric_memory (alpha) exposes peers' GPU memory directly over NVLink, letting you write custom fused collectives that read peer buffers. Enables one-shot and two-shot all-reduce and CUDA/Triton kernels that fuse communication with compute.">SymmetricMemory</span> exposes peers' GPU memory directly so you can write custom fused kernels.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#9889;</div>
+          <div class="pattern-title"><span class="term" data-definition="One-shot all-reduce: every rank reads ALL peers' buffers directly over NVLink and reduces locally — about one round trip, lowest latency. Best for small messages; each rank moves ~(N-1)K so bandwidth cost is high at large K.">One-shot</span>: small messages</div>
+          <p class="pattern-desc">Every rank reads all peers' buffers directly and reduces locally. ~1 round trip → lowest latency. Ideal for small TP tensors.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="Two-shot all-reduce: reduce-scatter then all-gather (the ring decomposition, done over symmetric memory). Less redundant data movement than one-shot, so better for larger messages.">Two-shot</span>: larger messages</div>
+          <p class="pattern-desc">Reduce-scatter then all-gather — less redundant movement. The symm-mem analogue of the ring decomposition.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.distributed._symmetric_memory (alpha)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">import</span> torch.distributed._symmetric_memory <span class="code-keyword">as</span> symm_mem</span>
+<span class="code-line">t   = symm_mem.empty(N, device=...)</span>
+<span class="code-line">hdl = symm_mem.rendezvous(t, group)  <span class="code-comment"># exchange peer ptrs</span></span>
+<span class="code-line"></span>
+<span class="code-line">torch.ops.symm_mem.one_shot_all_reduce(t, <span class="code-string">"sum"</span>, group)</span>
+<span class="code-line">torch.ops.symm_mem.two_shot_all_reduce_(t, <span class="code-string">"sum"</span>, group)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The mechanism</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>rendezvous</strong> exchanges peer buffer pointers.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>one-shot</strong> for small, <strong>two-shot</strong> for larger — same latency-vs-bandwidth tension as tree-vs-ring.</div>
+            <div class="tl">The handle exposes ptrs for custom CUDA/Triton kernels that <strong>fuse comm into the matmul epilogue</strong>, killing the launch boundary.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: system design #2 -->
+    <div class="screen">
+      <h2 class="screen-heading">System Design: Serve a Large MoE Model</h2>
+      <p><em>"Design distributed inference for a DeepSeek-style MoE model that doesn't fit on one node."</em> This ties the whole course together — the rubric:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Compose parallelism to the constraint</strong>
+            <p>TP intra-node (NVLink) for the dense attention/MLP; <strong>expert parallelism (all-to-all)</strong> to shard experts across ranks; DP on attention layers for throughput. Match each dim to its interconnect.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Mind the MoE synchronization trap</strong>
+            <p>DP ranks are <em>not</em> independent for MoE — every rank must align forward passes and run <strong>dummy forward passes when idle</strong> so the expert all-to-all stays synchronized. vLLM's DP Coordinator handles this.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Apply the serving internals</strong>
+            <p>PagedAttention for dense KV memory, continuous batching + chunked prefill for utilization, prefix caching for shared system prompts (Modules 1–4).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Optimize the critical-path collectives</strong>
+            <p>TP all-reduce is small and blocking → one-shot fused kernels over NVLink. Keep all-to-all expert traffic on the fastest fabric available; watch busbw vs peak (Module 7).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Staff-Level Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m8">
+        <div class="quiz-question-block" data-correct="colrow" data-explanation-right="Correct. Column-split on A keeps GeLU elementwise/local (no comm); row-split on B makes each rank produce a partial sum, so one all-reduce combines them. Reversing the order forces an extra all-reduce between the matmuls." data-explanation-wrong="Column-then-row is the key: col-split A → local GeLU (no comm), row-split B → partial sums → one all-reduce. The ordering is what removes the intermediate collective.">
+          <p class="quiz-question">1. Why column-split the first MLP matmul and row-split the second?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="colrow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Keeps GeLU local, yields exactly one all-reduce at the end</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It halves the weight memory per rank</span></button>
+            <button class="quiz-option" data-value="arbitrary" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The order is arbitrary; either works the same</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="critpath" data-explanation-right="Correct. Unlike DDP gradients (which overlap with backward), TP all-reduce sits on the critical path — the next matmul needs it, so it can't be hidden. Small + blocking + latency-bound is exactly where one-shot fused NVLink kernels beat NCCL ring." data-explanation-wrong="TP all-reduce is on the critical path (the next matmul needs the result), so it can't overlap. That's why small-message one-shot fused kernels matter — NCCL ring is latency-suboptimal here.">
+          <p class="quiz-question">2. Why do fused one-shot all-reduce kernels matter for TP but not DDP?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="critpath" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>TP all-reduce is on the critical path — it can't overlap</span></button>
+            <button class="quiz-option" data-value="bigger" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>TP messages are much larger than DDP's</span></button>
+            <button class="quiz-option" data-value="nomatter" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They matter equally for both</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: recap -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed the bootcamp</span>
+          <p>Eight modules: PagedAttention, continuous batching, the V1 scheduler, and throughput/latency — then collective primitives, ring vs tree, NCCL topology, and custom fused kernels. The through-line: <strong>name the resource that bounds you</strong> (KV memory, memory bandwidth, interconnect bandwidth, or latency), then pick the technique that relieves it. That framing is the senior/staff signal.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; vLLM <strong>V1</strong> engine is the default; recompute is the default preemption mode; APC + chunked prefill are on by default.<br>
+          &bull; Ring all-reduce = <code>2(N&minus;1)/N</code>; NCCL uses double-binary trees for small messages / large N.<br>
+          &bull; TP colwise→rowwise = one all-reduce/block; <code>_symmetric_memory</code> (one-shot/two-shot) is alpha.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why must idle DP ranks run dummy forward passes in MoE?" — The expert all-to-all is synchronized across all ranks; a lagging rank stalls or desyncs the collective.<br>
+          &bull; "One-shot vs two-shot threshold?" — A latency-vs-bandwidth tradeoff (small vs large message), not a fixed size.<br>
+          &bull; "Where does fusion help most?" — Folding the reduction into the matmul epilogue removes the kernel-launch boundary on the critical path.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127909;</span>
+        <div class="callout-content">
+          <span class="callout-title">Go deeper</span>
+          <p>For Triton-level vLLM kernel internals, see <a href="/learn-ai/vllm-triton-optimization/">vLLM Optimization Deep Dive</a>; for the animated parallelism walkthrough, <a href="/learn-ai/vllm-multi-gpu-scaling/">How vLLM Scales Across GPUs</a>. Pair with the <a href="/learn-ai/pytorch-interview-prep/">PyTorch Interview Prep</a> course for the framework layer.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

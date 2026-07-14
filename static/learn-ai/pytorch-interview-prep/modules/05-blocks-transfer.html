@@ -1,0 +1,167 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 05</span>
+      <h1 class="module-title">Building Blocks &amp; Transfer Learning</h1>
+      <p class="module-subtitle">BatchNorm vs LayerNorm is the most common "do you actually understand normalization" question. Transfer learning tests whether you know the modern <code>weights=</code> API — and the freeze-ordering bug that silently trains nothing.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>"When would you pick LayerNorm over BatchNorm?" and "how do you fine-tune a pretrained ResNet without wrecking its features?" — plus the classic ordering bug: freeze <em>then</em> replace the head, never the reverse.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">BatchNorm vs LayerNorm — the One-Liner</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128202;</div>
+          <div class="pattern-title"><span class="term" data-definition="BatchNorm normalizes each feature across the batch dimension, using batch statistics during training and stored running mean/variance at eval time. Sensitive to small batch sizes.">BatchNorm</span></div>
+          <p class="pattern-desc">Normalizes each feature <strong>across the batch</strong>. Uses batch stats in train, running stats at eval. Breaks with tiny/variable batches. Standard in CNNs.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128207;</div>
+          <div class="pattern-title"><span class="term" data-definition="LayerNorm normalizes across the feature dimension per-sample, independent of batch size. It behaves identically in train and eval, which is why it's standard in Transformers.">LayerNorm</span></div>
+          <p class="pattern-desc">Normalizes <strong>per-sample across features</strong>. Batch-size independent; identical in train &amp; eval. Standard in Transformers &amp; small-batch regimes.</p>
+        </div>
+      </div>
+      <p>The answer they want: <strong>"Use LayerNorm for sequence models/Transformers or when batches are small/variable, because it doesn't depend on batch statistics."</strong></p>
+    </div>
+
+    <!-- SCREEN 2: DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Layer to Its Job</h2>
+      <p>Drag each layer onto the use-case an interviewer would expect it for.</p>
+      <div class="dnd-container animate-in" id="dnd-m5">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="seq"><code>nn.LayerNorm</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="reg"><code>nn.Dropout</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="cnn"><code>nn.Conv2d</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="seqmodel"><code>nn.LSTM</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="seq">
+            <div class="dnd-zone-label">Normalize per-sample in a Transformer block</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="reg">
+            <div class="dnd-zone-label">Regularize by randomly zeroing activations in training</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="cnn">
+            <div class="dnd-zone-label">Extract spatial features from an (N,C,H,W) image</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="seqmodel">
+            <div class="dnd-zone-label">Model a variable-length time series with hidden state</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m5')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: transfer learning -->
+    <div class="screen">
+      <h2 class="screen-heading">Transfer Learning — the Modern API</h2>
+      <p>Interviewers spot outdated candidates instantly: <code>pretrained=True</code> is deprecated. Use the <span class="term" data-definition="The Weights enum API (e.g. ResNet18_Weights.DEFAULT) replaced the boolean pretrained=True. It also exposes weights.transforms(), giving you the exact preprocessing the checkpoint was trained with.">Weights enum</span>.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Feature extraction</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torchvision.models <span class="code-keyword">import</span> resnet18, ResNet18_Weights</span>
+<span class="code-line"></span>
+<span class="code-line">w = ResNet18_Weights.DEFAULT</span>
+<span class="code-line">model = resnet18(weights=w)</span>
+<span class="code-line">preprocess = w.transforms()   <span class="code-comment"># exact preprocessing</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">for</span> p <span class="code-keyword">in</span> model.parameters():</span>
+<span class="code-line">  p.requires_grad = <span class="code-keyword">False</span>   <span class="code-comment"># freeze FIRST</span></span>
+<span class="code-line">model.fc = nn.Linear(model.fc.in_features, n)  <span class="code-comment"># then replace</span></span>
+<span class="code-line">opt = torch.optim.SGD(model.fc.parameters(), lr=<span class="code-number">1e-3</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why this order</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>DEFAULT</strong> = best available checkpoint.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>w.transforms()</strong> gives the exact resize/crop/normalize — no guessing constants.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Freeze first</strong> — set requires_grad=False on everything.</div>
+            <div class="tl"><strong>Then replace fc</strong> — new modules default to requires_grad=True, so only the head trains.</div>
+            <div class="tl"><strong>Optimize only the head.</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug — freeze order -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Nothing Trains</h2>
+      <p>A candidate's fine-tuning code runs, loss is flat, accuracy never moves. Click the line responsible.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Loading the pretrained model is fine."><code>model = resnet18(weights=ResNet18_Weights.DEFAULT)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Replacing the head is fine — timing is the issue."><code>model.fc = nn.Linear(model.fc.in_features, 10)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: the freeze loop runs AFTER replacing the head, so it also freezes the new fc layer — now every parameter has requires_grad=False and nothing trains. Fix: freeze BEFORE replacing model.fc (new modules default to requires_grad=True)."><code>for p in model.parameters(): p.requires_grad = False</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The optimizer is fine — but it received zero trainable params."><code>opt = torch.optim.SGD(model.parameters(), lr=1e-3)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m5">
+        <div class="quiz-question-block" data-correct="transforms" data-explanation-right="Correct. weights.transforms() returns the exact preprocessing the checkpoint was trained with (resize, crop size, mean/std). Hand-writing these risks a distribution mismatch that silently tanks accuracy." data-explanation-wrong="The advantage is correctness: weights.transforms() matches the checkpoint's training-time preprocessing exactly, avoiding silent accuracy loss from wrong normalization.">
+          <p class="quiz-question">1. Why use <code>weights.transforms()</code> instead of writing Resize/Normalize yourself?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="transforms" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It matches the checkpoint's exact preprocessing</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It runs faster on the GPU</span></button>
+            <button class="quiz-option" data-value="augments" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It adds random augmentation automatically</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="onlybetween" data-explanation-right="Correct. nn.LSTM's dropout argument only applies BETWEEN stacked layers, so it does nothing for a single-layer LSTM (num_layers=1)." data-explanation-wrong="The dropout arg in nn.LSTM only acts between stacked layers — with num_layers=1 it has no effect. A common surprise.">
+          <p class="quiz-question">2. <code>nn.LSTM(..., num_layers=1, dropout=0.5)</code> — effect of dropout?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="onlybetween" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>None — dropout only applies between stacked layers</span></button>
+            <button class="quiz-option" data-value="works" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Drops 50% of hidden units each step</span></button>
+            <button class="quiz-option" data-value="input" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Drops 50% of the inputs</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Feature extraction vs fine-tuning — when each?" — Freeze-and-train-head for small data; fine-tune (small LR) with more data.<br>
+          &bull; "Why fine-tune at a <em>lower</em> LR?" — A high LR destroys the pretrained features before the head adapts.<br>
+          &bull; "BatchNorm at inference on a fine-tuned model?" — Call <code>eval()</code> so it uses running stats, or accuracy degrades.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

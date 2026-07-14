@@ -1,0 +1,204 @@
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Collective Communication Primitives</h1>
+      <p class="module-subtitle">The distributed half begins. Every parallelism strategy is really a choice of collective. If you can map DDP/FSDP/TP/MoE to their primitives on demand — and recite the two all-reduce identities — you own this round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That collectives must be called <strong>symmetrically</strong> (same order, same shape) on all ranks — mismatched calls are the #1 cause of hangs — and that you can name which primitive each training strategy uses.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Six Primitives</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Reduce (sum/max/…) across all ranks, with the result placed on EVERY rank. Bus-bandwidth factor 2(N-1)/N. Used by DDP (gradient averaging) and tensor parallelism.">AllReduce</span></span>
+          <span class="badge-desc">Reduce, result on <strong>every</strong> rank. K → K identical everywhere. Factor 2(N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="Reduce across ranks, then scatter chunks so rank i keeps only chunk i of the reduced result. Output is K/N per rank. Factor (N-1)/N. Used by FSDP for gradients.">ReduceScatter</span></span>
+          <span class="badge-desc">Reduce, then scatter: rank i keeps chunk i. K → K/N. Factor (N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Concatenate every rank's data so all ranks end up with the full ordered result. Input K/N per rank → output K. Factor (N-1)/N. Used by FSDP to materialize full params before compute.">AllGather</span></span>
+          <span class="badge-desc">Concatenate all ranks' shards. K/N → K, ordered by rank. Factor (N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="A distributed transpose: rank i's j-th block is sent to rank j. Each rank sends a distinct block to every other rank. Factor (N-1)/N. Used by MoE for expert dispatch/combine.">All-to-All</span></span>
+          <span class="badge-desc">Distributed transpose: rank i's block j → rank j. Used for MoE dispatch/combine.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Broadcast</span>
+          <span class="badge-desc">Copy root's buffer to all. Factor 1 (root is the bottleneck).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-text-secondary);">Reduce</span>
+          <span class="badge-desc">Reduce to the root <em>only</em>. Factor 1.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128273;</span>
+        <div class="callout-content">
+          <span class="callout-title">The two identities interviewers love</span>
+          <p><strong>AllReduce = ReduceScatter + AllGather</strong> (this is how ring all-reduce is built — Module 6).<br>
+          <strong>AllReduce = Reduce + Broadcast</strong> (the naive/tree-ish view).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: which parallelism -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Which Parallelism Uses Which</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">D</div>
+          <div class="step-body">
+            <strong>DDP → all-reduce</strong>
+            <p>Every replica holds the full model; gradients are averaged with one all-reduce (effectively AVG) per step.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">F</div>
+          <div class="step-body">
+            <strong>FSDP / ZeRO-3 → reduce-scatter + all-gather</strong>
+            <p>Reduce-scatter gradients (keep your shard), all-gather params to materialize full weights just-in-time. Exactly the all-reduce decomposition, split across the step.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">T</div>
+          <div class="step-body">
+            <strong>Tensor Parallel → all-reduce</strong>
+            <p>Exactly one all-reduce in forward and one in backward, per transformer block (Module 8 derives why).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">M</div>
+          <div class="step-body">
+            <strong>MoE → all-to-all</strong>
+            <p>Tokens are routed to the ranks holding their chosen experts (dispatch), then combined back — two all-to-alls. Summing would be semantically wrong.</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top: var(--space-4);"><em>Pipeline parallel uses point-to-point <code>send</code>/<code>recv</code>, not a collective — it passes activations between stages.</em></p>
+    </div>
+
+    <!-- SCREEN 3: DnD -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Strategy to Its Collective</h2>
+      <div class="dnd-container animate-in" id="dnd-m5">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="allreduce"><code>all-reduce</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="rs-ag"><code>reduce-scatter + all-gather</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="a2a"><code>all-to-all</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="p2p"><code>send / recv</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="allreduce">
+            <div class="dnd-zone-label">DDP gradient averaging (also TP per block)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="rs-ag">
+            <div class="dnd-zone-label">FSDP / ZeRO-3 gradients &amp; params</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="a2a">
+            <div class="dnd-zone-label">MoE expert dispatch &amp; combine</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="p2p">
+            <div class="dnd-zone-label">Pipeline parallel activation passing</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m5')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: code -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The PyTorch API</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.distributed</span>
+          <pre><code><span class="code-line"><span class="code-keyword">import</span> torch.distributed <span class="code-keyword">as</span> dist</span>
+<span class="code-line">dist.init_process_group(<span class="code-string">"nccl"</span>)  <span class="code-comment"># CUDA</span></span>
+<span class="code-line">rank = dist.get_rank()</span>
+<span class="code-line">x = torch.ones(<span class="code-number">4</span>, device=<span class="code-string">f"cuda:{rank}"</span>) * rank</span>
+<span class="code-line"></span>
+<span class="code-line">dist.all_reduce(x, op=dist.ReduceOp.SUM)</span>
+<span class="code-line"><span class="code-comment"># contiguous variants (faster):</span></span>
+<span class="code-line"><span class="code-comment"># dist.reduce_scatter_tensor(out, inp)</span></span>
+<span class="code-line"><span class="code-comment"># dist.all_gather_into_tensor(out, inp)</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Notes</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Backend:</strong> NCCL for CUDA. Gloo is CPU-only and does <em>not</em> support all-to-all.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ReduceOp:</strong> SUM, PRODUCT, MIN, MAX, AVG (AVG is NCCL-specific).</div>
+            <div class="tl"><strong>Same call, same shape, same order</strong> on every rank — or it hangs.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m5">
+        <div class="quiz-question-block" data-correct="rsag" data-explanation-right="Correct. all-reduce = reduce-scatter + all-gather. FSDP uses exactly this split so it never has to materialize the full averaged gradient on any single rank — each rank reduces and keeps only its shard." data-explanation-wrong="all-reduce decomposes into reduce-scatter followed by all-gather; FSDP uses this split to avoid ever holding the full gradient on one rank.">
+          <p class="quiz-question">1. Every GPU needs the averaged gradient. Which primitive, and its decomposition?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="rsag" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-reduce = reduce-scatter + all-gather</span></button>
+            <button class="quiz-option" data-value="bcast" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>broadcast from rank 0</span></button>
+            <button class="quiz-option" data-value="a2a" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-to-all across ranks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="route" data-explanation-right="Correct. MoE routes each token to a SPECIFIC rank holding its chosen expert — a distributed transpose (all-to-all), not a sum. All-reduce would sum across ranks, which is semantically wrong for routing." data-explanation-wrong="Experts are sharded across ranks; each token must be routed to a specific destination rank. That's all-to-all (a transpose), not all-reduce (a sum).">
+          <p class="quiz-question">2. Why does MoE use all-to-all rather than all-reduce?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="route" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tokens must be routed to specific ranks, not summed</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-to-all is just a faster all-reduce</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-reduce uses too much memory for MoE</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "What happens if ranks call collectives in different order?" — Hang, crash, or silent corruption (undefined behavior).<br>
+          &bull; "Broadcast vs all-gather?" — Broadcast copies one rank's buffer to all; all-gather concatenates <em>every</em> rank's distinct shard.<br>
+          &bull; "Reduce vs all-reduce?" — Reduce leaves the result on the root only.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

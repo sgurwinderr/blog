@@ -1,0 +1,241 @@
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 08</span>
+      <h1 class="module-title">Expert Internals &amp; ML System Design</h1>
+      <p class="module-subtitle">The staff-level capstone. Custom ops and the compiler contract, export/deployment, memory mastery, and two full <strong>ML system-design</strong> prompts with the rubric interviewers actually score against.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Depth and judgment: can you make a custom kernel compose with <code>torch.compile</code>, reason about the CUDA allocator and attention memory, and — most of all — <strong>drive a system-design discussion</strong> with tradeoffs, not buzzwords?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Custom Ops: The Compiler Contract</h2>
+      <p>The modern way to insert a C++/CUDA/Triton kernel is <code>torch.library.custom_op</code>. The key insight interviewers want: <code>torch.compile</code> treats a custom op as an <strong>opaque black box</strong>, so you must hand it the metadata it can't infer — chiefly a <span class="term" data-definition="A fake (meta) kernel returns output tensors with correct metadata only — shape, dtype, device, and strides — without reading data values. It lets shape propagation, torch.export, and dynamic-shape compilation work without running the real kernel.">fake kernel</span>.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.library (2.4+)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@torch.library.custom_op</span>(<span class="code-string">"mylib::my_op"</span>,</span>
+<span class="code-line">    mutates_args=())</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">my_op</span>(x: Tensor) -&gt; Tensor:</span>
+<span class="code-line">  <span class="code-keyword">return</span> my_cuda_kernel(x)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">@my_op.register_fake</span></span>
+<span class="code-line"><span class="code-keyword">def</span> _(x):</span>
+<span class="code-line">  <span class="code-keyword">return</span> torch.empty_like(x)  <span class="code-comment"># metadata MUST match</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The contract</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>mutates_args</strong> — required, keyword-only. Declare every arg the kernel writes to, or functionalization corrupts results.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The real kernel</strong> — opaque; compile won't trace into it.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>register_fake</strong> — returns shape/dtype/device/<em>strides</em>, no data reads. Wrong strides → silently wrong compiled output.</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The sharp distinction</span>
+          <p>For a <strong>Triton</strong> kernel you want optimized, use <code>torch.library.triton_op</code> + <code>wrap_triton</code> — <code>torch.compile</code> traces <em>into</em> it and fuses around it. For a closed-source <code>.so</code>, use <code>custom_op</code> — opaque is exactly right. Knowing which to reach for is a staff-level signal.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: export + memory -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Export, Deployment &amp; Memory Levers</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="torch.export produces a sound, whole-program ExportedProgram — a functionalized ATen graph plus signature. Unlike torch.compile it requires ONE graph with no Python fallback. As of PyTorch 2.7 the strict= default changed from True to False.">torch.export</span></span>
+          <span class="badge-desc">Whole-program AOT capture. One graph, no fallback. <strong>strict=False is the default since 2.7</strong> — be explicit. Feeds AOTInductor for a self-contained <code>.pt2</code>.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="The CUDA caching allocator reuses freed blocks to avoid slow cudaMalloc/Free. Fragmentation — many odd-sized allocations leaving unusable slivers — causes OOM despite free bytes. expandable_segments:True grows one segment per stream, mitigating it.">CUDA allocator</span></span>
+          <span class="badge-desc">Caches freed blocks (reserved &ge; allocated). Fragmentation causes OOM with bytes free. <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code> is the first lever.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="F.scaled_dot_product_attention fuses attention and auto-dispatches among FlashAttention-2, memory-efficient attention, cuDNN, and a math fallback, turning the O(N^2) materialized score matrix into an O(N) streaming computation.">SDPA</span> / FlashAttention</span>
+          <span class="badge-desc"><code>F.scaled_dot_product_attention</code> fuses attention; auto-dispatches to FlashAttention. Turns O(N&sup2;) memory into O(N). Force a backend with <code>sdpa_kernel</code>.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="Activation checkpointing trades compute for memory: intermediates in a wrapped region are dropped and recomputed during backward. Use use_reentrant=False; selective checkpointing saves cheap-to-store ops (e.g. matmuls) and recomputes the rest.">Activation checkpointing</span></span>
+          <span class="badge-desc">Trade compute for memory — drop &amp; recompute activations in backward. Use <code>use_reentrant=False</code>. Selective policy = the transformer sweet spot.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: System design #1 -->
+    <div class="screen">
+      <h2 class="screen-heading">System Design #1: Train a 70B Model</h2>
+      <p><em>"Design distributed training for a 70B-parameter LLM on a cluster of 8-GPU nodes."</em> Here's the rubric a strong candidate hits:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Memory math first</strong>
+            <p>70B params &times; (2 bytes weights + 2 grads + 8 optimizer states for Adam) &asymp; 840&nbsp;GB — before activations. It cannot fit on one GPU. State this to justify sharding.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Compose parallelism on a DeviceMesh</strong>
+            <p><strong>TP intra-node</strong> (fast NVLink) shards matmuls within a layer; <strong>FSDP2 inter-node</strong> shards params/grads/optimizer state across hosts. This 2D mesh is the standard large-model recipe.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Memory techniques</strong>
+            <p>bf16 mixed precision, selective activation checkpointing, and <code>loss_parallel</code> to avoid gathering the vocab dimension. Add pipeline parallelism if still too large.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Placement rationale</strong>
+            <p>TP is communication-heavy and blocking &rarr; keep it on NVLink inside a node. FSDP collectives tolerate slower inter-node links. State this tradeoff explicitly — it's the point of the question.</p>
+          </div>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128200;</span>
+        <div class="callout-content">
+          <span class="callout-title">The colwise/rowwise idiom (bonus)</span>
+          <p>In TP, shard FFN <code>w1</code>/<code>w3</code> <strong>colwise</strong> and <code>w2</code> <strong>rowwise</strong> so the whole block costs exactly <strong>one all-reduce</strong> at the end instead of communicating between every matmul. Dropping this detail marks you as having actually done it.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: System design #2 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">System Design #2: Serve an LLM at Low Latency</h2>
+      <p><em>"Serve this model for real-time inference with tight p99 latency."</em> The rubric:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Ahead-of-time compile</strong>
+            <p>Use <code>torch.export</code> + <strong>AOTInductor</strong> to ship a prebuilt <code>.pt2</code> — no JIT warmup, ~ms first-token vs seconds for <code>torch.compile</code>'s first call. Deployment is the whole reason export exists.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Quantize for memory-bound decode</strong>
+            <p>LLM decode is memory-bandwidth bound. int4/int8 <strong>weight-only</strong> quantization (torchao <code>quantize_</code>) shrinks the dominant weight traffic with minimal accuracy loss. Pair with <code>torch.compile</code> for fused kernels.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Attention &amp; batching</strong>
+            <p>FlashAttention via SDPA; continuous/in-flight batching to keep the GPU saturated; KV-cache management (the real memory bottleneck at long context).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>CUDA graphs for launch overhead</strong>
+            <p>Small decode kernels are CPU-launch bound. <code>mode="reduce-overhead"</code> (CUDA graphs) or explicit capture removes per-kernel launch cost — but requires static shapes and no <code>.item()</code> syncs.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: custom autograd coding + quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Coding: A Custom autograd Function</h2>
+      <p>"Implement a custom backward." The modern pattern splits pure compute (<code>forward</code>) from context setup (<code>setup_context</code>):</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.autograd.Function</span>
+          <pre><code><span class="code-line"><span class="code-keyword">class</span> <span class="code-function">MyReLU</span>(Function):</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">forward</span>(x):</span>
+<span class="code-line">    <span class="code-keyword">return</span> x.clamp(min=<span class="code-number">0</span>)</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">setup_context</span>(ctx, inputs, output):</span>
+<span class="code-line">    ctx.save_for_backward(inputs[<span class="code-number">0</span>])</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">backward</span>(ctx, grad_out):</span>
+<span class="code-line">    x, = ctx.saved_tensors</span>
+<span class="code-line">    <span class="code-keyword">return</span> grad_out * (x &gt; <span class="code-number">0</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What they check</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>forward</strong> is pure compute, runs outside autograd.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>save_for_backward</strong>, not <code>ctx.x = x</code> — enables version tracking &amp; prompt freeing.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward returns one grad per forward input</strong>, order-matched.</div>
+            <div class="tl">Validate with <code>gradcheck</code> (use float64!).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quiz-container animate-in" id="quiz-m8">
+        <div class="quiz-question-block" data-correct="strides" data-explanation-right="Correct. If register_fake returns wrong strides/metadata, eager still works (real kernel runs) but under torch.compile/export the compiler propagates the fake metadata — assuming wrong strides — producing silently incorrect results or a stride assertion. opcheck catches it." data-explanation-wrong="The danger is under compile/export: the fake kernel's metadata (including strides) is what the compiler trusts. Wrong strides → silently wrong compiled output, even though eager runs fine.">
+          <p class="quiz-question">1. Your <code>register_fake</code> returns the wrong strides. Eager works. What breaks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="strides" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>torch.compile/export produce silently wrong results</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — the fake kernel is just documentation</span></button>
+            <button class="quiz-option" data-value="eager" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Eager mode immediately crashes</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="double" data-explanation-right="Correct. gradcheck compares your analytic backward to a finite-difference Jacobian; float32 round-off makes finite differences too noisy and causes false failures. Use torch.double." data-explanation-wrong="gradcheck needs float64: finite-difference gradients are too noisy in float32, causing false failures.">
+          <p class="quiz-question">2. Why run <code>gradcheck</code> with <code>dtype=torch.double</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="double" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Finite-difference gradients are too noisy in float32</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float64 is faster on GPU</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>autograd only supports float64</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed the bootcamp</span>
+          <p>Eight weeks: tensors and autograd, the training loop, data and reproducibility, blocks and transfer learning, mixed precision, <code>torch.compile</code> and distributed, and expert internals with system design. In an interview, always <strong>state the tradeoff, then the choice</strong> — that framing, more than any single API, is what earns the senior/staff signal.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; <code>torch.export</code> strict=False default since 2.7.<br>
+          &bull; FSDP2 <code>fully_shard</code> — FSDP1 is deprecated.<br>
+          &bull; Quantization lives in <strong>torchao</strong> (<code>quantize_</code>); <code>torch.ao.quantization</code> is legacy.<br>
+          &bull; <code>triton_op</code>/<code>wrap_triton</code> for composable Triton kernels (2.6+).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

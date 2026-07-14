@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vLLM &amp; Distributed Kernels: Interview Prep — A FAANG Bootcamp</title>
+  <meta name="description" content="A FAANG interview bootcamp for LLM inference and distributed GPU systems — PagedAttention, continuous batching, the vLLM V1 scheduler, collective communication, ring vs tree all-reduce, NCCL topology, and custom fused all-reduce kernels.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/vllm-distributed-kernels-interview/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="vLLM &amp; Distributed Kernels: Interview Prep">
+  <meta property="og:description" content="A FAANG interview bootcamp for LLM inference and distributed GPU systems — from PagedAttention to custom fused all-reduce kernels.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/vllm-distributed-kernels-interview/">
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #10A37F;
+      --color-accent-hover: #0B6E56;
+      --color-accent-light: #E2F5EF;
+      --color-accent-muted: #4FB89C;
+    }
+  </style>
+
+  <!-- MathJax for the ring all-reduce derivation -->
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['$$', '$$']] },
+      options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'] }
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js" defer></script>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">vLLM &amp; Distributed Kernels</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="PagedAttention" role="tab" aria-label="Module 1: PagedAttention & the KV Cache"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Continuous Batching" role="tab" aria-label="Module 2: Continuous Batching"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Scheduler" role="tab" aria-label="Module 3: The Scheduler & Memory Management"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Throughput vs Latency" role="tab" aria-label="Module 4: Throughput vs Latency"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Collective Primitives" role="tab" aria-label="Module 5: Collective Primitives"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="Ring vs Tree" role="tab" aria-label="Module 6: Collective Algorithms"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="NCCL & Overlap" role="tab" aria-label="Module 7: NCCL, Topology & Overlap"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Fused Kernels & Design" role="tab" aria-label="Module 8: Fused Comm Kernels & System Design"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 01</span>
+      <h1 class="module-title">PagedAttention &amp; the KV Cache</h1>
+      <p class="module-subtitle">The opening question of every LLM-inference interview: "why is serving memory-bound, and how does vLLM fix it?" If you can compute KV-cache size and explain paging in OS terms, you clear the bar.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Do you understand that the <strong>KV cache</strong> — not FLOPs — is the serving bottleneck? And that PagedAttention doesn't make attention <em>faster</em>, it makes memory <em>dense</em> so you can batch more sequences?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Why the KV Cache Dominates</h2>
+      <p>During autoregressive decoding, the model caches the <span class="term" data-definition="Key and Value tensors for every past token, stored so attention doesn't recompute over the whole sequence each step. It grows with sequence length and is the primary consumer of GPU memory during serving.">Key/Value tensors</span> of every past token so it doesn't recompute attention each step. This cache is large and <em>grows</em> as generation proceeds. Naive servers reserve a contiguous chunk sized to <code>max_len</code> per request — wasting <strong>60–80%</strong> of KV memory to fragmentation and over-reservation.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#129520;</div>
+          <div class="pattern-title">Internal fragmentation</div>
+          <p class="pattern-desc">Reserve for <code>max_len</code>, but the sequence ends early — the tail sits unused.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4);">
+          <div class="pattern-icon" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">&#129704;</div>
+          <div class="pattern-title">External fragmentation</div>
+          <p class="pattern-desc">Variable-sized contiguous reservations leave unusable gaps between allocations.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128230;</div>
+          <div class="pattern-title">Over-reservation</div>
+          <p class="pattern-desc">Space held for tokens not yet generated — reserved now, used maybe later.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: paging analogy -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">PagedAttention = OS Virtual Memory</h2>
+      <p>The core idea borrows straight from operating systems. Interviewers love the analogy — state it explicitly:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);">block &asymp; page</span>
+          <span class="badge-desc">KV cache is split into fixed-size <span class="term" data-definition="A fixed-size chunk of KV cache. vLLM V1's default block size for standard attention is 16 tokens. Blocks need not be physically contiguous in GPU memory.">blocks</span> (default <strong>16 tokens</strong>). Blocks need not be physically contiguous.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">block table &asymp; page table</span>
+          <span class="badge-desc">A per-sequence <span class="term" data-definition="A per-sequence map from logical block index to physical block location, exactly like an OS page table maps virtual pages to physical frames. Allocated on demand as the sequence grows.">block table</span> maps logical blocks &rarr; physical blocks, allocated on demand.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">waste &lt; 4%</span>
+          <span class="badge-desc">Waste now only occurs in the <strong>last partial block</strong> of each sequence — down from 60–80% to under 4%.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">Copy-on-write for shared prefixes</span>
+          <p>Because sequences reference physical blocks <em>through</em> the block table, parallel samples / beam branches sharing a prompt can point at the <strong>same</strong> physical blocks (ref-counted). On a divergent write, vLLM clones the block first — <strong>copy-on-write</strong>. This cut parallel-sampling memory by up to ~55% and lifted throughput up to ~2.2&times;.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: the memory math (coding/config) -->
+    <div class="screen">
+      <h2 class="screen-heading">The KV-Cache Formula — Know It Cold</h2>
+      <p>You <em>will</em> be asked to size a KV cache on a whiteboard. Here's the derivation:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Per-token KV bytes</span>
+          <pre><code><span class="code-line"><span class="code-comment"># 2 = Key AND Value</span></span>
+<span class="code-line">per_token = <span class="code-number">2</span> * n_layers * n_kv_heads</span>
+<span class="code-line">            * head_dim * dtype_bytes</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># Llama-3-8B, FP16, GQA:</span></span>
+<span class="code-line"><span class="code-comment"># 2 * 32 * 8 * 128 * 2 = 131072 B</span></span>
+<span class="code-line"><span class="code-comment"># = 128 KB / token</span></span>
+<span class="code-line"><span class="code-comment"># 2048-token ctx = ~256 MB / sequence</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What matters</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>The factor of 2</strong> — K and V both cached. Forgetting it halves your estimate.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>n_kv_heads, not n_attention_heads</strong> — GQA/MQA slashes this dramatically (8 KV heads vs 32 query heads here).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Num blocks</strong> &asymp; (gpu_mem &times; util &minus; weights &minus; activations) / per_block_bytes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: OOM at Startup</h2>
+      <p>A candidate's vLLM server refuses to start — "No available memory for the cache blocks." Click the misconfigured line.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Loading an 8B model on an 80GB GPU is fine."><code>llm = LLM(model="meta-llama/Llama-3.1-8B-Instruct",</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: gpu_memory_utilization=0.30 leaves almost nothing for the KV cache after weights (~16GB in FP16) and activations are subtracted. There's no room to allocate cache blocks, so startup fails. Raise it (default 0.9) — or if memory is genuinely tight, lower max_model_len / max_num_seqs instead."><code>&nbsp;&nbsp;gpu_memory_utilization=0.30,&nbsp;&nbsp;# too low!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="A 128K context is large but legal — the real issue is the memory budget above."><code>&nbsp;&nbsp;max_model_len=131072)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The mental model</span>
+          <p>KV blocks are carved from <code>gpu_memory &times; gpu_memory_utilization &minus; weights &minus; activations</code>. Set utilization <em>high</em> (0.9) to maximize cache; if you truly lack memory, shrink <code>max_model_len</code> or <code>max_num_seqs</code>, or add tensor parallelism — don't starve the cache.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m1">
+        <div class="quiz-question-block" data-correct="dense" data-explanation-right="Correct. PagedAttention doesn't speed the attention kernel — it eliminates contiguous over-reservation so memory is dense, letting you batch far more sequences. Higher batch → higher throughput." data-explanation-wrong="PagedAttention is a MEMORY technique. It makes KV memory dense (waste <4%) so more sequences fit and batch; it does not make the attention computation itself faster.">
+          <p class="quiz-question">1. What does PagedAttention actually improve?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes the attention kernel run faster</span></button>
+            <button class="quiz-option" data-value="dense" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It makes KV memory dense so you can batch more</span></button>
+            <button class="quiz-option" data-value="accuracy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It improves output quality</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="cow" data-explanation-right="Correct. Both sequences' block tables point at the same ref-counted physical blocks. On a divergent write, vLLM copies the block first (copy-on-write), so neither sequence corrupts the other." data-explanation-wrong="Shared prefixes use ref-counted physical blocks via the block tables; divergence triggers copy-on-write to clone the block before writing.">
+          <p class="quiz-question">2. Two sequences share a prompt prefix. How does vLLM avoid corruption when one diverges?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It duplicates the whole KV cache upfront</span></button>
+            <button class="quiz-option" data-value="cow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Ref-counted shared blocks + copy-on-write on divergence</span></button>
+            <button class="quiz-option" data-value="lock" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A mutex serializes writes to shared blocks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "How does GQA/MQA change your KV math?" — Fewer <code>n_kv_heads</code> → proportionally smaller cache; that's why modern models use it.<br>
+          &bull; "Why is serving memory-bound, not compute-bound?" — Decode reads the whole KV cache + weights per single token (low arithmetic intensity).<br>
+          &bull; "What's left to optimize inside a block?" — Only the final partial block wastes space now.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127909;</span>
+        <div class="callout-content">
+          <span class="callout-title">Want the animated version?</span>
+          <p>For a WebGL walkthrough of vLLM's parallelism dimensions, see <a href="/learn-ai/vllm-multi-gpu-scaling/">How vLLM Scales Across GPUs</a>. This course is the interview-drill companion.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 02</span>
+      <h1 class="module-title">Continuous Batching</h1>
+      <p class="module-subtitle">The other half of vLLM's throughput story. Interviewers want you to cleanly separate this <em>scheduling</em> technique from PagedAttention's <em>memory</em> technique — and explain why static batching is uniquely bad for LLMs.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you explain <strong>iteration-level scheduling</strong> and why output-length variance makes static batching waste the GPU? And do you keep continuous batching (scheduling) distinct from PagedAttention (memory)? They're complementary, not the same.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Static vs Continuous Batching</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#9203;</div>
+          <div class="pattern-title">Static batching</div>
+          <p class="pattern-desc">Group N requests, run to completion. Can't admit new work until the <strong>longest</strong> sequence finishes — short requests idle while one long generation runs. GPU starves.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128260;</div>
+          <div class="pattern-title"><span class="term" data-definition="Also called in-flight batching. The scheduler makes admit/evict decisions after every decode step (every generated token), so finished sequences are replaced immediately and the batch composition changes token-by-token.">Continuous batching</span></div>
+          <p class="pattern-desc">Schedule at the <strong>iteration level</strong>: after every decode step, evict finished sequences and admit waiting ones. The batch changes token-by-token, keeping the GPU saturated.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128202;</span>
+        <div class="callout-content">
+          <span class="callout-title">The headline numbers</span>
+          <p>vs HuggingFace Transformers: <strong>14–24&times;</strong> throughput. vs TGI: <strong>2.2–3.5&times;</strong>. This — combined with PagedAttention's dense memory letting more sequences fit — is where vLLM's throughput comes from.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: why LLMs specifically -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why Static Batching Is <em>Uniquely</em> Bad for LLMs</h2>
+      <p>The winning answer names the property: <strong>output lengths vary wildly and are unknown up front.</strong> One request generates 20 tokens, another 2,000 — and you can't tell which until it emits an end-of-sequence token.</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>Batch of 8 starts together</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>7 finish at token 50</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>1 runs to token 2000</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>7 slots idle for 1950 steps</p></div>
+      </div>
+      <p>Continuous batching refills those 7 slots the instant they free up — no waiting for the straggler.</p>
+    </div>
+
+    <!-- SCREEN 3: DnD -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Concept to Its Effect</h2>
+      <p>Drag each concept onto what it primarily delivers.</p>
+      <div class="dnd-container animate-in" id="dnd-m2">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="paged"><code>PagedAttention</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="cont"><code>Continuous batching</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="iter"><code>Iteration-level scheduling</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="static"><code>Static batching</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="paged">
+            <div class="dnd-zone-label">A memory technique: dense KV cache, waste &lt; 4%</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="cont">
+            <div class="dnd-zone-label">A scheduling technique: keeps the GPU saturated under length variance</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="iter">
+            <div class="dnd-zone-label">Admit/evict decision made every decode step</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="static">
+            <div class="dnd-zone-label">Batch held hostage by the longest sequence</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m2')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: config -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Two Knobs That Bound the Batch</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">vLLM config</span>
+          <pre><code><span class="code-line">LLM(model="...",</span>
+<span class="code-line">    max_num_seqs=<span class="code-number">256</span>,</span>
+<span class="code-line">    max_num_batched_tokens=<span class="code-number">16384</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What they cap</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>max_num_seqs</strong> — max concurrent sequences in the running batch.</div>
+            <div class="tl"><strong>max_num_batched_tokens</strong> — total token budget per forward step (bounds prefill + decode work).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m2">
+        <div class="quiz-question-block" data-correct="unknown" data-explanation-right="Correct. Output lengths vary hugely and aren't known until an EOS token appears, so a static batch is held hostage by its longest generation — most slots idle. That length uncertainty is what makes LLM serving different." data-explanation-wrong="The key property is that output lengths vary widely and are unknown in advance, so the longest sequence stalls the whole static batch.">
+          <p class="quiz-question">1. Why is static batching specifically bad for LLM decode?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="unknown" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Output lengths vary and are unknown; longest sequence stalls the batch</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>LLMs use too much memory to batch at all</span></button>
+            <button class="quiz-option" data-value="order" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tokens must be generated out of order</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="complement" data-explanation-right="Correct. PagedAttention is memory (dense KV cache → more sequences fit); continuous batching is scheduling (refill freed slots each step). They compose — neither is the other." data-explanation-wrong="They're complementary, not the same: PagedAttention is a memory technique, continuous batching is a scheduling technique. Conflating them is a common mistake.">
+          <p class="quiz-question">2. Relationship between PagedAttention and continuous batching?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They're two names for the same optimization</span></button>
+            <button class="quiz-option" data-value="complement" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Complementary: one is memory, one is scheduling</span></button>
+            <button class="quiz-option" data-value="exclusive" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Mutually exclusive — you pick one</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does continuous batching help latency?" — It boosts <em>throughput/utilization</em>; under heavy load individual-request latency can rise (queueing/preemption).<br>
+          &bull; "What refills a freed slot?" — The scheduler's waiting queue (Module 3).<br>
+          &bull; "Can prefill and decode share a batch?" — Yes, via chunked prefill (Module 3).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">The Scheduler &amp; Memory Management</h1>
+      <p class="module-subtitle">Where the vLLM V1 engine earns its throughput. Preemption, prefix caching, and chunked prefill are the "do you actually know the internals" questions — and the OOM-is-handled-by-preemption-not-failure insight.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That running out of KV cache triggers <strong>preemption, not a crash</strong>; the recompute-vs-swap tradeoff; and that prefix caching only speeds <strong>prefill</strong> while chunked prefill is the TTFT&harr;ITL knob.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Queues &amp; the Unified V1 Scheduler</h2>
+      <p>Requests live in a <strong>waiting</strong> queue and a <strong>running</strong> queue. The V1 scheduler is <span class="term" data-definition="V1 dropped V0's hard prefill-vs-decode split. Each step's decision is represented as a token-budget dict {request_id: num_tokens}, one abstraction that cleanly supports chunked prefill, prefix caching, and speculative decoding together.">unified</span>: it drops V0's hard prefill-vs-decode split and represents each step as a token-budget dict like <code>{request_id: num_tokens}</code>. Default policy prioritizes decodes, then fills the remaining token budget with (chunked) prefill.</p>
+    </div>
+
+    <!-- SCREEN 2: preemption -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Preemption: Recompute vs Swap</h2>
+      <p>Transformers are autoregressive, so KV demand <em>grows</em> mid-generation. When the cache fills, vLLM <strong>preempts</strong> running requests to free blocks and resumes them later — it does <em>not</em> fail the request.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128260;</div>
+          <div class="pattern-title"><span class="term" data-definition="V1's default preemption mode: drop the preempted request's KV blocks and recompute the prefix later. Prefill is cheap and parallel, so recompute is lower-overhead than copying in V1's design.">Recompute</span> (V1 default)</div>
+          <p class="pattern-desc">Drop the KV blocks; recompute the prefix on resume. Prefill is cheap/parallel, so this avoids the CPU&harr;GPU copy cost — lower overhead in V1.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128190;</div>
+          <div class="pattern-title"><span class="term" data-definition="Preemption mode that copies the preempted KV blocks to CPU RAM and swaps them back to GPU on resume, avoiding recomputation but paying PCIe transfer cost.">Swap</span></div>
+          <p class="pattern-desc">Copy KV blocks to CPU RAM, swap back on resume. Avoids recompute but pays the PCIe transfer both ways.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#128293;</span>
+        <div class="callout-content">
+          <span class="callout-title">The warning sign in production</span>
+          <p>Frequent <code>"...is preempted by PreemptionMode.RECOMPUTE... not enough KV cache space"</code> with a rising <code>total_cumulative_preemption_cnt</code> means thrashing. Mitigate: raise <code>gpu_memory_utilization</code>, lower <code>max_num_seqs</code>/<code>max_num_batched_tokens</code>, or add TP/PP.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Throughput Collapse Under Load</h2>
+      <p>A deployment runs fine at low load but throughput cratered when concurrency rose, with logs full of preemption messages. Click the root cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="A 70B model on the given hardware is reasonable."><code>llm = LLM(model="meta-llama/Llama-3.1-70B", tensor_parallel_size=4,</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: max_num_seqs=1024 admits far more concurrent sequences than the KV cache can hold. Under load, the scheduler constantly preempts (recompute) running requests to make room — thrashing. Each preempted request re-does its prefill, wasting compute. Lower max_num_seqs to what the cache actually fits; the preemption counter should drop toward zero."><code>&nbsp;&nbsp;max_num_seqs=1024)&nbsp;&nbsp;# admits more than the cache holds</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Sending requests concurrently is expected — the server should handle admission, and would if max_num_seqs were sane."><code>&nbsp;&nbsp;# 1000 concurrent requests hit the server</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: prefix caching + chunked prefill -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Two V1 Features Worth Naming</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Automatic Prefix Caching (APC): caches KV blocks of previous requests so a new request reusing the same prefix skips recomputing it. On by default in V1 with near-zero overhead (<1% throughput loss even at 0% hit rate), using O(1) hash + LRU eviction. Only speeds prefill.">Automatic prefix caching</span></span>
+          <span class="badge-desc">Reuse cached KV blocks for shared prefixes. <strong>On by default in V1</strong>, &lt;1% overhead even at 0% hit rate (O(1) hash + LRU eviction). Huge for multi-turn chat / long-doc Q&amp;A. <strong>Speeds prefill only.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Chunked prefill splits a long prompt's prefill into chunks and batches them with ongoing decodes within max_num_batched_tokens. Mixes compute-bound prefill with memory-bound decode for better utilization, and prevents a big prefill from stalling decodes (better ITL). On by default in V1.">Chunked prefill</span></span>
+          <span class="badge-desc">Split a long prompt's prefill into chunks, batched <em>with</em> ongoing decodes. Mixes compute-bound prefill + memory-bound decode. Smaller <code>max_num_batched_tokens</code> → better ITL; larger → better TTFT/throughput.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m3">
+        <div class="quiz-question-block" data-correct="recompute" data-explanation-right="Correct. V1 defaults to recompute: prefill is cheap and parallel, so recomputing the dropped prefix beats paying the CPU↔GPU copy cost that swap incurs." data-explanation-wrong="V1's default is recompute — prefill is cheap/parallel, so it's lower-overhead than swapping KV blocks to CPU and back.">
+          <p class="quiz-question">1. V1's default preemption mode, and why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="recompute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Recompute — prefill is cheap, avoids copy cost</span></button>
+            <button class="quiz-option" data-value="swap" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Swap — copying is always faster than recomputing</span></button>
+            <button class="quiz-option" data-value="fail" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It fails the request to protect the batch</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="prefill" data-explanation-right="Correct. Prefix caching reuses previously-computed KV blocks, which only saves the prefill (prompt-processing) phase. Decode still generates token-by-token and gets no help from it." data-explanation-wrong="Prefix caching only accelerates the prefill phase — it reuses prompt KV blocks. Decode is unaffected.">
+          <p class="quiz-question">2. Automatic prefix caching speeds up which phase?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="prefill" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prefill only</span></button>
+            <button class="quiz-option" data-value="decode" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode only</span></button>
+            <button class="quiz-option" data-value="both" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Both equally</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why is APC safe to leave on at 0% hit rate?" — O(1) hash/eviction structures make overhead &lt;1%.<br>
+          &bull; "Multi-tenant prefix-cache isolation?" — Use <code>cache_salt</code> and a crypto hash (sha256) to prevent cross-tenant collisions.<br>
+          &bull; "How does chunked prefill improve ITL?" — It caps prefill tokens per step and co-schedules decodes, so a giant prompt can't monopolize a forward pass.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Throughput vs Latency &mdash; Serving System Design</h1>
+      <p class="module-subtitle">The system-design half of the vLLM interview. Everything flows from one roofline insight: prefill is compute-bound, decode is memory-bandwidth-bound. Get that, and disaggregation and speculative decoding fall out naturally.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The roofline framing — <strong>prefill compute-bound, decode memory-bound</strong> — and whether you can name the right latency metric (TTFT vs ITL) and the right lever (disaggregation shapes latency, it does <em>not</em> raise throughput).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Two Phases, Two Metrics</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#9889;</div>
+          <div class="pattern-title"><span class="term" data-definition="Prefill processes the entire prompt in one parallel forward pass and produces the first token. Big matmuls, high FLOPs, good GPU utilization — compute-bound. Dominates Time To First Token.">Prefill</span> &rarr; TTFT</div>
+          <p class="pattern-desc">Whole prompt in one parallel pass → first token. Big matmuls, high arithmetic intensity → <strong>compute-bound</strong>. Determines <span class="term" data-definition="Time To First Token — how long until the user sees the first generated token. Dominated by the prefill phase.">TTFT</span>.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="Decode generates tokens one at a time; each step re-reads all weights plus the KV cache for a single token. Low arithmetic intensity → memory-bandwidth-bound. Determines inter-token latency.">Decode</span> &rarr; ITL/TPOT</div>
+          <p class="pattern-desc">One token at a time, re-reading all weights + KV per token. Low arithmetic intensity → <strong>memory-bandwidth-bound</strong>. Determines <span class="term" data-definition="Inter-Token Latency / Time Per Output Token — the delay between generated tokens during decode. Governed by memory bandwidth.">ITL / TPOT</span>.</p>
+        </div>
+      </div>
+      <p>Because the two phases stress different resources, batching them together (chunked prefill) improves utilization — but they also compete, which is the core throughput&harr;latency tension.</p>
+    </div>
+
+    <!-- SCREEN 2: system design #1 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">System Design: A Low-Latency LLM Serving Stack</h2>
+      <p><em>"Serve this model for real-time chat with tight p99 TTFT and ITL SLOs."</em> The rubric a strong candidate hits:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>State the two SLOs separately</strong>
+            <p>TTFT (prefill-bound) and ITL (decode-bound) pull in different directions. Name both up front — a single "latency" number hides the real tradeoff.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Tune the batch knob for ITL</strong>
+            <p>Smaller <code>max_num_batched_tokens</code> → fewer/smaller prefills stalling decodes → better ITL. Larger → better TTFT/throughput. This is your first dial.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Disaggregate prefill &amp; decode</strong>
+            <p>Run prefill and decode on separate instances; a connector transfers the KV cache. Now TTFT and ITL are tuned <em>independently</em> and prefill spikes can't bleed into ongoing decodes (tail-ITL control).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Add speculative decoding for ITL</strong>
+            <p>In the memory-bound decode regime, a cheap proposer + parallel verification cuts ITL — <em>if</em> QPS is low-to-medium. At high QPS the batch is already compute-saturated and it can hurt.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: disaggregation -->
+    <div class="screen">
+      <h2 class="screen-heading">Disaggregated Serving — a Latency Lever, Not a Throughput One</h2>
+      <p>Split prefill and decode across instances; a <span class="term" data-definition="An abstraction that transfers KV cache between a prefill instance and a decode instance in disaggregated serving. vLLM exposes Connector / LookupBuffer / Pipe abstractions, e.g. the NIXL connector.">KV connector</span> moves the cache between them.</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">The three things it buys you</span>
+          <p>&bull; Tune TTFT and ITL <strong>independently</strong> (each instance gets its own TP/PP).<br>
+          &bull; Control <strong>tail ITL</strong> — prefill work can't spike into ongoing decodes.<br>
+          &bull; It does <strong>not</strong> increase throughput — it's an SLO/latency-shaping tool. Saying otherwise is the classic wrong answer.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">KV transfer config</span>
+          <pre><code><span class="code-line">--kv-transfer-config '{</span>
+<span class="code-line">  "kv_connector": "NixlConnector",</span>
+<span class="code-line">  "kv_role": "kv_both",</span>
+<span class="code-line">  "kv_buffer_device": "cuda"}'</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Abstractions</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Connector</strong> orchestrates the transfer.</div>
+            <div class="tl"><strong>LookupBuffer</strong> — insert (non-blocking) / drop_select (blocking).</div>
+            <div class="tl"><strong>Pipe</strong> — send_tensor / recv_tensor.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Roofline Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m4">
+        <div class="quiz-question-block" data-correct="reread" data-explanation-right="Correct. Decode generates one token at a time, re-reading all weights + KV cache per token — very low arithmetic intensity, so it's bottlenecked by memory bandwidth, not FLOPs. Prefill's big parallel matmuls are the opposite." data-explanation-wrong="Decode re-reads all weights + KV for a single token each step → low arithmetic intensity → memory-bandwidth-bound. Prefill is the compute-bound one.">
+          <p class="quiz-question">1. Why is decode memory-bound while prefill is compute-bound?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="reread" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode re-reads all weights+KV per single token (low intensity)</span></button>
+            <button class="quiz-option" data-value="bigger" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode does bigger matmuls than prefill</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prefill never touches the KV cache</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="highqps" data-explanation-right="Correct. At high QPS the batch is already compute-saturated, so parallel verification of speculative tokens adds work without saving latency — and low acceptance makes it worse. Speculative decoding wins in the low/medium-QPS memory-bound regime." data-explanation-wrong="Speculative decoding backfires at high QPS: the GPU is already compute-bound, so verification overhead adds cost rather than hiding latency.">
+          <p class="quiz-question">2. When does speculative decoding backfire?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="highqps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At high QPS — the batch is already compute-saturated</span></button>
+            <button class="quiz-option" data-value="lowqps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At low QPS — there's nothing to verify</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never — it's lossless so always helps</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: spec decode -->
+    <div class="screen">
+      <h2 class="screen-heading">Speculative Decoding in One Screen</h2>
+      <p>A cheap <span class="term" data-definition="In speculative decoding, a small/cheap model or heuristic that guesses several future tokens. The target model then verifies all of them in a single parallel forward pass. Theoretically lossless up to numerical precision.">proposer</span> guesses several future tokens; the target model verifies them all in one parallel forward pass. Accepted tokens skip sequential decode steps → lower ITL. It's <strong>lossless</strong> up to numeric precision.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">draft_model</span>
+          <span class="badge-desc">A separate small model proposes. Biggest speedup, but you host a second model.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">ngram / prompt-lookup</span>
+          <span class="badge-desc">Cheap; matches repeated patterns in the prompt. Great for summarization/RAG.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">EAGLE / MTP</span>
+          <span class="badge-desc">Model-based auxiliary heads (EAGLE3), or native multi-token prediction when the target supports it.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does disaggregation raise throughput?" — No; it independently shapes TTFT/tail-ITL.<br>
+          &bull; "Is speculative decoding lossy?" — No, lossless up to hardware precision.<br>
+          &bull; "One knob for TTFT vs ITL?" — <code>max_num_batched_tokens</code>: smaller favors ITL, larger favors TTFT/throughput.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 05</span>
+      <h1 class="module-title">Collective Communication Primitives</h1>
+      <p class="module-subtitle">The distributed half begins. Every parallelism strategy is really a choice of collective. If you can map DDP/FSDP/TP/MoE to their primitives on demand — and recite the two all-reduce identities — you own this round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That collectives must be called <strong>symmetrically</strong> (same order, same shape) on all ranks — mismatched calls are the #1 cause of hangs — and that you can name which primitive each training strategy uses.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Six Primitives</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Reduce (sum/max/…) across all ranks, with the result placed on EVERY rank. Bus-bandwidth factor 2(N-1)/N. Used by DDP (gradient averaging) and tensor parallelism.">AllReduce</span></span>
+          <span class="badge-desc">Reduce, result on <strong>every</strong> rank. K → K identical everywhere. Factor 2(N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="Reduce across ranks, then scatter chunks so rank i keeps only chunk i of the reduced result. Output is K/N per rank. Factor (N-1)/N. Used by FSDP for gradients.">ReduceScatter</span></span>
+          <span class="badge-desc">Reduce, then scatter: rank i keeps chunk i. K → K/N. Factor (N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Concatenate every rank's data so all ranks end up with the full ordered result. Input K/N per rank → output K. Factor (N-1)/N. Used by FSDP to materialize full params before compute.">AllGather</span></span>
+          <span class="badge-desc">Concatenate all ranks' shards. K/N → K, ordered by rank. Factor (N&minus;1)/N.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="A distributed transpose: rank i's j-th block is sent to rank j. Each rank sends a distinct block to every other rank. Factor (N-1)/N. Used by MoE for expert dispatch/combine.">All-to-All</span></span>
+          <span class="badge-desc">Distributed transpose: rank i's block j → rank j. Used for MoE dispatch/combine.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">Broadcast</span>
+          <span class="badge-desc">Copy root's buffer to all. Factor 1 (root is the bottleneck).</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-text-secondary);">Reduce</span>
+          <span class="badge-desc">Reduce to the root <em>only</em>. Factor 1.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128273;</span>
+        <div class="callout-content">
+          <span class="callout-title">The two identities interviewers love</span>
+          <p><strong>AllReduce = ReduceScatter + AllGather</strong> (this is how ring all-reduce is built — Module 6).<br>
+          <strong>AllReduce = Reduce + Broadcast</strong> (the naive/tree-ish view).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: which parallelism -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Which Parallelism Uses Which</h2>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">D</div>
+          <div class="step-body">
+            <strong>DDP → all-reduce</strong>
+            <p>Every replica holds the full model; gradients are averaged with one all-reduce (effectively AVG) per step.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">F</div>
+          <div class="step-body">
+            <strong>FSDP / ZeRO-3 → reduce-scatter + all-gather</strong>
+            <p>Reduce-scatter gradients (keep your shard), all-gather params to materialize full weights just-in-time. Exactly the all-reduce decomposition, split across the step.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">T</div>
+          <div class="step-body">
+            <strong>Tensor Parallel → all-reduce</strong>
+            <p>Exactly one all-reduce in forward and one in backward, per transformer block (Module 8 derives why).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">M</div>
+          <div class="step-body">
+            <strong>MoE → all-to-all</strong>
+            <p>Tokens are routed to the ranks holding their chosen experts (dispatch), then combined back — two all-to-alls. Summing would be semantically wrong.</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top: var(--space-4);"><em>Pipeline parallel uses point-to-point <code>send</code>/<code>recv</code>, not a collective — it passes activations between stages.</em></p>
+    </div>
+
+    <!-- SCREEN 3: DnD -->
+    <div class="screen">
+      <h2 class="screen-heading">Match the Strategy to Its Collective</h2>
+      <div class="dnd-container animate-in" id="dnd-m5">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="allreduce"><code>all-reduce</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="rs-ag"><code>reduce-scatter + all-gather</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="a2a"><code>all-to-all</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="p2p"><code>send / recv</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="allreduce">
+            <div class="dnd-zone-label">DDP gradient averaging (also TP per block)</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="rs-ag">
+            <div class="dnd-zone-label">FSDP / ZeRO-3 gradients &amp; params</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="a2a">
+            <div class="dnd-zone-label">MoE expert dispatch &amp; combine</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="p2p">
+            <div class="dnd-zone-label">Pipeline parallel activation passing</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m5')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: code -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The PyTorch API</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.distributed</span>
+          <pre><code><span class="code-line"><span class="code-keyword">import</span> torch.distributed <span class="code-keyword">as</span> dist</span>
+<span class="code-line">dist.init_process_group(<span class="code-string">"nccl"</span>)  <span class="code-comment"># CUDA</span></span>
+<span class="code-line">rank = dist.get_rank()</span>
+<span class="code-line">x = torch.ones(<span class="code-number">4</span>, device=<span class="code-string">f"cuda:{rank}"</span>) * rank</span>
+<span class="code-line"></span>
+<span class="code-line">dist.all_reduce(x, op=dist.ReduceOp.SUM)</span>
+<span class="code-line"><span class="code-comment"># contiguous variants (faster):</span></span>
+<span class="code-line"><span class="code-comment"># dist.reduce_scatter_tensor(out, inp)</span></span>
+<span class="code-line"><span class="code-comment"># dist.all_gather_into_tensor(out, inp)</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Notes</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Backend:</strong> NCCL for CUDA. Gloo is CPU-only and does <em>not</em> support all-to-all.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ReduceOp:</strong> SUM, PRODUCT, MIN, MAX, AVG (AVG is NCCL-specific).</div>
+            <div class="tl"><strong>Same call, same shape, same order</strong> on every rank — or it hangs.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m5">
+        <div class="quiz-question-block" data-correct="rsag" data-explanation-right="Correct. all-reduce = reduce-scatter + all-gather. FSDP uses exactly this split so it never has to materialize the full averaged gradient on any single rank — each rank reduces and keeps only its shard." data-explanation-wrong="all-reduce decomposes into reduce-scatter followed by all-gather; FSDP uses this split to avoid ever holding the full gradient on one rank.">
+          <p class="quiz-question">1. Every GPU needs the averaged gradient. Which primitive, and its decomposition?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="rsag" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-reduce = reduce-scatter + all-gather</span></button>
+            <button class="quiz-option" data-value="bcast" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>broadcast from rank 0</span></button>
+            <button class="quiz-option" data-value="a2a" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-to-all across ranks</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="route" data-explanation-right="Correct. MoE routes each token to a SPECIFIC rank holding its chosen expert — a distributed transpose (all-to-all), not a sum. All-reduce would sum across ranks, which is semantically wrong for routing." data-explanation-wrong="Experts are sharded across ranks; each token must be routed to a specific destination rank. That's all-to-all (a transpose), not all-reduce (a sum).">
+          <p class="quiz-question">2. Why does MoE use all-to-all rather than all-reduce?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="route" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tokens must be routed to specific ranks, not summed</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-to-all is just a faster all-reduce</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>all-reduce uses too much memory for MoE</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "What happens if ranks call collectives in different order?" — Hang, crash, or silent corruption (undefined behavior).<br>
+          &bull; "Broadcast vs all-gather?" — Broadcast copies one rank's buffer to all; all-gather concatenates <em>every</em> rank's distinct shard.<br>
+          &bull; "Reduce vs all-reduce?" — Reduce leaves the result on the root only.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 06</span>
+      <h1 class="module-title">Collective Algorithms: Ring vs Tree</h1>
+      <p class="module-subtitle">The whiteboard-derivation module. Interviewers ask you to derive ring all-reduce's <code>2(N&minus;1)/N</code> data volume and explain why it's bandwidth-optimal but latency-linear — and when tree wins instead.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you <em>derive</em> the ring all-reduce cost (not just recite "ring is fast"), explain its N-independence in bandwidth, and reason about the latency-vs-bandwidth flip that makes tree win for small messages / large N?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Ring All-Reduce — Two Phases</h2>
+      <p>Split the K-element buffer into N chunks. Arrange the N GPUs in a ring. Two phases, each N&minus;1 steps:</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p><span class="term" data-definition="Phase 1 of ring all-reduce: over N-1 steps, each GPU sends a chunk to its right neighbor, receives from the left, and accumulates (adds). After N-1 steps each GPU owns one fully-reduced chunk.">Scatter-reduce</span>: send-right, receive-left, <strong>accumulate</strong>. After N&minus;1 steps each GPU owns one fully-reduced chunk.</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p><span class="term" data-definition="Phase 2 of ring all-reduce: same ring motion but OVERWRITE instead of add, propagating each finished chunk around the ring. After N-1 steps every GPU has the complete result.">All-gather</span>: same ring motion but <strong>overwrite</strong>. After N&minus;1 steps everyone has the full result.</p></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat — ring narration -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch a 4-GPU Ring All-Reduce</h2>
+      <p>Step through the scatter-reduce phase across 4 ranks — this is the narration to give on a whiteboard.</p>
+      <div class="chat-window animate-in" id="chat-m6">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Setup" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-3);">&#9881;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-3);">Setup</span>
+              <p>4 GPUs in a ring. Each buffer split into 4 chunks (c0..c3). Goal: every GPU ends with the sum of all four GPUs' buffers.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="GPU0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">GPU 0</span>
+              <p>Step 1: I send my chunk c0 to GPU 1, and receive c3 from GPU 3. I <em>add</em> the incoming c3 to my own c3. I'm accumulating, not overwriting.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="GPU1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">1</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">GPU 1</span>
+              <p>Same motion, shifted. Every GPU sends one chunk right, accumulates one from the left, each step. Only K/N bytes cross any link per step.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Ring" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">&#8635;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">After N&minus;1 = 3 steps</div>
+              <p>Each GPU now owns exactly one fully-summed chunk. Scatter-reduce done. Now the all-gather phase repeats the ring motion, but overwriting, to spread each finished chunk to everyone.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Cost" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">&#931;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">The cost</span>
+              <p>Per GPU: 2 phases &times; (N&minus;1) steps &times; K/N bytes = <strong>2(N&minus;1)K/N</strong>. As N grows, that → 2K — independent of GPU count. Only the latency (number of hops) grows with N.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: the formula -->
+    <div class="screen">
+      <h2 class="screen-heading">The Formula to Memorize</h2>
+      <p>Data moved per GPU in ring all-reduce:</p>
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#128202;</span>
+        <div class="callout-content">
+          <span class="callout-title">$$\text{data per GPU} = 2\,(N-1)\,\frac{K}{N} \;\xrightarrow{N \to \infty}\; 2K$$</span>
+          <p>The <strong>2</strong> = two phases (scatter-reduce + all-gather). <strong>(N&minus;1)</strong> = steps per phase. <strong>K/N</strong> = chunk size. The product is <em>bounded by ~2K regardless of N</em> — that's what "bandwidth-optimal" means. Throughput is limited only by the slowest adjacent link.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9201;</span>
+        <div class="callout-content">
+          <span class="callout-title">The catch: latency is linear in N</span>
+          <p>You traverse the ring, so you pay ~2(N&minus;1) serial hops of startup latency. Fine for hundreds of GPUs; it breaks down at thousands.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: tree -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Tree All-Reduce — Latency-Optimal</h2>
+      <p>Reduce up a tree to a root, broadcast back down: latency is <strong>logarithmic</strong> in N. A naive single binary tree wastes bandwidth (leaves only send or only receive), so NCCL 2.4+ uses <span class="term" data-definition="NCCL's technique: build two complementary binary trees where leaves and internal nodes swap roles, running each tree on half the data. Achieves ring-like bandwidth AND logarithmic latency. Reported up to 180x latency improvement at 24,576 GPUs vs ring.">double binary trees</span> — ring-like bandwidth <em>and</em> log-N latency.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#8635;</div>
+          <div class="pattern-title">Ring: large messages</div>
+          <p class="pattern-desc">Bandwidth-bound regime. Saturates links; O(N) latency is amortized over big transfers.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127795;</div>
+          <div class="pattern-title">Tree: small messages / large N</div>
+          <p class="pattern-desc">Latency-bound regime. log(N) hops beat linear N. NCCL <strong>auto-switches</strong> — you don't hand-tune it, but you should know why.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">The Derivation Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m6">
+        <div class="quiz-question-block" data-correct="cancel" data-explanation-right="Correct. More GPUs means more steps (N-1) but proportionally smaller chunks (K/N) — they cancel, so per-GPU bytes converge to 2K. Only the number of serial hops (latency) grows with N." data-explanation-wrong="The steps (N-1) and chunk size (K/N) cancel as N grows, so per-GPU data → 2K, independent of N. Latency (hop count) is what grows.">
+          <p class="quiz-question">1. Why is ring all-reduce's per-GPU data volume ~independent of N?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="cancel" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>More steps but smaller chunks — (N&minus;1) and K/N cancel</span></button>
+            <button class="quiz-option" data-value="compress" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The data is compressed as N grows</span></button>
+            <button class="quiz-option" data-value="wrong" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It isn't — it scales linearly with N</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="tree" data-explanation-right="Correct. A 4 KB tensor across 512 GPUs is latency-bound: ring's O(N) hop latency dominates while its bandwidth edge is irrelevant at tiny sizes. Tree's log(N) latency wins. (For a 1 GB bucket, ring wins.)" data-explanation-wrong="Small message + large N = latency-bound → tree (log N latency) beats ring (linear N latency). Ring only wins for large, bandwidth-bound messages.">
+          <p class="quiz-question">2. All-reducing a 4 KB tensor across 512 GPUs — ring or tree?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="tree" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Tree — it's latency-bound at this size/scale</span></button>
+            <button class="quiz-option" data-value="ring" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Ring — always bandwidth-optimal</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Identical at this size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Cost model?" — Ring: <code>2(N&minus;1)&alpha; + 2(N&minus;1)/N&middot;K&beta;</code>; tree: <code>2&middot;log&#8322;(N)&middot;&alpha; + bandwidth term</code> (&alpha;=per-hop latency, &beta;=inverse bandwidth).<br>
+          &bull; "Who chooses ring vs tree?" — NCCL, adaptively by message size and world size.<br>
+          &bull; "Where does the '2' come from?" — The two phases: scatter-reduce then all-gather.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 07</span>
+      <h1 class="module-title">NCCL, Topology &amp; Compute/Comm Overlap</h1>
+      <p class="module-subtitle">The hardware-reality module. Bus vs algorithm bandwidth, the NVLink/PCIe/InfiniBand hierarchy, and DDP gradient bucketing — plus the roofline test for when communication is your bottleneck.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That "bandwidth" is ambiguous — <strong>bus bandwidth</strong> is what you compare to hardware peak — and that overlap needs <em>independent</em> compute to hide behind. Topology awareness (inter-node IB is the bottleneck) is the senior signal.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Interconnect Hierarchy</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128279;</div>
+          <div class="pattern-title"><span class="term" data-definition="NVLink/NVSwitch: the highest-bandwidth, lowest-latency intra-node GPU interconnect. NVLink 4 (H100) is ~900 GB/s aggregate per GPU. Tensor parallelism belongs here.">NVLink</span> (intra-node)</div>
+          <p class="pattern-desc">Hundreds of GB/s per pair; H100 NVLink 4 ~900 GB/s aggregate/GPU. Highest bandwidth, lowest latency. <strong>Put TP here.</strong></p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-4);">
+          <div class="pattern-icon" style="background: rgba(212,168,67,0.1); color: var(--color-actor-4);">&#128268;</div>
+          <div class="pattern-title">PCIe (intra-node fallback)</div>
+          <p class="pattern-desc">Gen4 x16 ~32 GB/s, Gen5 ~64 GB/s. An order of magnitude slower than NVLink.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#127760;</div>
+          <div class="pattern-title"><span class="term" data-definition="InfiniBand / RoCE: the inter-node network. NDR 400 Gb/s ≈ 50 GB/s per NIC. With GPUDirect RDMA the NIC DMAs straight to GPU memory, bypassing the host CPU bounce.">InfiniBand</span> (inter-node)</div>
+          <p class="pattern-desc">NDR 400 Gb/s &asymp; 50 GB/s/NIC. GPUDirect RDMA lets the NIC hit GPU memory directly. <strong>~10–20&times; slower than NVLink.</strong></p>
+        </div>
+      </div>
+      <p>Implication: hierarchical collectives (reduce-scatter within node → all-reduce across nodes → all-gather within node) keep bulk traffic on NVLink.</p>
+    </div>
+
+    <!-- SCREEN 2: bus vs algo bandwidth -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Bus Bandwidth vs Algorithm Bandwidth</h2>
+      <p>A favorite "did you actually run nccl-tests" question. The two are <em>not</em> the same:</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="algbw = message_size / time. Simple, but its theoretical peak changes with rank count, so it can't be compared to a fixed hardware number.">algbw</span> = S / t</span>
+          <span class="badge-desc">Simple, but its peak <em>changes with rank count</em> — doesn't map to hardware.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);"><span class="term" data-definition="busbw = algbw × collective-specific factor (e.g. 2(N-1)/N for all-reduce). The factor cancels rank-count dependence so busbw reflects actual link utilization and is comparable across N and against hardware peak.">busbw</span> = algbw &times; factor</span>
+          <span class="badge-desc">Factor cancels the rank-count dependence → reflects real link utilization. <strong>This is what you compare to NVLink peak.</strong></span>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128200;</span>
+        <div class="callout-content">
+          <span class="callout-title">Worked number</span>
+          <p>1 GB all-reduce over 8 GPUs, measured algbw = 100 GB/s. Factor = 2(N&minus;1)/N = 2&times;7/8 = 1.75. So <strong>busbw = 175 GB/s</strong> — that's what you judge against the NVLink peak, not the 100. Factors: all-reduce 2(N&minus;1)/N; reduce-scatter/all-gather/all-to-all (N&minus;1)/N; broadcast/reduce = 1.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: DDP bucketing + overlap -->
+    <div class="screen">
+      <h2 class="screen-heading">Overlapping Compute &amp; Communication</h2>
+      <p>DDP's canonical trick: <span class="term" data-definition="DDP's Reducer groups gradients into buckets (~bucket_cap_mb, default 25 MB) in reverse parameter order. When a whole bucket is ready, it fires an async all-reduce on it while backward keeps computing earlier layers — overlapping communication with compute.">gradient bucketing</span>. The Reducer groups gradients into buckets in <em>reverse</em> parameter order and fires an async all-reduce as soon as each bucket fills — while backward keeps computing earlier layers.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Async collective + overlap</span>
+          <pre><code><span class="code-line">work = dist.all_reduce(</span>
+<span class="code-line">    bucket, async_op=<span class="code-keyword">True</span>)</span>
+<span class="code-line"><span class="code-comment"># ... independent compute overlaps ...</span></span>
+<span class="code-line">work.wait()  <span class="code-comment"># CUDA: stream dep, not CPU block</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why reverse order</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Backward produces gradients last-layer-first.</strong> Reverse bucketing means the first buckets to fill are the last layers — their all-reduce launches immediately and overlaps with earlier-layer backward.</div>
+            <div class="tl"><strong>Launch in bucket-index order</strong> on all ranks, not ready order, or you desync.</div>
+            <div class="tl"><strong>work.wait()</strong> on CUDA inserts a stream dependency, so main-stream compute keeps overlapping.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Throughput Collapse at Scale</h2>
+      <p>A model runs 8-GPU TP fine on one node. Scaling TP to 16 across two nodes tanks throughput. Click the design mistake.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Two 8-GPU nodes is a reasonable cluster."><code># 2 nodes, 8 GPUs each, connected by InfiniBand</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: tensor_parallel_size=16 spans BOTH nodes, so TP's heavy per-layer all-reduce now crosses the ~10-20x slower inter-node InfiniBand link every layer. TP is blocking and on the critical path — it needs NVLink. Fix: keep TP=8 (intra-node, on NVLink) and use pipeline_parallel_size=2 across nodes, which communicates far less."><code>llm = LLM(model=..., tensor_parallel_size=16)&nbsp;&nbsp;# TP across nodes!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Requests arriving is expected load — the placement above is the real problem."><code># TP all-reduce fires every transformer layer</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The rule</span>
+          <p><strong>TP = GPUs per node (NVLink); PP = number of nodes (slow link).</strong> TP's all-reduce is heavy and per-layer, so it must stay on the fast intra-node fabric. Pipeline parallel passes only activations between stages — cheap enough for inter-node.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m7">
+        <div class="quiz-question-block" data-correct="lastfirst" data-explanation-right="Correct. Backward computes gradients last-layer-first. Reverse-order buckets fill in that same order, so the earliest-ready bucket's all-reduce can launch immediately and overlap with the still-running earlier-layer backward." data-explanation-wrong="Backward produces gradients last-layer-first; reverse bucketing aligns bucket-fill order with gradient-ready order, maximizing overlap of comm with the remaining backward compute.">
+          <p class="quiz-question">1. Why does DDP bucket gradients in <em>reverse</em> parameter order?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="lastfirst" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Backward yields grads last-layer-first → earliest buckets overlap soonest</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>To save memory on the last layers</span></button>
+            <button class="quiz-option" data-value="random" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Order doesn't matter, it's arbitrary</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="commbound" data-explanation-right="Correct. Convert algbw to busbw and compare to link peak; if t_comm > t_compute you're comm-bound (inter-node IB + O(N) ring latency). Fixes: gradient accumulation, hierarchical/tree all-reduce, bf16/fp8 grads, bigger buckets." data-explanation-wrong="At 512 GPUs the all-reduce spans slow inter-node IB and ring latency grows with N, so comm time exceeds compute time — comm-bound. Reduce bytes or increase compute per step.">
+          <p class="quiz-question">2. DDP throughput/GPU collapses going 8 → 512 GPUs. Diagnosis?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="commbound" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Comm-bound: t_comm &gt; t_compute over slow inter-node links</span></button>
+            <button class="quiz-option" data-value="cpu" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The CPU can't launch kernels fast enough</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You ran out of GPU memory</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Roofline test for comm bottleneck?" — Compare <code>t_comm = bytes/busbw</code> vs <code>t_compute = FLOPs/peak</code>; if comm &gt; compute, overlap can't hide it.<br>
+          &bull; "What is GPUDirect RDMA?" — NIC DMAs straight to GPU memory, skipping the host bounce.<br>
+          &bull; "Does async_op=True block the CPU?" — On CUDA, <code>wait()</code> is a stream dependency, not a CPU block.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 08</span>
+      <h1 class="module-title">Custom Fused Comm Kernels &amp; System Design</h1>
+      <p class="module-subtitle">The staff-level capstone. Derive the one-all-reduce-per-block TP pattern, know why one-shot/two-shot fused kernels beat NCCL for small TP messages, then tie the whole course together in an MoE serving design.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you <em>derive</em> (not recite) the colwise→rowwise TP pattern that yields exactly one all-reduce per block? And do you know TP all-reduce is <strong>on the critical path and can't overlap</strong> — which is why fused one-shot kernels exist?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Tensor Parallelism: One All-Reduce Per Block</h2>
+      <p>The MLP is <code>Y = GeLU(X&middot;A)&middot;B</code>. The trick is sharding the two matmuls so no communication is needed <em>between</em> them:</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Megatron sharding</span>
+          <pre><code><span class="code-line"><span class="code-comment"># A split COLUMN-wise: A = [A1, A2]</span></span>
+<span class="code-line">Y1_half = <span class="code-function">GeLU</span>(X @ A1)  <span class="code-comment"># local</span></span>
+<span class="code-line">Y2_half = <span class="code-function">GeLU</span>(X @ A2)  <span class="code-comment"># local</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment"># B split ROW-wise: B = [B1; B2]</span></span>
+<span class="code-line">Z1 = Y1_half @ B1</span>
+<span class="code-line">Z2 = Y2_half @ B2</span>
+<span class="code-line">Y  = <span class="code-function">all_reduce</span>(Z1 + Z2)  <span class="code-comment"># ONE all-reduce</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why it works</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Column-split A</strong> → GeLU is elementwise, applies independently per shard. <em>No comm needed.</em></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Row-split B</strong> → each rank produces a partial sum of the full output.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>One all-reduce</strong> sums the partials. Reversing the order (row-then-col) would force an extra all-reduce <em>between</em> the matmuls.</div>
+          </div>
+        </div>
+      </div>
+      <p>Net: the conjugate operators <strong>f</strong> (identity fwd / all-reduce bwd) and <strong>g</strong> (all-reduce fwd / identity bwd) give <strong>one all-reduce in forward, one in backward, per block</strong>. Attention is analogous: QKV projection column-parallel, output projection row-parallel.</p>
+    </div>
+
+    <!-- SCREEN 2: one-shot vs two-shot -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Why NCCL Isn't Enough for TP</h2>
+      <p>TP all-reduce messages are <strong>small, latency-bound, and on the critical path</strong> — the next matmul needs the result, so they <em>can't</em> overlap (unlike DDP). NCCL ring is suboptimal here. <span class="term" data-definition="PyTorch's torch.distributed._symmetric_memory (alpha) exposes peers' GPU memory directly over NVLink, letting you write custom fused collectives that read peer buffers. Enables one-shot and two-shot all-reduce and CUDA/Triton kernels that fuse communication with compute.">SymmetricMemory</span> exposes peers' GPU memory directly so you can write custom fused kernels.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#9889;</div>
+          <div class="pattern-title"><span class="term" data-definition="One-shot all-reduce: every rank reads ALL peers' buffers directly over NVLink and reduces locally — about one round trip, lowest latency. Best for small messages; each rank moves ~(N-1)K so bandwidth cost is high at large K.">One-shot</span>: small messages</div>
+          <p class="pattern-desc">Every rank reads all peers' buffers directly and reduces locally. ~1 round trip → lowest latency. Ideal for small TP tensors.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="Two-shot all-reduce: reduce-scatter then all-gather (the ring decomposition, done over symmetric memory). Less redundant data movement than one-shot, so better for larger messages.">Two-shot</span>: larger messages</div>
+          <p class="pattern-desc">Reduce-scatter then all-gather — less redundant movement. The symm-mem analogue of the ring decomposition.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.distributed._symmetric_memory (alpha)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">import</span> torch.distributed._symmetric_memory <span class="code-keyword">as</span> symm_mem</span>
+<span class="code-line">t   = symm_mem.empty(N, device=...)</span>
+<span class="code-line">hdl = symm_mem.rendezvous(t, group)  <span class="code-comment"># exchange peer ptrs</span></span>
+<span class="code-line"></span>
+<span class="code-line">torch.ops.symm_mem.one_shot_all_reduce(t, <span class="code-string">"sum"</span>, group)</span>
+<span class="code-line">torch.ops.symm_mem.two_shot_all_reduce_(t, <span class="code-string">"sum"</span>, group)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The mechanism</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>rendezvous</strong> exchanges peer buffer pointers.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>one-shot</strong> for small, <strong>two-shot</strong> for larger — same latency-vs-bandwidth tension as tree-vs-ring.</div>
+            <div class="tl">The handle exposes ptrs for custom CUDA/Triton kernels that <strong>fuse comm into the matmul epilogue</strong>, killing the launch boundary.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: system design #2 -->
+    <div class="screen">
+      <h2 class="screen-heading">System Design: Serve a Large MoE Model</h2>
+      <p><em>"Design distributed inference for a DeepSeek-style MoE model that doesn't fit on one node."</em> This ties the whole course together — the rubric:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Compose parallelism to the constraint</strong>
+            <p>TP intra-node (NVLink) for the dense attention/MLP; <strong>expert parallelism (all-to-all)</strong> to shard experts across ranks; DP on attention layers for throughput. Match each dim to its interconnect.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Mind the MoE synchronization trap</strong>
+            <p>DP ranks are <em>not</em> independent for MoE — every rank must align forward passes and run <strong>dummy forward passes when idle</strong> so the expert all-to-all stays synchronized. vLLM's DP Coordinator handles this.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Apply the serving internals</strong>
+            <p>PagedAttention for dense KV memory, continuous batching + chunked prefill for utilization, prefix caching for shared system prompts (Modules 1–4).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Optimize the critical-path collectives</strong>
+            <p>TP all-reduce is small and blocking → one-shot fused kernels over NVLink. Keep all-to-all expert traffic on the fastest fabric available; watch busbw vs peak (Module 7).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Staff-Level Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m8">
+        <div class="quiz-question-block" data-correct="colrow" data-explanation-right="Correct. Column-split on A keeps GeLU elementwise/local (no comm); row-split on B makes each rank produce a partial sum, so one all-reduce combines them. Reversing the order forces an extra all-reduce between the matmuls." data-explanation-wrong="Column-then-row is the key: col-split A → local GeLU (no comm), row-split B → partial sums → one all-reduce. The ordering is what removes the intermediate collective.">
+          <p class="quiz-question">1. Why column-split the first MLP matmul and row-split the second?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="colrow" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Keeps GeLU local, yields exactly one all-reduce at the end</span></button>
+            <button class="quiz-option" data-value="memory" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It halves the weight memory per rank</span></button>
+            <button class="quiz-option" data-value="arbitrary" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The order is arbitrary; either works the same</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="critpath" data-explanation-right="Correct. Unlike DDP gradients (which overlap with backward), TP all-reduce sits on the critical path — the next matmul needs it, so it can't be hidden. Small + blocking + latency-bound is exactly where one-shot fused NVLink kernels beat NCCL ring." data-explanation-wrong="TP all-reduce is on the critical path (the next matmul needs the result), so it can't overlap. That's why small-message one-shot fused kernels matter — NCCL ring is latency-suboptimal here.">
+          <p class="quiz-question">2. Why do fused one-shot all-reduce kernels matter for TP but not DDP?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="critpath" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>TP all-reduce is on the critical path — it can't overlap</span></button>
+            <button class="quiz-option" data-value="bigger" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>TP messages are much larger than DDP's</span></button>
+            <button class="quiz-option" data-value="nomatter" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>They matter equally for both</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: recap -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed the bootcamp</span>
+          <p>Eight modules: PagedAttention, continuous batching, the V1 scheduler, and throughput/latency — then collective primitives, ring vs tree, NCCL topology, and custom fused kernels. The through-line: <strong>name the resource that bounds you</strong> (KV memory, memory bandwidth, interconnect bandwidth, or latency), then pick the technique that relieves it. That framing is the senior/staff signal.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; vLLM <strong>V1</strong> engine is the default; recompute is the default preemption mode; APC + chunked prefill are on by default.<br>
+          &bull; Ring all-reduce = <code>2(N&minus;1)/N</code>; NCCL uses double-binary trees for small messages / large N.<br>
+          &bull; TP colwise→rowwise = one all-reduce/block; <code>_symmetric_memory</code> (one-shot/two-shot) is alpha.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why must idle DP ranks run dummy forward passes in MoE?" — The expert all-to-all is synchronized across all ranks; a lagging rank stalls or desyncs the collective.<br>
+          &bull; "One-shot vs two-shot threshold?" — A latency-vs-bandwidth tradeoff (small vs large message), not a fixed size.<br>
+          &bull; "Where does fusion help most?" — Folding the reduction into the matmul epilogue removes the kernel-launch boundary on the critical path.</p>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127909;</span>
+        <div class="callout-content">
+          <span class="callout-title">Go deeper</span>
+          <p>For Triton-level vLLM kernel internals, see <a href="/learn-ai/vllm-triton-optimization/">vLLM Optimization Deep Dive</a>; for the animated parallelism walkthrough, <a href="/learn-ai/vllm-multi-gpu-scaling/">How vLLM Scales Across GPUs</a>. Pair with the <a href="/learn-ai/pytorch-interview-prep/">PyTorch Interview Prep</a> course for the framework layer.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>

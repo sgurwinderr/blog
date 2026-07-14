@@ -1,0 +1,199 @@
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 07</span>
+      <h1 class="module-title">torch.compile &amp; Distributed Training</h1>
+      <p class="module-subtitle">Senior and staff loops live here. Explain the compile pipeline, guards and recompiles, and — the big one — <strong>when DDP vs FSDP</strong>. Get the "does the model fit on one GPU" heuristic right and you've answered the core distributed question.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The <code>torch.compile</code> pipeline (Dynamo &rarr; AOTAutograd &rarr; Inductor), what a <strong>graph break</strong> and a <strong>recompile</strong> are, and the DDP-vs-FSDP decision framed by the single question: <em>does the model fit on one device?</em></p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Compile Pipeline in One Breath</h2>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p><span class="term" data-definition="TorchDynamo hooks CPython's frame evaluation to trace Python bytecode into an FX graph, recording guards. Anything it can't trace becomes a graph break, falling back to eager.">Dynamo</span>: bytecode &rarr; FX graph + guards</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p><span class="term" data-definition="AOTAutograd traces the forward and backward ahead of time into a joint graph, then partitions it into forward and backward subgraphs so the backward pass is also compiled.">AOTAutograd</span>: joint fwd/bwd graph</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p><span class="term" data-definition="TorchInductor is the default backend. It lowers the ATen graph to fused kernels: Triton for GPU, C++/OpenMP for CPU, using fusion and autotuning.">Inductor</span>: Triton (GPU) / C++ (CPU)</p></div>
+      </div>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Usage</span>
+          <pre><code><span class="code-line">model = torch.compile(model)              <span class="code-comment"># one line</span></span>
+<span class="code-line">model = torch.compile(model, mode=<span class="code-string">"max-autotune"</span>)</span>
+<span class="code-line">model = torch.compile(model, fullgraph=<span class="code-keyword">True</span>)  <span class="code-comment"># no graph breaks</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Modes &amp; flags</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>default</strong> — balanced.</div>
+            <div class="tl"><strong>max-autotune</strong> — Triton-templated matmul/conv autotuning + CUDA graphs. Best for serving.</div>
+            <div class="tl"><strong>fullgraph=True</strong> — errors on any graph break; use in dev to find them.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: recompile bug -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Slower After Compiling</h2>
+      <p>A candidate wraps their model in <code>torch.compile</code> and it's <em>slower</em> than eager, recompiling constantly. Click the cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Compiling once outside the loop is correct."><code>model = torch.compile(model)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: every batch has a different sequence length, so input shapes keep changing. Dynamo's guards fail each time and it recompiles per step — killing throughput. Fix: torch.compile(model, dynamic=True), pad to fixed shapes, or mark dims dynamic. Diagnose with TORCH_LOGS=recompiles."><code>for x in variable_length_batches:&nbsp;&nbsp;# shapes change every step</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The forward call itself is fine — the shape variation above is the trigger."><code>&nbsp;&nbsp;out = model(x)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128269;</span>
+        <div class="callout-content">
+          <span class="callout-title">Diagnose it</span>
+          <p><code>TORCH_LOGS="recompiles,graph_breaks" python train.py</code> prints exactly why Dynamo recompiled or broke the graph. Mentioning this tool is a strong signal. Fix shape churn with <code>dynamic=True</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: DDP vs FSDP -->
+    <div class="screen">
+      <h2 class="screen-heading">The Decision: DDP vs FSDP</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="DistributedDataParallel replicates the FULL model on every rank; each processes a shard of the batch and gradients are synchronized via all-reduce during backward. Use when the model fits on one device.">DDP</span></div>
+          <p class="pattern-desc"><strong>Model fits on one GPU.</strong> Full replica per rank, data split across ranks, one <strong>all-reduce</strong> per step. Lowest overhead. This is your default.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#129513;</div>
+          <div class="pattern-title"><span class="term" data-definition="FSDP shards parameters, gradients, and optimizer states across ranks. It decomposes DDP's all-reduce into reduce-scatter (gradients) + all-gather (parameters), gathering params just-in-time for compute. Use when the model does NOT fit on one device. FSDP2's fully_shard is the current API.">FSDP2</span></div>
+          <p class="pattern-desc"><strong>Model does NOT fit.</strong> Shards params + grads + optimizer state. all-reduce &rarr; reduce-scatter + all-gather. Use <code>fully_shard</code> (FSDP1 is deprecated).</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">FSDP2 — bottom-up</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.distributed.fsdp <span class="code-keyword">import</span> fully_shard</span>
+<span class="code-line"><span class="code-keyword">for</span> layer <span class="code-keyword">in</span> model.layers:</span>
+<span class="code-line">  fully_shard(layer)      <span class="code-comment"># shard submodules first</span></span>
+<span class="code-line">fully_shard(model)        <span class="code-comment"># then the root</span></span>
+<span class="code-line">opt = torch.optim.Adam(model.parameters())  <span class="code-comment"># AFTER sharding!</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The ordering rule</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Shard leaves first, root last.</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Build the optimizer AFTER fully_shard</strong> — params become sharded DTensors; an optimizer built before points at the wrong objects. Classic senior gotcha.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: chat — DDP ranks -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch DDP Ranks Sync</h2>
+      <p>Step through one training step across two GPUs — this is the narration you'd give when asked "how does DDP keep replicas in sync?"</p>
+      <div class="chat-window animate-in" id="chat-m7">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Rank0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Rank 0 (GPU 0)</span>
+              <p>At construction, DDP broadcast my weights to everyone, so all replicas started identical. I just ran forward on my slice of the batch.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Rank1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">1</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">Rank 1 (GPU 1)</span>
+              <p>Same model, different data slice. I computed my local gradients in the backward pass. But my grads differ from Rank 0's — different samples.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="AllReduce" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">&Sigma;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">All-Reduce (NCCL)</span>
+              <p>I fire during backward, overlapping with compute. I sum every rank's gradients and divide by world size — now every rank holds the <em>same</em> averaged gradient.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Rank0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Rank 0 (GPU 0)</span>
+              <p>We each call optimizer.step() locally on the identical averaged gradient — so we stay bit-for-bit in sync. No parameter broadcast needed after step. That's the trick.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m7">
+        <div class="quiz-question-block" data-correct="ddp" data-explanation-right="Correct. The model fits on one GPU, so DDP — full replica per rank, one all-reduce per step — has the lowest overhead. FSDP's gather/scatter is only worth it when memory is the constraint." data-explanation-wrong="If the model fits on a single GPU, DDP is the right choice — FSDP's sharding overhead is only justified when the model doesn't fit.">
+          <p class="quiz-question">1. Model fits on one GPU; you want throughput across 8 GPUs. DDP or FSDP?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="ddp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>DDP — lowest overhead when the model fits</span></button>
+            <button class="quiz-option" data-value="fsdp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FSDP — always shard for scale</span></button>
+            <button class="quiz-option" data-value="either" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Identical performance either way</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="guards" data-explanation-right="Correct. Dynamo installs guards on input properties (shapes, dtypes, Python values). When a guard fails — e.g. shapes change — it recompiles. Use dynamic=True to avoid per-shape recompiles." data-explanation-wrong="Recompiles happen when guards fail — most commonly changing input shapes. dynamic=True lets one compiled artifact handle varying shapes.">
+          <p class="quiz-question">2. What triggers a <code>torch.compile</code> recompilation?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="guards" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A guard fails (e.g. input shape/dtype changed)</span></button>
+            <button class="quiz-option" data-value="epoch" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Every new epoch</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It never recompiles after the first call</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "What's a graph break?" — A point Dynamo can't trace (data-dependent control flow, <code>.item()</code>, printing) → splits the graph, limits fusion.<br>
+          &bull; "Why is the first iteration slow?" — Compilation cost; benchmark steady state.<br>
+          &bull; "How do you launch DDP?" — <code>torchrun --nproc_per_node=8 train.py</code>; it sets RANK/LOCAL_RANK/WORLD_SIZE.<br>
+          &bull; "Always <code>destroy_process_group()</code>" — else ranks hang.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,169 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 03</span>
+      <h1 class="module-title">Models, Losses &amp; the Training Loop</h1>
+      <p class="module-subtitle">The classic live-coding prompt: "implement a training loop on a whiteboard." Get the five steps and their ordering right, and know why <code>CrossEntropyLoss</code> eats logits — that's the whole round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you write the loop <em>from memory</em>, in the right order, without a framework? And do you know the three landmines: <strong>logits vs probabilities</strong>, <strong>train() vs eval()</strong>, and <strong>where zero_grad goes</strong>?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Define a Model — the Registration Rules</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line"><span class="code-keyword">class</span> <span class="code-function">Net</span>(nn.Module):</span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">__init__</span>(self):</span>
+<span class="code-line">    <span class="code-function">super</span>().__init__()   <span class="code-comment"># MUST call first</span></span>
+<span class="code-line">    self.net = nn.Sequential(</span>
+<span class="code-line">      nn.Linear(<span class="code-number">784</span>, <span class="code-number">256</span>), nn.ReLU(),</span>
+<span class="code-line">      nn.Linear(<span class="code-number">256</span>, <span class="code-number">10</span>))  <span class="code-comment"># raw logits</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">forward</span>(self, x):</span>
+<span class="code-line">    <span class="code-keyword">return</span> self.net(x)   <span class="code-comment"># no softmax!</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why each line matters</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>super().__init__()</strong> — skip it and no parameters register. Instant bug.</div>
+            <div class="tl"><strong>Assigning nn modules as attributes</strong> auto-registers them into .parameters() and .to().</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Output raw logits</strong> — CrossEntropyLoss applies log_softmax itself.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Call model(x)</strong>, never model.forward(x) — the former runs hooks.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the loop (coding) -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Canonical Loop — Live-Coding Answer</h2>
+      <p>Memorize this. The five steps, in order:</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>forward: <code>pred = model(x)</code></p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>loss</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>backward</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>step</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">5</div><p>zero_grad</p></div>
+      </div>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Training loop</span>
+          <pre><code><span class="code-line">model.train()                     <span class="code-comment"># dropout/BN in train mode</span></span>
+<span class="code-line"><span class="code-keyword">for</span> x, y <span class="code-keyword">in</span> loader:</span>
+<span class="code-line">  x, y = x.to(device), y.to(device)</span>
+<span class="code-line">  pred = model(x)                 <span class="code-comment"># 1</span></span>
+<span class="code-line">  loss = loss_fn(pred, y)         <span class="code-comment"># 2</span></span>
+<span class="code-line">  loss.backward()                 <span class="code-comment"># 3</span></span>
+<span class="code-line">  optimizer.step()                <span class="code-comment"># 4</span></span>
+<span class="code-line">  optimizer.zero_grad()           <span class="code-comment"># 5</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The ordering rule</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>train()</strong> enables Dropout &amp; BatchNorm training behavior.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Move data</strong> to the model's device.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward</strong> fills .grad.</div>
+            <div class="tl"><strong>step</strong> reads .grad, updates weights.</div>
+            <div class="tl"><strong>zero_grad</strong> clears for next iter. Never between backward and step!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: The Loop That Won't Learn</h2>
+      <p>A candidate wrote this in a screen. It compiles and runs — but the loss never drops. Click the offending line.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Forward + loss are correct."><code>&nbsp;&nbsp;loss = loss_fn(model(x), y)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="backward() is correctly placed."><code>&nbsp;&nbsp;loss.backward()</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: zero_grad() sits BETWEEN backward() and step(). It erases the gradients backward() just computed, so step() applies a zero update — the model never learns. Move zero_grad() before backward() or after step()."><code>&nbsp;&nbsp;optimizer.zero_grad()&nbsp;&nbsp;# wrong place!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="step() is fine — but it's now stepping on zeroed gradients."><code>&nbsp;&nbsp;optimizer.step()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: losses & optimizers -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Losses &amp; Optimizers — the Gotchas</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="nn.CrossEntropyLoss internally applies log_softmax followed by NLLLoss. It expects RAW LOGITS of shape (N, C) and integer class-index targets of shape (N,) with dtype long. Do NOT put a Softmax before it.">CrossEntropyLoss</span></span>
+          <span class="badge-desc">Takes <strong>raw logits</strong> + <strong>integer class indices</strong> (long). It applies log_softmax internally. A Softmax layer before it = double softmax = broken training.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="AdamW decouples weight decay from the adaptive gradient moments, applying it directly to the weights. This is the correct L2 regularization and is preferred over Adam(weight_decay=...), where decay is entangled with the adaptive learning rate.">AdamW</span> vs Adam</span>
+          <span class="badge-desc"><strong>AdamW</strong> decouples weight decay from the adaptive moments — the correct L2 regularization. Prefer it over <code>Adam(weight_decay=...)</code>.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m3">
+        <div class="quiz-question-block" data-correct="double" data-explanation-right="Correct. CrossEntropyLoss already applies log_softmax; a preceding Softmax means softmax is applied twice, flattening gradients and hurting training. Output raw logits." data-explanation-wrong="CrossEntropyLoss applies log_softmax internally. A Softmax layer before it applies softmax twice — that's the bug.">
+          <p class="quiz-question">1. Final layer is <code>nn.Softmax</code>, loss is <code>CrossEntropyLoss</code>. What's wrong?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="double" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Double softmax — remove the Softmax layer</span></button>
+            <button class="quiz-option" data-value="fine" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — that's the correct setup</span></button>
+            <button class="quiz-option" data-value="dtype" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Targets must be one-hot encoded</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="both" data-explanation-right="Correct. eval() switches Dropout OFF and makes BatchNorm use running stats. Forgetting it gives noisy, batch-dependent, misleadingly bad validation numbers." data-explanation-wrong="model.eval() affects BOTH: Dropout is disabled and BatchNorm switches to stored running statistics.">
+          <p class="quiz-question">2. What does <code>model.eval()</code> change before validation?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="grad" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It disables gradient tracking</span></button>
+            <button class="quiz-option" data-value="both" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Dropout off + BatchNorm uses running stats</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing functional — just a flag</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "You stored layers in a Python <code>list</code> — why are they invisible to the optimizer?" — Use <code>nn.ModuleList</code>/<code>nn.Sequential</code>; a plain list isn't registered.<br>
+          &bull; "<code>model.eval()</code> vs <code>no_grad()</code> — same thing?" — No. <code>eval()</code> changes layer behavior; <code>no_grad()</code> disables the graph. You typically use both at validation.<br>
+          &bull; "Does <code>eval()</code> stop gradients?" — No, it does not.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

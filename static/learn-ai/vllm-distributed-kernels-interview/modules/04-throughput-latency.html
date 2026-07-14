@@ -1,0 +1,169 @@
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 04</span>
+      <h1 class="module-title">Throughput vs Latency &mdash; Serving System Design</h1>
+      <p class="module-subtitle">The system-design half of the vLLM interview. Everything flows from one roofline insight: prefill is compute-bound, decode is memory-bandwidth-bound. Get that, and disaggregation and speculative decoding fall out naturally.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The roofline framing — <strong>prefill compute-bound, decode memory-bound</strong> — and whether you can name the right latency metric (TTFT vs ITL) and the right lever (disaggregation shapes latency, it does <em>not</em> raise throughput).</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Two Phases, Two Metrics</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#9889;</div>
+          <div class="pattern-title"><span class="term" data-definition="Prefill processes the entire prompt in one parallel forward pass and produces the first token. Big matmuls, high FLOPs, good GPU utilization — compute-bound. Dominates Time To First Token.">Prefill</span> &rarr; TTFT</div>
+          <p class="pattern-desc">Whole prompt in one parallel pass → first token. Big matmuls, high arithmetic intensity → <strong>compute-bound</strong>. Determines <span class="term" data-definition="Time To First Token — how long until the user sees the first generated token. Dominated by the prefill phase.">TTFT</span>.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="Decode generates tokens one at a time; each step re-reads all weights plus the KV cache for a single token. Low arithmetic intensity → memory-bandwidth-bound. Determines inter-token latency.">Decode</span> &rarr; ITL/TPOT</div>
+          <p class="pattern-desc">One token at a time, re-reading all weights + KV per token. Low arithmetic intensity → <strong>memory-bandwidth-bound</strong>. Determines <span class="term" data-definition="Inter-Token Latency / Time Per Output Token — the delay between generated tokens during decode. Governed by memory bandwidth.">ITL / TPOT</span>.</p>
+        </div>
+      </div>
+      <p>Because the two phases stress different resources, batching them together (chunked prefill) improves utilization — but they also compete, which is the core throughput&harr;latency tension.</p>
+    </div>
+
+    <!-- SCREEN 2: system design #1 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">System Design: A Low-Latency LLM Serving Stack</h2>
+      <p><em>"Serve this model for real-time chat with tight p99 TTFT and ITL SLOs."</em> The rubric a strong candidate hits:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>State the two SLOs separately</strong>
+            <p>TTFT (prefill-bound) and ITL (decode-bound) pull in different directions. Name both up front — a single "latency" number hides the real tradeoff.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Tune the batch knob for ITL</strong>
+            <p>Smaller <code>max_num_batched_tokens</code> → fewer/smaller prefills stalling decodes → better ITL. Larger → better TTFT/throughput. This is your first dial.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Disaggregate prefill &amp; decode</strong>
+            <p>Run prefill and decode on separate instances; a connector transfers the KV cache. Now TTFT and ITL are tuned <em>independently</em> and prefill spikes can't bleed into ongoing decodes (tail-ITL control).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Add speculative decoding for ITL</strong>
+            <p>In the memory-bound decode regime, a cheap proposer + parallel verification cuts ITL — <em>if</em> QPS is low-to-medium. At high QPS the batch is already compute-saturated and it can hurt.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: disaggregation -->
+    <div class="screen">
+      <h2 class="screen-heading">Disaggregated Serving — a Latency Lever, Not a Throughput One</h2>
+      <p>Split prefill and decode across instances; a <span class="term" data-definition="An abstraction that transfers KV cache between a prefill instance and a decode instance in disaggregated serving. vLLM exposes Connector / LookupBuffer / Pipe abstractions, e.g. the NIXL connector.">KV connector</span> moves the cache between them.</p>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">The three things it buys you</span>
+          <p>&bull; Tune TTFT and ITL <strong>independently</strong> (each instance gets its own TP/PP).<br>
+          &bull; Control <strong>tail ITL</strong> — prefill work can't spike into ongoing decodes.<br>
+          &bull; It does <strong>not</strong> increase throughput — it's an SLO/latency-shaping tool. Saying otherwise is the classic wrong answer.</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">KV transfer config</span>
+          <pre><code><span class="code-line">--kv-transfer-config '{</span>
+<span class="code-line">  "kv_connector": "NixlConnector",</span>
+<span class="code-line">  "kv_role": "kv_both",</span>
+<span class="code-line">  "kv_buffer_device": "cuda"}'</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Abstractions</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Connector</strong> orchestrates the transfer.</div>
+            <div class="tl"><strong>LookupBuffer</strong> — insert (non-blocking) / drop_select (blocking).</div>
+            <div class="tl"><strong>Pipe</strong> — send_tensor / recv_tensor.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Roofline Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m4">
+        <div class="quiz-question-block" data-correct="reread" data-explanation-right="Correct. Decode generates one token at a time, re-reading all weights + KV cache per token — very low arithmetic intensity, so it's bottlenecked by memory bandwidth, not FLOPs. Prefill's big parallel matmuls are the opposite." data-explanation-wrong="Decode re-reads all weights + KV for a single token each step → low arithmetic intensity → memory-bandwidth-bound. Prefill is the compute-bound one.">
+          <p class="quiz-question">1. Why is decode memory-bound while prefill is compute-bound?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="reread" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode re-reads all weights+KV per single token (low intensity)</span></button>
+            <button class="quiz-option" data-value="bigger" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode does bigger matmuls than prefill</span></button>
+            <button class="quiz-option" data-value="cache" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prefill never touches the KV cache</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="highqps" data-explanation-right="Correct. At high QPS the batch is already compute-saturated, so parallel verification of speculative tokens adds work without saving latency — and low acceptance makes it worse. Speculative decoding wins in the low/medium-QPS memory-bound regime." data-explanation-wrong="Speculative decoding backfires at high QPS: the GPU is already compute-bound, so verification overhead adds cost rather than hiding latency.">
+          <p class="quiz-question">2. When does speculative decoding backfire?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="highqps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At high QPS — the batch is already compute-saturated</span></button>
+            <button class="quiz-option" data-value="lowqps" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>At low QPS — there's nothing to verify</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never — it's lossless so always helps</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: spec decode -->
+    <div class="screen">
+      <h2 class="screen-heading">Speculative Decoding in One Screen</h2>
+      <p>A cheap <span class="term" data-definition="In speculative decoding, a small/cheap model or heuristic that guesses several future tokens. The target model then verifies all of them in a single parallel forward pass. Theoretically lossless up to numerical precision.">proposer</span> guesses several future tokens; the target model verifies them all in one parallel forward pass. Accepted tokens skip sequential decode steps → lower ITL. It's <strong>lossless</strong> up to numeric precision.</p>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);">draft_model</span>
+          <span class="badge-desc">A separate small model proposes. Biggest speedup, but you host a second model.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);">ngram / prompt-lookup</span>
+          <span class="badge-desc">Cheap; matches repeated patterns in the prompt. Great for summarization/RAG.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-5);">EAGLE / MTP</span>
+          <span class="badge-desc">Model-based auxiliary heads (EAGLE3), or native multi-token prediction when the target supports it.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does disaggregation raise throughput?" — No; it independently shapes TTFT/tail-ITL.<br>
+          &bull; "Is speculative decoding lossy?" — No, lossless up to hardware precision.<br>
+          &bull; "One knob for TTFT vs ITL?" — <code>max_num_batched_tokens</code>: smaller favors ITL, larger favors TTFT/throughput.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,123 @@
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Module 03</span>
+      <h1 class="module-title">The Scheduler &amp; Memory Management</h1>
+      <p class="module-subtitle">Where the vLLM V1 engine earns its throughput. Preemption, prefix caching, and chunked prefill are the "do you actually know the internals" questions — and the OOM-is-handled-by-preemption-not-failure insight.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>That running out of KV cache triggers <strong>preemption, not a crash</strong>; the recompute-vs-swap tradeoff; and that prefix caching only speeds <strong>prefill</strong> while chunked prefill is the TTFT&harr;ITL knob.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Queues &amp; the Unified V1 Scheduler</h2>
+      <p>Requests live in a <strong>waiting</strong> queue and a <strong>running</strong> queue. The V1 scheduler is <span class="term" data-definition="V1 dropped V0's hard prefill-vs-decode split. Each step's decision is represented as a token-budget dict {request_id: num_tokens}, one abstraction that cleanly supports chunked prefill, prefix caching, and speculative decoding together.">unified</span>: it drops V0's hard prefill-vs-decode split and represents each step as a token-budget dict like <code>{request_id: num_tokens}</code>. Default policy prioritizes decodes, then fills the remaining token budget with (chunked) prefill.</p>
+    </div>
+
+    <!-- SCREEN 2: preemption -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Preemption: Recompute vs Swap</h2>
+      <p>Transformers are autoregressive, so KV demand <em>grows</em> mid-generation. When the cache fills, vLLM <strong>preempts</strong> running requests to free blocks and resumes them later — it does <em>not</em> fail the request.</p>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-5);">
+          <div class="pattern-icon" style="background: rgba(45,139,85,0.1); color: var(--color-actor-5);">&#128260;</div>
+          <div class="pattern-title"><span class="term" data-definition="V1's default preemption mode: drop the preempted request's KV blocks and recompute the prefix later. Prefill is cheap and parallel, so recompute is lower-overhead than copying in V1's design.">Recompute</span> (V1 default)</div>
+          <p class="pattern-desc">Drop the KV blocks; recompute the prefix on resume. Prefill is cheap/parallel, so this avoids the CPU&harr;GPU copy cost — lower overhead in V1.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128190;</div>
+          <div class="pattern-title"><span class="term" data-definition="Preemption mode that copies the preempted KV blocks to CPU RAM and swaps them back to GPU on resume, avoiding recomputation but paying PCIe transfer cost.">Swap</span></div>
+          <p class="pattern-desc">Copy KV blocks to CPU RAM, swap back on resume. Avoids recompute but pays the PCIe transfer both ways.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#128293;</span>
+        <div class="callout-content">
+          <span class="callout-title">The warning sign in production</span>
+          <p>Frequent <code>"...is preempted by PreemptionMode.RECOMPUTE... not enough KV cache space"</code> with a rising <code>total_cumulative_preemption_cnt</code> means thrashing. Mitigate: raise <code>gpu_memory_utilization</code>, lower <code>max_num_seqs</code>/<code>max_num_batched_tokens</code>, or add TP/PP.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Throughput Collapse Under Load</h2>
+      <p>A deployment runs fine at low load but throughput cratered when concurrency rose, with logs full of preemption messages. Click the root cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="A 70B model on the given hardware is reasonable."><code>llm = LLM(model="meta-llama/Llama-3.1-70B", tensor_parallel_size=4,</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: max_num_seqs=1024 admits far more concurrent sequences than the KV cache can hold. Under load, the scheduler constantly preempts (recompute) running requests to make room — thrashing. Each preempted request re-does its prefill, wasting compute. Lower max_num_seqs to what the cache actually fits; the preemption counter should drop toward zero."><code>&nbsp;&nbsp;max_num_seqs=1024)&nbsp;&nbsp;# admits more than the cache holds</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Sending requests concurrently is expected — the server should handle admission, and would if max_num_seqs were sane."><code>&nbsp;&nbsp;# 1000 concurrent requests hit the server</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: prefix caching + chunked prefill -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Two V1 Features Worth Naming</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="Automatic Prefix Caching (APC): caches KV blocks of previous requests so a new request reusing the same prefix skips recomputing it. On by default in V1 with near-zero overhead (<1% throughput loss even at 0% hit rate), using O(1) hash + LRU eviction. Only speeds prefill.">Automatic prefix caching</span></span>
+          <span class="badge-desc">Reuse cached KV blocks for shared prefixes. <strong>On by default in V1</strong>, &lt;1% overhead even at 0% hit rate (O(1) hash + LRU eviction). Huge for multi-turn chat / long-doc Q&amp;A. <strong>Speeds prefill only.</strong></span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="Chunked prefill splits a long prompt's prefill into chunks and batches them with ongoing decodes within max_num_batched_tokens. Mixes compute-bound prefill with memory-bound decode for better utilization, and prevents a big prefill from stalling decodes (better ITL). On by default in V1.">Chunked prefill</span></span>
+          <span class="badge-desc">Split a long prompt's prefill into chunks, batched <em>with</em> ongoing decodes. Mixes compute-bound prefill + memory-bound decode. Smaller <code>max_num_batched_tokens</code> → better ITL; larger → better TTFT/throughput.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m3">
+        <div class="quiz-question-block" data-correct="recompute" data-explanation-right="Correct. V1 defaults to recompute: prefill is cheap and parallel, so recomputing the dropped prefix beats paying the CPU↔GPU copy cost that swap incurs." data-explanation-wrong="V1's default is recompute — prefill is cheap/parallel, so it's lower-overhead than swapping KV blocks to CPU and back.">
+          <p class="quiz-question">1. V1's default preemption mode, and why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="recompute" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Recompute — prefill is cheap, avoids copy cost</span></button>
+            <button class="quiz-option" data-value="swap" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Swap — copying is always faster than recomputing</span></button>
+            <button class="quiz-option" data-value="fail" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It fails the request to protect the batch</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="prefill" data-explanation-right="Correct. Prefix caching reuses previously-computed KV blocks, which only saves the prefill (prompt-processing) phase. Decode still generates token-by-token and gets no help from it." data-explanation-wrong="Prefix caching only accelerates the prefill phase — it reuses prompt KV blocks. Decode is unaffected.">
+          <p class="quiz-question">2. Automatic prefix caching speeds up which phase?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="prefill" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Prefill only</span></button>
+            <button class="quiz-option" data-value="decode" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Decode only</span></button>
+            <button class="quiz-option" data-value="both" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Both equally</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why is APC safe to leave on at 0% hit rate?" — O(1) hash/eviction structures make overhead &lt;1%.<br>
+          &bull; "Multi-tenant prefix-cache isolation?" — Use <code>cache_salt</code> and a crypto hash (sha256) to prevent cross-tenant collisions.<br>
+          &bull; "How does chunked prefill improve ITL?" — It caps prefill tokens per step and co-schedules decodes, so a giant prompt can't monopolize a forward pass.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PyTorch Interview Prep: Amateur to Expert — A FAANG Bootcamp</title>
+  <meta name="description" content="An 8-week FAANG interview bootcamp for PyTorch — from tensors and autograd to torch.compile, FSDP2, and ML system design. Conceptual Q&amp;A, live-coding solutions, spot-the-bug challenges, and design rubrics on verified PyTorch 2.x APIs.">
+  <link rel="canonical" href="https://sgurwinderr.com/learn-ai/pytorch-interview-prep/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="PyTorch Interview Prep: Amateur to Expert">
+  <meta property="og:description" content="An 8-week FAANG interview bootcamp for PyTorch — tensors and autograd through torch.compile, FSDP2, and ML system design.">
+  <meta property="og:url" content="https://sgurwinderr.com/learn-ai/pytorch-interview-prep/">
+
+  <!-- Google Fonts: Bricolage Grotesque · DM Sans · JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    :root {
+      --color-accent:       #EE4C2C;
+      --color-accent-hover: #C93B1E;
+      --color-accent-light: #FDE8E3;
+      --color-accent-muted: #F0785F;
+    }
+  </style>
+
+  <script src="main.js" defer></script>
+</head>
+<body>
+
+  <div class="back-to-blog">
+    <a href="/" class="back-link">
+      <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+      </svg>
+      <span>Back to Blog</span>
+    </a>
+    <a href="/learn-ai/" class="back-link ml-auto"><span>All Courses</span></a>
+  </div>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <span class="nav-title">PyTorch Interview Prep</span>
+      <div class="nav-dots" id="nav-dots" role="tablist">
+        <button class="nav-dot" data-target="module-1" data-tooltip="Tensors &amp; Memory" role="tab" aria-label="Week 1: Tensors and Memory Model"></button>
+        <button class="nav-dot" data-target="module-2" data-tooltip="Autograd" role="tab" aria-label="Week 2: Autograd Deep Dive"></button>
+        <button class="nav-dot" data-target="module-3" data-tooltip="Training Loop" role="tab" aria-label="Week 3: Models, Losses & Training Loop"></button>
+        <button class="nav-dot" data-target="module-4" data-tooltip="Data Pipeline" role="tab" aria-label="Week 4: Data Pipeline & Reproducibility"></button>
+        <button class="nav-dot" data-target="module-5" data-tooltip="Blocks & Transfer" role="tab" aria-label="Week 5: Building Blocks & Transfer Learning"></button>
+        <button class="nav-dot" data-target="module-6" data-tooltip="AMP & Perf" role="tab" aria-label="Week 6: Mixed Precision & Performance"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Compile & Distributed" role="tab" aria-label="Week 7: torch.compile & Distributed"></button>
+        <button class="nav-dot" data-target="module-8" data-tooltip="Expert & System Design" role="tab" aria-label="Week 8: Expert Internals & System Design"></button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- modules/*.html content is assembled here by build.sh -->
+<section class="module" id="module-1">
+  <div class="module-content">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="module-header">
+      <span class="module-number">Week 01</span>
+      <h1 class="module-title">Tensors &amp; the Memory Model</h1>
+      <p class="module-subtitle">The very first thing a FAANG screener probes: do you understand what a tensor actually <em>is</em> in memory? Views vs copies, strides, broadcasting, and device placement separate people who "used PyTorch" from people who <em>understand</em> it.</p>
+    </header>
+
+    <!-- ── SCREEN 1: What interviewers probe ───────────────────── -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Not "can you make a tensor" — but: <strong>does an operation share memory or copy it?</strong> Interviewers hand you a two-line snippet that mutates a view and ask what the original tensor now contains. Get strides and contiguity right and you signal systems-level understanding.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Three Attributes That Define a Tensor</h2>
+      <p>Every tensor is fully described by three things. If you can rattle these off and explain how each one bites you in practice, you've cleared the phone-screen bar.</p>
+
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128207;</div>
+          <div class="pattern-title">shape</div>
+          <p class="pattern-desc">The size along each dimension. <code>t.shape</code> &rarr; <code>torch.Size([2, 3])</code>. Drives broadcasting rules.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128290;</div>
+          <div class="pattern-title">dtype</div>
+          <p class="pattern-desc"><code>torch.tensor([1,2,3])</code> is <code>int64</code>, not float. A silent source of "why won't my model train" bugs.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-3);">
+          <div class="pattern-icon" style="background: rgba(123,109,170,0.1); color: var(--color-actor-3);">&#128421;</div>
+          <div class="pattern-title">device</div>
+          <p class="pattern-desc">cpu / cuda / mps. Mixing devices in one op is a hard runtime error — a favorite gotcha question.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: view vs reshape (the classic) ─────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Classic: <code>view</code> vs <code>reshape</code></h2>
+      <p>This is <em>the</em> most-asked PyTorch tensor question. The answer hinges on <span class="term" data-definition="Contiguous means the tensor's elements are laid out in memory in row-major (C) order with no gaps. Operations like .T (transpose) produce a non-contiguous view — the data is unchanged but the strides no longer match row-major order.">contiguity</span>.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">x = torch.arange(<span class="code-number">6</span>).reshape(<span class="code-number">2</span>, <span class="code-number">3</span>)</span>
+<span class="code-line">y = x.T                 <span class="code-comment"># transpose: a VIEW</span></span>
+<span class="code-line"></span>
+<span class="code-line">y.view(<span class="code-number">6</span>)             <span class="code-comment"># RuntimeError!</span></span>
+<span class="code-line">y.reshape(<span class="code-number">6</span>)          <span class="code-comment"># OK — silently copies</span></span>
+<span class="code-line">y.contiguous().view(<span class="code-number">6</span>) <span class="code-comment"># OK — explicit copy</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What's happening</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>x is contiguous</strong> — row-major, no gaps.</div>
+            <div class="tl"><strong>.T swaps strides</strong> — same storage, different access pattern. Now non-contiguous.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>view() refuses</strong> — it <em>never</em> copies, and a flat view of non-contiguous data would misread memory. So it errors.</div>
+            <div class="tl"><strong>reshape() adapts</strong> — returns a view if it can, else silently makes a copy.</div>
+            <div class="tl"><strong>.contiguous()</strong> materializes a fresh row-major copy so view() works.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The senior-level follow-up</span>
+          <p>"When would you deliberately choose <code>view</code> over <code>reshape</code>?" — When you want a <strong>guaranteed no-copy contract</strong>. <code>view</code> failing loudly tells you a copy would have happened; <code>reshape</code> hides that cost. In a hot loop, an accidental copy per iteration is a real regression.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 3: Quiz (conceptual) ─────────────────────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Rapid-Fire Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m1">
+
+        <div class="quiz-question-block" data-correct="error" data-explanation-right="Correct. .T makes y non-contiguous, and view() never copies, so it raises a RuntimeError. Use reshape() or .contiguous().view()." data-explanation-wrong="Recall: view() requires a contiguous-compatible layout. .T produces a non-contiguous tensor, so view() raises rather than copying.">
+          <p class="quiz-question">1. <code>x = torch.arange(6).reshape(2,3); x.T.view(6)</code> — result?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="works" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Returns a 1-D tensor of 6 elements</span></button>
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raises a RuntimeError</span></button>
+            <button class="quiz-option" data-value="copy" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Returns a copy, silently</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="int64" data-explanation-right="Correct. Python ints produce an int64 tensor. Feeding int64 to a model expecting float32, or dividing expecting floats, causes dtype errors or surprises." data-explanation-wrong="torch.tensor([1, 2, 3]) infers int64 from the Python integers — not float32.">
+          <p class="quiz-question">2. What dtype is <code>torch.tensor([1, 2, 3])</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="float32" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float32</span></button>
+            <button class="quiz-option" data-value="int64" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>int64</span></button>
+            <button class="quiz-option" data-value="int32" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>int32</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="shares" data-explanation-right="Correct. torch.from_numpy and .numpy() share the same CPU memory — mutating one mutates the other. Moving to GPU breaks the sharing (it copies)." data-explanation-wrong="On CPU, from_numpy shares storage with the ndarray. Mutating the tensor in place changes the NumPy array too.">
+          <p class="quiz-question">3. <code>a = np.array([1,2,3]); t = torch.from_numpy(a); t.add_(1)</code> — what is <code>a</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="unchanged" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>[1, 2, 3] — unchanged</span></button>
+            <button class="quiz-option" data-value="shares" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>[2, 3, 4] — memory is shared</span></button>
+            <button class="quiz-option" data-value="error" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Raises — can't mutate a shared array</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m1')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Broadcasting ──────────────────────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Broadcasting — Explain It in One Sentence</h2>
+      <p>Interviewers love: "walk me through the broadcasting rules." The one-liner they want: <strong>align shapes from the right; each dimension must be equal or one of them must be 1; size-1 dims are virtually expanded.</strong></p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Broadcasting</span>
+          <pre><code><span class="code-line">a = torch.arange(<span class="code-number">3</span>).reshape(<span class="code-number">3</span>, <span class="code-number">1</span>)  <span class="code-comment"># (3,1)</span></span>
+<span class="code-line">b = torch.arange(<span class="code-number">4</span>).reshape(<span class="code-number">1</span>, <span class="code-number">4</span>)  <span class="code-comment"># (1,4)</span></span>
+<span class="code-line">c = a + b                          <span class="code-comment"># (3,4)</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why (3,4)</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Align right:</strong> (3,1) vs (1,4).</div>
+            <div class="tl"><strong>Dim -1:</strong> 1 vs 4 → 4 (the 1 expands).</div>
+            <div class="tl"><strong>Dim -2:</strong> 3 vs 1 → 3 (the 1 expands).</div>
+            <div class="tl"><strong>No data copied</strong> — expansion is virtual (stride 0).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 5: Bug challenge (device mismatch) ───────────── -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Device Mismatch</h2>
+      <p>You're asked to review a colleague's inference snippet on a GPU box. It crashes. Click the line that causes the runtime error.</p>
+
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="This correctly moves the model to the accelerator."><code>model = Net().to(device)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Creating the input tensor is fine on its own."><code>x = torch.randn(1, 3, 224, 224)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Here it is. `x` was never moved to `device`. The model's weights live on the GPU but `x` is on the CPU — a matmul across devices raises 'Expected all tensors to be on the same device'. Fix: x = x.to(device)."><code>out = model(x)&nbsp;&nbsp;# x is still on CPU!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="argmax on the output is fine once the forward pass succeeds."><code>pred = out.argmax(dim=1)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The modern, device-agnostic fix</span>
+          <p>Don't hardcode <code>"cuda"</code>. Current PyTorch (2.x) prefers <code>torch.accelerator</code>:</p>
+          <pre><code><span class="code-line">device = (torch.accelerator.current_accelerator()</span>
+<span class="code-line">          <span class="code-keyword">if</span> torch.accelerator.is_available() <span class="code-keyword">else</span> <span class="code-string">"cpu"</span>)</span>
+<span class="code-line">x = x.to(device)   <span class="code-comment"># .to() returns a NEW tensor — must reassign</span></span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 6: In-place & the follow-ups ─────────────────── -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">In-Place Ops: The Trap</h2>
+      <p>Operations ending in <code>_</code> (<code>add_</code>, <code>mul_</code>, <code>relu_</code>) mutate in place. They save memory — and can silently corrupt the autograd graph (Week 2). Interviewers use this to bridge into gradients.</p>
+
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Does <code>t.to(device)</code> modify <code>t</code>?" — No, it returns a new tensor; you must reassign.<br>
+          &bull; "Does <code>reshape</code> always return a view?" — No, it copies when it must.<br>
+          &bull; "Why can in-place ops break backprop?" — They overwrite values the backward pass still needs; autograd detects this via version counters and raises.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-2">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 02</span>
+      <h1 class="module-title">Autograd Deep Dive</h1>
+      <p class="module-subtitle">The single most-tested PyTorch topic in ML-engineer loops. If you can explain the dynamic graph, gradient accumulation, and when to disable tracking — clearly, out loud — you pass the core round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>They want the mental model: <strong>define-by-run</strong>. Every op on a tensor with <code>requires_grad=True</code> is recorded into a graph that is rebuilt each forward pass. <code>.backward()</code> walks it in reverse via the chain rule and <em>accumulates</em> into <code>.grad</code>. The word "accumulates" is where careers are made.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Graph Is Built on Every Forward Pass</h2>
+      <p>Unlike TensorFlow 1.x's static graph, PyTorch is <span class="term" data-definition="Define-by-run (dynamic graph): the computational graph is constructed on the fly as operations execute, and rebuilt from scratch on every forward pass. This is why ordinary Python control flow (if/for) works naturally inside forward().">define-by-run</span>. This is why a plain Python <code>if</code> works inside <code>forward()</code> — the graph simply records whichever branch ran.</p>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">w = torch.randn(<span class="code-number">5</span>, <span class="code-number">3</span>, requires_grad=<span class="code-keyword">True</span>)</span>
+<span class="code-line">b = torch.randn(<span class="code-number">3</span>, requires_grad=<span class="code-keyword">True</span>)</span>
+<span class="code-line">x = torch.ones(<span class="code-number">5</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">z = x @ w + b           <span class="code-comment"># graph recorded here</span></span>
+<span class="code-line">loss = z.sum()</span>
+<span class="code-line">loss.backward()         <span class="code-comment"># reverse pass</span></span>
+<span class="code-line"></span>
+<span class="code-line">print(w.grad)           <span class="code-comment"># populated</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What autograd does</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>Leaf tensors</strong> with requires_grad get a .grad slot.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Each op</strong> attaches a grad_fn recording how to differentiate it.</div>
+            <div class="tl"><strong>Must be scalar</strong> to call backward() with no args.</div>
+            <div class="tl"><strong>Chain rule in reverse</strong> fills .grad on every leaf.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Gradient accumulates</strong> into .grad (adds, not overwrites).</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: chat narration -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch the Graph Think</h2>
+      <p>Here's how the forward tensors, the loss, and the backward engine coordinate. Step through it — this is exactly the narration you'd give on a whiteboard.</p>
+
+      <div class="chat-window animate-in" id="chat-m2">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Forward" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">F</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">Forward Pass</span>
+              <p>I just computed <code>z = x @ w + b</code>. As I went, I tagged each result with a <code>grad_fn</code> — a note on how to reverse it. The graph now knows the recipe.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Loss" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">L</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">Loss</span>
+              <p>I'm a scalar — <code>z.sum()</code>. Someone called <code>.backward()</code> on me. Seeding the reverse pass with d(loss)/d(loss) = 1.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Engine" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">E</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Autograd Engine</span>
+              <p>Walking the graph in reverse topological order, applying each <code>grad_fn</code>'s local derivative and multiplying by the incoming gradient. Chain rule, node by node.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Leaves" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-5);">W</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-5);">w &amp; b (leaves)</span>
+              <p>We received our gradients. Note: the engine <strong>added</strong> them to any existing <code>.grad</code>. If you didn't zero us first, you'd be summing across iterations!</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Engine" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">E</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Autograd Engine</span>
+              <p>And now I free the graph. Call <code>.backward()</code> again on the same graph and you'll get an error — unless you passed <code>retain_graph=True</code>.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 5 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: no_grad vs inference_mode vs detach -->
+    <div class="screen">
+      <h2 class="screen-heading">Three Ways to Stop Tracking — Know the Differences</h2>
+      <p>"What's the difference between <code>no_grad</code>, <code>inference_mode</code>, and <code>detach</code>?" is a staple. Here's the crisp answer:</p>
+
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="torch.no_grad() is a context manager that disables graph construction for all operations inside it. Results can still later be used in autograd. Standard choice for validation loops.">torch.no_grad()</span></strong>
+            <p>Context manager. Disables graph building for everything inside. Use for validation. Results can safely re-enter a training graph later.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="torch.inference_mode() is more aggressive than no_grad: it also skips version-counter and view tracking, so it's faster. Caveat: tensors CREATED inside inference_mode cannot later participate in autograd.">torch.inference_mode()</span></strong>
+            <p>Faster than no_grad — also skips version counters. But tensors <em>created</em> inside it can never enter an autograd graph. Use for pure, throwaway inference.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong><span class="term" data-definition="tensor.detach() returns a new tensor sharing the same storage but detached from the graph (requires_grad=False). It acts on a single tensor rather than a whole block of code.">.detach()</span></strong>
+            <p>Acts on one tensor: returns a graph-free view sharing storage. Use to snip a tensor out of the graph mid-computation.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug challenge — accumulation -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: The Silent Killer</h2>
+      <p>This loop "trains" but the model barely learns. Click the missing/wrong line.</p>
+
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Iterating batches is correct."><code>for x, y in loader:</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Forward + loss are fine."><code>&nbsp;&nbsp;loss = loss_fn(model(x), y)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: there is no optimizer.zero_grad(). PyTorch ACCUMULATES gradients into .grad across .backward() calls. Without zeroing each iteration, gradients from every previous batch pile up, giving huge, wrong updates. Add optimizer.zero_grad() once per iteration."><code>&nbsp;&nbsp;loss.backward()&nbsp;&nbsp;# grads accumulate...</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="step() itself is correct — the problem is that grads were never cleared."><code>&nbsp;&nbsp;optimizer.step()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The follow-up they love</span>
+          <p>"When would accumulation be a <em>feature</em>, not a bug?" — <strong>Gradient accumulation</strong> to simulate a larger batch: skip <code>zero_grad</code>/<code>step</code> for N micro-batches, then step once. Naming this unprompted signals real training experience.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: memory leak quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m2">
+        <div class="quiz-question-block" data-correct="item" data-explanation-right="Correct. total_loss += loss keeps the whole graph alive across the epoch (loss still references its grad_fn), leaking memory until OOM. Use loss.item() (or .detach()) to accumulate a plain Python float." data-explanation-wrong="Accumulating the loss TENSOR keeps its graph alive across iterations — a classic OOM. Use loss.item() to store a detached scalar.">
+          <p class="quiz-question">1. You log <code>total_loss += loss</code> each batch and OOM after a while. Fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="item" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Use <code>total_loss += loss.item()</code></span></button>
+            <button class="quiz-option" data-value="nograd" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Wrap the whole loop in <code>no_grad()</code></span></button>
+            <button class="quiz-option" data-value="smaller" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Reduce the batch size</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="retain" data-explanation-right="Correct. The graph is freed after the first backward(). To backprop through it twice, pass retain_graph=True on the first call (or restructure to avoid it)." data-explanation-wrong="Calling backward() twice on the same graph fails because the graph is freed after the first pass. Pass retain_graph=True to keep it.">
+          <p class="quiz-question">2. Calling <code>loss.backward()</code> twice on the same graph raises. Why / fix?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="retain" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Graph freed after first pass; use <code>retain_graph=True</code></span></button>
+            <button class="quiz-option" data-value="zero" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You forgot <code>zero_grad()</code> between them</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>You can never call backward twice, period</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m2')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Why does validation use <code>no_grad</code>?" — No graph → less memory, faster; outputs identical.<br>
+          &bull; "Which tensors get <code>.grad</code>?" — Only leaf tensors with <code>requires_grad=True</code> (call <code>retain_grad()</code> for non-leaves).<br>
+          &bull; "Backward on a non-scalar?" — Must pass a <code>gradient=</code> vector, or reduce to a scalar first.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-3">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 03</span>
+      <h1 class="module-title">Models, Losses &amp; the Training Loop</h1>
+      <p class="module-subtitle">The classic live-coding prompt: "implement a training loop on a whiteboard." Get the five steps and their ordering right, and know why <code>CrossEntropyLoss</code> eats logits — that's the whole round.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Can you write the loop <em>from memory</em>, in the right order, without a framework? And do you know the three landmines: <strong>logits vs probabilities</strong>, <strong>train() vs eval()</strong>, and <strong>where zero_grad goes</strong>?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Define a Model — the Registration Rules</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line"><span class="code-keyword">class</span> <span class="code-function">Net</span>(nn.Module):</span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">__init__</span>(self):</span>
+<span class="code-line">    <span class="code-function">super</span>().__init__()   <span class="code-comment"># MUST call first</span></span>
+<span class="code-line">    self.net = nn.Sequential(</span>
+<span class="code-line">      nn.Linear(<span class="code-number">784</span>, <span class="code-number">256</span>), nn.ReLU(),</span>
+<span class="code-line">      nn.Linear(<span class="code-number">256</span>, <span class="code-number">10</span>))  <span class="code-comment"># raw logits</span></span>
+<span class="code-line"></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">forward</span>(self, x):</span>
+<span class="code-line">    <span class="code-keyword">return</span> self.net(x)   <span class="code-comment"># no softmax!</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why each line matters</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>super().__init__()</strong> — skip it and no parameters register. Instant bug.</div>
+            <div class="tl"><strong>Assigning nn modules as attributes</strong> auto-registers them into .parameters() and .to().</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Output raw logits</strong> — CrossEntropyLoss applies log_softmax itself.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Call model(x)</strong>, never model.forward(x) — the former runs hooks.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: the loop (coding) -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Canonical Loop — Live-Coding Answer</h2>
+      <p>Memorize this. The five steps, in order:</p>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p>forward: <code>pred = model(x)</code></p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p>loss</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p>backward</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">4</div><p>step</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">5</div><p>zero_grad</p></div>
+      </div>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Training loop</span>
+          <pre><code><span class="code-line">model.train()                     <span class="code-comment"># dropout/BN in train mode</span></span>
+<span class="code-line"><span class="code-keyword">for</span> x, y <span class="code-keyword">in</span> loader:</span>
+<span class="code-line">  x, y = x.to(device), y.to(device)</span>
+<span class="code-line">  pred = model(x)                 <span class="code-comment"># 1</span></span>
+<span class="code-line">  loss = loss_fn(pred, y)         <span class="code-comment"># 2</span></span>
+<span class="code-line">  loss.backward()                 <span class="code-comment"># 3</span></span>
+<span class="code-line">  optimizer.step()                <span class="code-comment"># 4</span></span>
+<span class="code-line">  optimizer.zero_grad()           <span class="code-comment"># 5</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The ordering rule</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>train()</strong> enables Dropout &amp; BatchNorm training behavior.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Move data</strong> to the model's device.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward</strong> fills .grad.</div>
+            <div class="tl"><strong>step</strong> reads .grad, updates weights.</div>
+            <div class="tl"><strong>zero_grad</strong> clears for next iter. Never between backward and step!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug challenge -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: The Loop That Won't Learn</h2>
+      <p>A candidate wrote this in a screen. It compiles and runs — but the loss never drops. Click the offending line.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Forward + loss are correct."><code>&nbsp;&nbsp;loss = loss_fn(model(x), y)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="backward() is correctly placed."><code>&nbsp;&nbsp;loss.backward()</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: zero_grad() sits BETWEEN backward() and step(). It erases the gradients backward() just computed, so step() applies a zero update — the model never learns. Move zero_grad() before backward() or after step()."><code>&nbsp;&nbsp;optimizer.zero_grad()&nbsp;&nbsp;# wrong place!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="step() is fine — but it's now stepping on zeroed gradients."><code>&nbsp;&nbsp;optimizer.step()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: losses & optimizers -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Losses &amp; Optimizers — the Gotchas</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="nn.CrossEntropyLoss internally applies log_softmax followed by NLLLoss. It expects RAW LOGITS of shape (N, C) and integer class-index targets of shape (N,) with dtype long. Do NOT put a Softmax before it.">CrossEntropyLoss</span></span>
+          <span class="badge-desc">Takes <strong>raw logits</strong> + <strong>integer class indices</strong> (long). It applies log_softmax internally. A Softmax layer before it = double softmax = broken training.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="AdamW decouples weight decay from the adaptive gradient moments, applying it directly to the weights. This is the correct L2 regularization and is preferred over Adam(weight_decay=...), where decay is entangled with the adaptive learning rate.">AdamW</span> vs Adam</span>
+          <span class="badge-desc"><strong>AdamW</strong> decouples weight decay from the adaptive moments — the correct L2 regularization. Prefer it over <code>Adam(weight_decay=...)</code>.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m3">
+        <div class="quiz-question-block" data-correct="double" data-explanation-right="Correct. CrossEntropyLoss already applies log_softmax; a preceding Softmax means softmax is applied twice, flattening gradients and hurting training. Output raw logits." data-explanation-wrong="CrossEntropyLoss applies log_softmax internally. A Softmax layer before it applies softmax twice — that's the bug.">
+          <p class="quiz-question">1. Final layer is <code>nn.Softmax</code>, loss is <code>CrossEntropyLoss</code>. What's wrong?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="double" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Double softmax — remove the Softmax layer</span></button>
+            <button class="quiz-option" data-value="fine" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — that's the correct setup</span></button>
+            <button class="quiz-option" data-value="dtype" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Targets must be one-hot encoded</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="both" data-explanation-right="Correct. eval() switches Dropout OFF and makes BatchNorm use running stats. Forgetting it gives noisy, batch-dependent, misleadingly bad validation numbers." data-explanation-wrong="model.eval() affects BOTH: Dropout is disabled and BatchNorm switches to stored running statistics.">
+          <p class="quiz-question">2. What does <code>model.eval()</code> change before validation?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="grad" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It disables gradient tracking</span></button>
+            <button class="quiz-option" data-value="both" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Dropout off + BatchNorm uses running stats</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing functional — just a flag</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m3')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "You stored layers in a Python <code>list</code> — why are they invisible to the optimizer?" — Use <code>nn.ModuleList</code>/<code>nn.Sequential</code>; a plain list isn't registered.<br>
+          &bull; "<code>model.eval()</code> vs <code>no_grad()</code> — same thing?" — No. <code>eval()</code> changes layer behavior; <code>no_grad()</code> disables the graph. You typically use both at validation.<br>
+          &bull; "Does <code>eval()</code> stop gradients?" — No, it does not.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-4">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 04</span>
+      <h1 class="module-title">Data Pipeline &amp; Reproducibility</h1>
+      <p class="module-subtitle">Data-loading questions look easy and trip up seniors. <code>num_workers</code>, <code>pin_memory</code>, worker seeding, and "why is your augmentation duplicated across workers" are exactly the details that reveal production experience.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The <code>Dataset</code>/<code>DataLoader</code> split (who does what), when workers <em>help</em> vs <em>hurt</em>, and reproducibility — the last one being a genuine differentiator because most candidates only seed the main process.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Dataset vs DataLoader — the Division of Labor</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="A map-style Dataset implements __getitem__(idx) and __len__(). It defines HOW to fetch and transform a single sample. It knows nothing about batching or shuffling.">Dataset</span></span>
+          <span class="badge-desc">Defines how to access <strong>one sample</strong>: <code>__getitem__</code> + <code>__len__</code>. All per-sample transforms live here.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="DataLoader wraps a Dataset and handles batching, shuffling, parallel loading via worker subprocesses (num_workers), and pinned memory. It calls the Dataset's __getitem__ and collates results into batches.">DataLoader</span></span>
+          <span class="badge-desc">Wraps a Dataset: <strong>batching, shuffling, parallelism</strong> (<code>num_workers</code>), pinned memory, and <code>collate_fn</code>.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: DataLoader knobs -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Knobs That Come Up</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Python / PyTorch</span>
+          <pre><code><span class="code-line">loader = DataLoader(</span>
+<span class="code-line">  ds, batch_size=<span class="code-number">64</span>, shuffle=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  num_workers=<span class="code-number">4</span>,</span>
+<span class="code-line">  pin_memory=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  persistent_workers=<span class="code-keyword">True</span>,</span>
+<span class="code-line">  drop_last=<span class="code-keyword">True</span>)</span>
+<span class="code-line"></span>
+<span class="code-line">x = x.to(device, non_blocking=<span class="code-keyword">True</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What each does</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>num_workers</strong> — subprocesses that prefetch batches. Helps when __getitem__ is I/O or CPU bound.</div>
+            <div class="tl"><strong>pin_memory</strong> — page-locked host memory → faster, async H2D copies.</div>
+            <div class="tl"><strong>persistent_workers</strong> — keep workers alive across epochs (avoids re-spawn cost).</div>
+            <div class="tl"><strong>drop_last</strong> — drop the ragged final batch (BatchNorm stability).</div>
+            <div class="tl"><strong>non_blocking</strong> — overlaps the copy — <em>only</em> effective with pinned memory.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The trap: "more workers = faster"</span>
+          <p>False for tiny, in-memory datasets — worker IPC/startup overhead dominates and <code>num_workers=0</code> wins. Workers pay off only when per-sample work (disk read, decode, augmentation) is heavy. Saying this unprompted scores points.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: transforms v2 -->
+    <div class="screen">
+      <h2 class="screen-heading">Transforms: Know the Deprecation</h2>
+      <p>A subtle "are you current?" signal: the modern API is <code>torchvision.transforms.v2</code>, and <code>ToTensor</code> is deprecated.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Modern (v2)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torchvision.transforms <span class="code-keyword">import</span> v2</span>
+<span class="code-line"></span>
+<span class="code-line">tf = v2.Compose([</span>
+<span class="code-line">  v2.ToImage(),</span>
+<span class="code-line">  v2.RandomResizedCrop(<span class="code-number">224</span>, antialias=<span class="code-keyword">True</span>),</span>
+<span class="code-line">  v2.ToDtype(torch.float32, scale=<span class="code-keyword">True</span>),</span>
+<span class="code-line">  v2.Normalize(mean=..., std=...)])</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why not ToTensor?</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ToImage()</strong> converts to a tensor image (no scaling).</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>ToDtype(..., scale=True)</strong> replaces ToTensor's [0,255]→[0,1] scaling — <code>v2.ToTensor</code> is deprecated. v2 is also faster and can transform images + boxes + masks jointly.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: reproducibility bug -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Duplicated Augmentations</h2>
+      <p>Training with <code>num_workers=4</code> and random augmentation. Every 4th sample looks augmented <em>identically</em>. Click the root cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Seeding torch/numpy in the MAIN process is correct — but insufficient."><code>torch.manual_seed(0); np.random.seed(0)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Root cause: worker subprocesses are forked and each inherits the SAME numpy/random seed, so all 4 workers generate identical random augmentations. Fix: pass worker_init_fn that reseeds each worker from torch.initial_seed(), plus a DataLoader generator."><code>loader = DataLoader(ds, num_workers=4)&nbsp;&nbsp;# no worker_init_fn</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Using np.random inside __getitem__ is fine — the problem is the workers share a seed."><code>def __getitem__(self, i): aug = np.random.rand()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">The fix</span>
+          <pre><code><span class="code-line"><span class="code-keyword">def</span> <span class="code-function">seed_worker</span>(worker_id):</span>
+<span class="code-line">  s = torch.initial_seed() % <span class="code-number">2</span>**<span class="code-number">32</span></span>
+<span class="code-line">  np.random.seed(s); random.seed(s)</span>
+<span class="code-line">g = torch.Generator(); g.manual_seed(<span class="code-number">0</span>)</span>
+<span class="code-line">DataLoader(ds, num_workers=<span class="code-number">4</span>, worker_init_fn=seed_worker, generator=g)</span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: checkpointing quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Checkpointing — Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m4">
+        <div class="quiz-question-block" data-correct="statedict" data-explanation-right="Correct. state_dict() is a portable tensor dict. torch.save(model) pickles the class definition and file paths, breaking on refactor or environment change. Also, torch.load defaults to weights_only=True (2.6+), which won't unpickle arbitrary objects." data-explanation-wrong="Save state_dict(), not the whole model. Pickling the model object couples the checkpoint to the exact class/paths/environment and is fragile.">
+          <p class="quiz-question">1. Save <code>model.state_dict()</code> or <code>torch.save(model)</code>? Why?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="statedict" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>state_dict — portable, decoupled from the class</span></button>
+            <button class="quiz-option" data-value="whole" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Whole model — simpler to reload</span></button>
+            <button class="quiz-option" data-value="same" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>No difference in practice</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="optim" data-explanation-right="Correct. To resume training faithfully you must restore the optimizer (and scheduler) state too — otherwise momentum/adaptive moments and the LR schedule reset, hurting the resumed run." data-explanation-wrong="Restoring only model weights resets optimizer momentum and the LR schedule. Save and restore optimizer.state_dict() (and scheduler) as well.">
+          <p class="quiz-question">2. You resume training but loss spikes. You restored weights only. Missing?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="optim" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Optimizer (and scheduler) state</span></button>
+            <button class="quiz-option" data-value="seed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The random seed</span></button>
+            <button class="quiz-option" data-value="lr" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — spikes are normal</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m4')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "When do you need <code>collate_fn</code>?" — Variable-length data (pad sequences); default collate can't stack unequal tensors.<br>
+          &bull; "<code>shuffle=True</code> and a custom <code>sampler</code> together?" — Illegal, mutually exclusive.<br>
+          &bull; "Is determinism guaranteed across machines?" — No — only within the same PyTorch version/platform; deterministic algorithms are also slower.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-5">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 05</span>
+      <h1 class="module-title">Building Blocks &amp; Transfer Learning</h1>
+      <p class="module-subtitle">BatchNorm vs LayerNorm is the most common "do you actually understand normalization" question. Transfer learning tests whether you know the modern <code>weights=</code> API — and the freeze-ordering bug that silently trains nothing.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>"When would you pick LayerNorm over BatchNorm?" and "how do you fine-tune a pretrained ResNet without wrecking its features?" — plus the classic ordering bug: freeze <em>then</em> replace the head, never the reverse.</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">BatchNorm vs LayerNorm — the One-Liner</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#128202;</div>
+          <div class="pattern-title"><span class="term" data-definition="BatchNorm normalizes each feature across the batch dimension, using batch statistics during training and stored running mean/variance at eval time. Sensitive to small batch sizes.">BatchNorm</span></div>
+          <p class="pattern-desc">Normalizes each feature <strong>across the batch</strong>. Uses batch stats in train, running stats at eval. Breaks with tiny/variable batches. Standard in CNNs.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128207;</div>
+          <div class="pattern-title"><span class="term" data-definition="LayerNorm normalizes across the feature dimension per-sample, independent of batch size. It behaves identically in train and eval, which is why it's standard in Transformers.">LayerNorm</span></div>
+          <p class="pattern-desc">Normalizes <strong>per-sample across features</strong>. Batch-size independent; identical in train &amp; eval. Standard in Transformers &amp; small-batch regimes.</p>
+        </div>
+      </div>
+      <p>The answer they want: <strong>"Use LayerNorm for sequence models/Transformers or when batches are small/variable, because it doesn't depend on batch statistics."</strong></p>
+    </div>
+
+    <!-- SCREEN 2: DnD -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Match the Layer to Its Job</h2>
+      <p>Drag each layer onto the use-case an interviewer would expect it for.</p>
+      <div class="dnd-container animate-in" id="dnd-m5">
+        <div class="dnd-chips">
+          <div class="dnd-chip" draggable="true" data-answer="seq"><code>nn.LayerNorm</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="reg"><code>nn.Dropout</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="cnn"><code>nn.Conv2d</code></div>
+          <div class="dnd-chip" draggable="true" data-answer="seqmodel"><code>nn.LSTM</code></div>
+        </div>
+        <div class="dnd-zones">
+          <div class="dnd-zone" data-correct="seq">
+            <div class="dnd-zone-label">Normalize per-sample in a Transformer block</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="reg">
+            <div class="dnd-zone-label">Regularize by randomly zeroing activations in training</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="cnn">
+            <div class="dnd-zone-label">Extract spatial features from an (N,C,H,W) image</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+          <div class="dnd-zone" data-correct="seqmodel">
+            <div class="dnd-zone-label">Model a variable-length time series with hidden state</div>
+            <div class="dnd-zone-target">Drop here</div>
+          </div>
+        </div>
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkDnD('dnd-m5')">Check Matches</button>
+          <button class="quiz-reset-btn" onclick="resetDnD('dnd-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: transfer learning -->
+    <div class="screen">
+      <h2 class="screen-heading">Transfer Learning — the Modern API</h2>
+      <p>Interviewers spot outdated candidates instantly: <code>pretrained=True</code> is deprecated. Use the <span class="term" data-definition="The Weights enum API (e.g. ResNet18_Weights.DEFAULT) replaced the boolean pretrained=True. It also exposes weights.transforms(), giving you the exact preprocessing the checkpoint was trained with.">Weights enum</span>.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Feature extraction</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torchvision.models <span class="code-keyword">import</span> resnet18, ResNet18_Weights</span>
+<span class="code-line"></span>
+<span class="code-line">w = ResNet18_Weights.DEFAULT</span>
+<span class="code-line">model = resnet18(weights=w)</span>
+<span class="code-line">preprocess = w.transforms()   <span class="code-comment"># exact preprocessing</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">for</span> p <span class="code-keyword">in</span> model.parameters():</span>
+<span class="code-line">  p.requires_grad = <span class="code-keyword">False</span>   <span class="code-comment"># freeze FIRST</span></span>
+<span class="code-line">model.fc = nn.Linear(model.fc.in_features, n)  <span class="code-comment"># then replace</span></span>
+<span class="code-line">opt = torch.optim.SGD(model.fc.parameters(), lr=<span class="code-number">1e-3</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why this order</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>DEFAULT</strong> = best available checkpoint.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>w.transforms()</strong> gives the exact resize/crop/normalize — no guessing constants.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Freeze first</strong> — set requires_grad=False on everything.</div>
+            <div class="tl"><strong>Then replace fc</strong> — new modules default to requires_grad=True, so only the head trains.</div>
+            <div class="tl"><strong>Optimize only the head.</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: bug — freeze order -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Nothing Trains</h2>
+      <p>A candidate's fine-tuning code runs, loss is flat, accuracy never moves. Click the line responsible.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Loading the pretrained model is fine."><code>model = resnet18(weights=ResNet18_Weights.DEFAULT)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Replacing the head is fine — timing is the issue."><code>model.fc = nn.Linear(model.fc.in_features, 10)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: the freeze loop runs AFTER replacing the head, so it also freezes the new fc layer — now every parameter has requires_grad=False and nothing trains. Fix: freeze BEFORE replacing model.fc (new modules default to requires_grad=True)."><code>for p in model.parameters(): p.requires_grad = False</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The optimizer is fine — but it received zero trainable params."><code>opt = torch.optim.SGD(model.parameters(), lr=1e-3)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m5">
+        <div class="quiz-question-block" data-correct="transforms" data-explanation-right="Correct. weights.transforms() returns the exact preprocessing the checkpoint was trained with (resize, crop size, mean/std). Hand-writing these risks a distribution mismatch that silently tanks accuracy." data-explanation-wrong="The advantage is correctness: weights.transforms() matches the checkpoint's training-time preprocessing exactly, avoiding silent accuracy loss from wrong normalization.">
+          <p class="quiz-question">1. Why use <code>weights.transforms()</code> instead of writing Resize/Normalize yourself?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="transforms" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It matches the checkpoint's exact preprocessing</span></button>
+            <button class="quiz-option" data-value="faster" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It runs faster on the GPU</span></button>
+            <button class="quiz-option" data-value="augments" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It adds random augmentation automatically</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="onlybetween" data-explanation-right="Correct. nn.LSTM's dropout argument only applies BETWEEN stacked layers, so it does nothing for a single-layer LSTM (num_layers=1)." data-explanation-wrong="The dropout arg in nn.LSTM only acts between stacked layers — with num_layers=1 it has no effect. A common surprise.">
+          <p class="quiz-question">2. <code>nn.LSTM(..., num_layers=1, dropout=0.5)</code> — effect of dropout?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="onlybetween" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>None — dropout only applies between stacked layers</span></button>
+            <button class="quiz-option" data-value="works" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Drops 50% of hidden units each step</span></button>
+            <button class="quiz-option" data-value="input" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Drops 50% of the inputs</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m5')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Feature extraction vs fine-tuning — when each?" — Freeze-and-train-head for small data; fine-tune (small LR) with more data.<br>
+          &bull; "Why fine-tune at a <em>lower</em> LR?" — A high LR destroys the pretrained features before the head adapts.<br>
+          &bull; "BatchNorm at inference on a fine-tuned model?" — Call <code>eval()</code> so it uses running stats, or accuracy degrades.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-6">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 06</span>
+      <h1 class="module-title">Mixed Precision &amp; Performance</h1>
+      <p class="module-subtitle">Where ML-engineer loops separate the "I trained a model" crowd from the "I made training 2&times; faster" crowd. AMP mechanics, the fp16-vs-bf16 scaler question, and the <code>.item()</code> sync anti-pattern come up constantly.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Do you understand <em>why</em> a <code>GradScaler</code> exists, that backward runs <em>outside</em> autocast, and that you're using the current <code>torch.amp</code> API (not the deprecated <code>torch.cuda.amp</code>)? Plus: can you spot a hidden CPU&harr;GPU sync killing throughput?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Why GradScaler Exists</h2>
+      <p><span class="term" data-definition="Automatic Mixed Precision (AMP) runs eligible ops in float16/bfloat16 for speed and lower memory, while keeping numerically sensitive ops (e.g. reductions, softmax) in float32. autocast chooses per-op precision automatically.">AMP</span> runs eligible ops in fp16/bf16. But fp16 has a narrow dynamic range — small gradients <strong>underflow to zero</strong>. The <code>GradScaler</code> multiplies the loss by a large factor so gradients stay representable, then unscales before the optimizer step.</p>
+    </div>
+
+    <!-- SCREEN 2: correct AMP -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The Correct AMP Loop (Current API)</h2>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.amp (2.x)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.amp <span class="code-keyword">import</span> autocast, GradScaler</span>
+<span class="code-line">scaler = GradScaler(<span class="code-string">"cuda"</span>)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">for</span> x, y <span class="code-keyword">in</span> loader:</span>
+<span class="code-line">  optimizer.zero_grad()</span>
+<span class="code-line">  <span class="code-keyword">with</span> autocast(device_type=<span class="code-string">"cuda"</span>):</span>
+<span class="code-line">    out = model(x)          <span class="code-comment"># forward + loss ONLY</span></span>
+<span class="code-line">    loss = loss_fn(out, y)</span>
+<span class="code-line">  scaler.scale(loss).backward()   <span class="code-comment"># OUTSIDE autocast</span></span>
+<span class="code-line">  scaler.step(optimizer)</span>
+<span class="code-line">  scaler.update()</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The rules</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>torch.amp</strong> — NOT torch.cuda.amp (deprecated).</div>
+            <div class="tl"><strong>GradScaler("cuda")</strong> with explicit device.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>autocast wraps ONLY</strong> forward + loss.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward is outside</strong> — it auto-uses the chosen dtypes.</div>
+            <div class="tl"><strong>scaler.step</strong> unscales, then steps.</div>
+            <div class="tl"><strong>scaler.update</strong> adjusts the scale factor.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: bug — AMP misuse -->
+    <div class="screen">
+      <h2 class="screen-heading">Spot the Bug: Broken AMP</h2>
+      <p>This AMP loop produces NaNs and gradient clipping seems to do nothing. Click the line at fault.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="autocast around forward/loss is correct."><code>&nbsp;&nbsp;with autocast(device_type="cuda"): loss = loss_fn(model(x), y)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Scaling the loss for backward is correct."><code>&nbsp;&nbsp;scaler.scale(loss).backward()</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: clip_grad_norm_ runs on SCALED gradients. You must call scaler.unscale_(optimizer) FIRST, then clip, then scaler.step(). Clipping scaled grads uses the wrong threshold and has no real effect."><code>&nbsp;&nbsp;clip_grad_norm_(model.parameters(), 1.0)&nbsp;&nbsp;# grads still scaled!</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="step/update themselves are fine — the clip above operated on scaled grads."><code>&nbsp;&nbsp;scaler.step(optimizer); scaler.update()</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#9989;</span>
+        <div class="callout-content">
+          <span class="callout-title">Correct clipping with AMP</span>
+          <pre><code><span class="code-line">scaler.scale(loss).backward()</span>
+<span class="code-line">scaler.unscale_(optimizer)              <span class="code-comment"># unscale FIRST</span></span>
+<span class="code-line">clip_grad_norm_(model.parameters(), <span class="code-number">1.0</span>)</span>
+<span class="code-line">scaler.step(optimizer); scaler.update()</span></code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: fp16 vs bf16 quiz -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">The fp16-vs-bf16 Question</h2>
+      <div class="quiz-container animate-in" id="quiz-m6">
+        <div class="quiz-question-block" data-correct="bf16norange" data-explanation-right="Correct. bfloat16 has the same exponent range as float32, so gradients don't underflow — a GradScaler is generally unnecessary with bf16. fp16 has a narrow range and needs it." data-explanation-wrong="bfloat16 shares fp32's exponent range, so no gradient scaling is needed. fp16 is the one with the narrow range that requires GradScaler.">
+          <p class="quiz-question">1. Do you need <code>GradScaler</code> with bf16 autocast?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="bf16norange" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Generally no — bf16 has fp32's exponent range</span></button>
+            <button class="quiz-option" data-value="always" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Yes, always required for any AMP</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Never needed for fp16 either</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="sync" data-explanation-right="Correct. loss.item() / .cpu() force a CPU-GPU synchronization every iteration, serializing the pipeline and starving the GPU. Log sparingly (e.g. every N steps) and keep values on-device." data-explanation-wrong="Calling .item()/.cpu() each step forces a device sync, serializing execution. That's the hidden throughput killer here.">
+          <p class="quiz-question">2. Kernel times are tiny but wall-clock is high; code calls <code>loss.item()</code> every step. Cause?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="sync" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Per-step <code>.item()</code> forces a CPU-GPU sync</span></button>
+            <button class="quiz-option" data-value="small" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>The batch is too small to saturate the GPU</span></button>
+            <button class="quiz-option" data-value="amp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>AMP overhead dominates</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m6')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: profiler -->
+    <div class="screen">
+      <h2 class="screen-heading">Profiling — Show You Can Measure</h2>
+      <p>"How would you find the bottleneck?" Reach for <code>torch.profiler</code> with a <code>schedule</code> that skips warmup.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.profiler</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.profiler <span class="code-keyword">import</span> profile, schedule, ProfilerActivity</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">with</span> profile(</span>
+<span class="code-line">  activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],</span>
+<span class="code-line">  schedule=schedule(wait=<span class="code-number">1</span>, warmup=<span class="code-number">1</span>, active=<span class="code-number">3</span>)) <span class="code-keyword">as</span> p:</span>
+<span class="code-line">  <span class="code-keyword">for</span> _ <span class="code-keyword">in</span> range(<span class="code-number">5</span>):</span>
+<span class="code-line">    model(inputs); p.step()</span>
+<span class="code-line">print(p.key_averages().table(sort_by=<span class="code-string">"cuda_time_total"</span>))</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Why warmup</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>wait/warmup</strong> skip CUDA init, cuDNN autotune, allocator warmup, and torch.compile compilation — which would distort numbers.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>active</strong> steps reflect true steady-state cost.</div>
+            <div class="tl"><strong>export_chrome_trace</strong> for a timeline to see kernel gaps.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "Should <code>backward()</code> be inside autocast?" — No, only forward + loss.<br>
+          &bull; "fp16 on a bf16-pretrained LLM?" — Risky; fp16 max &asymp; 65504, can overflow. Prefer bf16.<br>
+          &bull; "CUDA is async — how do you time correctly?" — <code>torch.cuda.synchronize()</code> before/after, or use the profiler.<br>
+          &bull; "Does <code>empty_cache()</code> fix OOM?" — No; it returns cached memory to other processes, doesn't free your tensors or fix fragmentation.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-7">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 07</span>
+      <h1 class="module-title">torch.compile &amp; Distributed Training</h1>
+      <p class="module-subtitle">Senior and staff loops live here. Explain the compile pipeline, guards and recompiles, and — the big one — <strong>when DDP vs FSDP</strong>. Get the "does the model fit on one GPU" heuristic right and you've answered the core distributed question.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>The <code>torch.compile</code> pipeline (Dynamo &rarr; AOTAutograd &rarr; Inductor), what a <strong>graph break</strong> and a <strong>recompile</strong> are, and the DDP-vs-FSDP decision framed by the single question: <em>does the model fit on one device?</em></p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">The Compile Pipeline in One Breath</h2>
+      <div class="flow-steps animate-in">
+        <div class="flow-step"><div class="flow-step-num">1</div><p><span class="term" data-definition="TorchDynamo hooks CPython's frame evaluation to trace Python bytecode into an FX graph, recording guards. Anything it can't trace becomes a graph break, falling back to eager.">Dynamo</span>: bytecode &rarr; FX graph + guards</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">2</div><p><span class="term" data-definition="AOTAutograd traces the forward and backward ahead of time into a joint graph, then partitions it into forward and backward subgraphs so the backward pass is also compiled.">AOTAutograd</span>: joint fwd/bwd graph</p></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-step"><div class="flow-step-num">3</div><p><span class="term" data-definition="TorchInductor is the default backend. It lowers the ATen graph to fused kernels: Triton for GPU, C++/OpenMP for CPU, using fusion and autotuning.">Inductor</span>: Triton (GPU) / C++ (CPU)</p></div>
+      </div>
+
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">Usage</span>
+          <pre><code><span class="code-line">model = torch.compile(model)              <span class="code-comment"># one line</span></span>
+<span class="code-line">model = torch.compile(model, mode=<span class="code-string">"max-autotune"</span>)</span>
+<span class="code-line">model = torch.compile(model, fullgraph=<span class="code-keyword">True</span>)  <span class="code-comment"># no graph breaks</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">Modes &amp; flags</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>default</strong> — balanced.</div>
+            <div class="tl"><strong>max-autotune</strong> — Triton-templated matmul/conv autotuning + CUDA graphs. Best for serving.</div>
+            <div class="tl"><strong>fullgraph=True</strong> — errors on any graph break; use in dev to find them.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: recompile bug -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Spot the Bug: Slower After Compiling</h2>
+      <p>A candidate wraps their model in <code>torch.compile</code> and it's <em>slower</em> than eager, recompiling constantly. Click the cause.</p>
+      <div class="bug-challenge animate-in">
+        <div class="bug-code">
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="Compiling once outside the loop is correct."><code>model = torch.compile(model)</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, true)" data-explanation="Bug: every batch has a different sequence length, so input shapes keep changing. Dynamo's guards fail each time and it recompiles per step — killing throughput. Fix: torch.compile(model, dynamic=True), pad to fixed shapes, or mark dims dynamic. Diagnose with TORCH_LOGS=recompiles."><code>for x in variable_length_batches:&nbsp;&nbsp;# shapes change every step</code></div>
+          <div class="bug-line" onclick="checkBugLine(this, false)" data-hint="The forward call itself is fine — the shape variation above is the trigger."><code>&nbsp;&nbsp;out = model(x)</code></div>
+        </div>
+        <div class="bug-feedback"></div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128269;</span>
+        <div class="callout-content">
+          <span class="callout-title">Diagnose it</span>
+          <p><code>TORCH_LOGS="recompiles,graph_breaks" python train.py</code> prints exactly why Dynamo recompiled or broke the graph. Mentioning this tool is a strong signal. Fix shape churn with <code>dynamic=True</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: DDP vs FSDP -->
+    <div class="screen">
+      <h2 class="screen-heading">The Decision: DDP vs FSDP</h2>
+      <div class="pattern-cards animate-in">
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-2);">
+          <div class="pattern-icon" style="background: rgba(42,123,155,0.1); color: var(--color-actor-2);">&#128257;</div>
+          <div class="pattern-title"><span class="term" data-definition="DistributedDataParallel replicates the FULL model on every rank; each processes a shard of the batch and gradients are synchronized via all-reduce during backward. Use when the model fits on one device.">DDP</span></div>
+          <p class="pattern-desc"><strong>Model fits on one GPU.</strong> Full replica per rank, data split across ranks, one <strong>all-reduce</strong> per step. Lowest overhead. This is your default.</p>
+        </div>
+        <div class="pattern-card" style="border-top: 3px solid var(--color-actor-1);">
+          <div class="pattern-icon" style="background: rgba(217,79,48,0.1); color: var(--color-actor-1);">&#129513;</div>
+          <div class="pattern-title"><span class="term" data-definition="FSDP shards parameters, gradients, and optimizer states across ranks. It decomposes DDP's all-reduce into reduce-scatter (gradients) + all-gather (parameters), gathering params just-in-time for compute. Use when the model does NOT fit on one device. FSDP2's fully_shard is the current API.">FSDP2</span></div>
+          <p class="pattern-desc"><strong>Model does NOT fit.</strong> Shards params + grads + optimizer state. all-reduce &rarr; reduce-scatter + all-gather. Use <code>fully_shard</code> (FSDP1 is deprecated).</p>
+        </div>
+      </div>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">FSDP2 — bottom-up</span>
+          <pre><code><span class="code-line"><span class="code-keyword">from</span> torch.distributed.fsdp <span class="code-keyword">import</span> fully_shard</span>
+<span class="code-line"><span class="code-keyword">for</span> layer <span class="code-keyword">in</span> model.layers:</span>
+<span class="code-line">  fully_shard(layer)      <span class="code-comment"># shard submodules first</span></span>
+<span class="code-line">fully_shard(model)        <span class="code-comment"># then the root</span></span>
+<span class="code-line">opt = torch.optim.Adam(model.parameters())  <span class="code-comment"># AFTER sharding!</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The ordering rule</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Shard leaves first, root last.</strong></div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>Build the optimizer AFTER fully_shard</strong> — params become sharded DTensors; an optimizer built before points at the wrong objects. Classic senior gotcha.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: chat — DDP ranks -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Watch DDP Ranks Sync</h2>
+      <p>Step through one training step across two GPUs — this is the narration you'd give when asked "how does DDP keep replicas in sync?"</p>
+      <div class="chat-window animate-in" id="chat-m7">
+        <div class="chat-messages">
+          <div class="chat-message" data-sender="Rank0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Rank 0 (GPU 0)</span>
+              <p>At construction, DDP broadcast my weights to everyone, so all replicas started identical. I just ran forward on my slice of the batch.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Rank1" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-2);">1</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-2);">Rank 1 (GPU 1)</span>
+              <p>Same model, different data slice. I computed my local gradients in the backward pass. But my grads differ from Rank 0's — different samples.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="AllReduce" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-4);">&Sigma;</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-4);">All-Reduce (NCCL)</span>
+              <p>I fire during backward, overlapping with compute. I sum every rank's gradients and divide by world size — now every rank holds the <em>same</em> averaged gradient.</p>
+            </div>
+          </div>
+          <div class="chat-message" data-sender="Rank0" style="display:none;">
+            <div class="chat-avatar" style="background: var(--color-actor-1);">0</div>
+            <div class="chat-bubble">
+              <span class="chat-sender" style="color: var(--color-actor-1);">Rank 0 (GPU 0)</span>
+              <p>We each call optimizer.step() locally on the identical averaged gradient — so we stay bit-for-bit in sync. No parameter broadcast needed after step. That's the trick.</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-typing" style="display:none;">
+          <div class="chat-avatar" style="background: var(--color-text-muted); width: 28px; height: 28px; font-size: 0.7rem;">?</div>
+          <div class="chat-typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+        </div>
+        <div class="chat-controls">
+          <button class="btn btn-primary chat-next-btn">Next</button>
+          <button class="btn chat-all-btn">Play All</button>
+          <button class="btn chat-reset-btn">Reset</button>
+          <span class="chat-progress">0 / 4 messages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Conceptual Round</h2>
+      <div class="quiz-container animate-in" id="quiz-m7">
+        <div class="quiz-question-block" data-correct="ddp" data-explanation-right="Correct. The model fits on one GPU, so DDP — full replica per rank, one all-reduce per step — has the lowest overhead. FSDP's gather/scatter is only worth it when memory is the constraint." data-explanation-wrong="If the model fits on a single GPU, DDP is the right choice — FSDP's sharding overhead is only justified when the model doesn't fit.">
+          <p class="quiz-question">1. Model fits on one GPU; you want throughput across 8 GPUs. DDP or FSDP?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="ddp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>DDP — lowest overhead when the model fits</span></button>
+            <button class="quiz-option" data-value="fsdp" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>FSDP — always shard for scale</span></button>
+            <button class="quiz-option" data-value="either" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Identical performance either way</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="guards" data-explanation-right="Correct. Dynamo installs guards on input properties (shapes, dtypes, Python values). When a guard fails — e.g. shapes change — it recompiles. Use dynamic=True to avoid per-shape recompiles." data-explanation-wrong="Recompiles happen when guards fail — most commonly changing input shapes. dynamic=True lets one compiled artifact handle varying shapes.">
+          <p class="quiz-question">2. What triggers a <code>torch.compile</code> recompilation?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="guards" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>A guard fails (e.g. input shape/dtype changed)</span></button>
+            <button class="quiz-option" data-value="epoch" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Every new epoch</span></button>
+            <button class="quiz-option" data-value="never" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>It never recompiles after the first call</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m7')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m7')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Common follow-ups the interviewer asks</span>
+          <p>&bull; "What's a graph break?" — A point Dynamo can't trace (data-dependent control flow, <code>.item()</code>, printing) → splits the graph, limits fusion.<br>
+          &bull; "Why is the first iteration slow?" — Compilation cost; benchmark steady state.<br>
+          &bull; "How do you launch DDP?" — <code>torchrun --nproc_per_node=8 train.py</code>; it sets RANK/LOCAL_RANK/WORLD_SIZE.<br>
+          &bull; "Always <code>destroy_process_group()</code>" — else ranks hang.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section class="module" id="module-8">
+  <div class="module-content">
+
+    <header class="module-header">
+      <span class="module-number">Week 08</span>
+      <h1 class="module-title">Expert Internals &amp; ML System Design</h1>
+      <p class="module-subtitle">The staff-level capstone. Custom ops and the compiler contract, export/deployment, memory mastery, and two full <strong>ML system-design</strong> prompts with the rubric interviewers actually score against.</p>
+    </header>
+
+    <!-- SCREEN 1 -->
+    <div class="screen">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127919;</span>
+        <div class="callout-content">
+          <span class="callout-title">What interviewers probe here</span>
+          <p>Depth and judgment: can you make a custom kernel compose with <code>torch.compile</code>, reason about the CUDA allocator and attention memory, and — most of all — <strong>drive a system-design discussion</strong> with tradeoffs, not buzzwords?</p>
+        </div>
+      </div>
+
+      <h2 class="screen-heading">Custom Ops: The Compiler Contract</h2>
+      <p>The modern way to insert a C++/CUDA/Triton kernel is <code>torch.library.custom_op</code>. The key insight interviewers want: <code>torch.compile</code> treats a custom op as an <strong>opaque black box</strong>, so you must hand it the metadata it can't infer — chiefly a <span class="term" data-definition="A fake (meta) kernel returns output tensors with correct metadata only — shape, dtype, device, and strides — without reading data values. It lets shape propagation, torch.export, and dynamic-shape compilation work without running the real kernel.">fake kernel</span>.</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.library (2.4+)</span>
+          <pre><code><span class="code-line"><span class="code-keyword">@torch.library.custom_op</span>(<span class="code-string">"mylib::my_op"</span>,</span>
+<span class="code-line">    mutates_args=())</span>
+<span class="code-line"><span class="code-keyword">def</span> <span class="code-function">my_op</span>(x: Tensor) -&gt; Tensor:</span>
+<span class="code-line">  <span class="code-keyword">return</span> my_cuda_kernel(x)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-keyword">@my_op.register_fake</span></span>
+<span class="code-line"><span class="code-keyword">def</span> _(x):</span>
+<span class="code-line">  <span class="code-keyword">return</span> torch.empty_like(x)  <span class="code-comment"># metadata MUST match</span></span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">The contract</span>
+          <div class="translation-lines">
+            <div class="tl"><strong>mutates_args</strong> — required, keyword-only. Declare every arg the kernel writes to, or functionalization corrupts results.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>The real kernel</strong> — opaque; compile won't trace into it.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>register_fake</strong> — returns shape/dtype/device/<em>strides</em>, no data reads. Wrong strides → silently wrong compiled output.</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128161;</span>
+        <div class="callout-content">
+          <span class="callout-title">The sharp distinction</span>
+          <p>For a <strong>Triton</strong> kernel you want optimized, use <code>torch.library.triton_op</code> + <code>wrap_triton</code> — <code>torch.compile</code> traces <em>into</em> it and fuses around it. For a closed-source <code>.so</code>, use <code>custom_op</code> — opaque is exactly right. Knowing which to reach for is a staff-level signal.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: export + memory -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">Export, Deployment &amp; Memory Levers</h2>
+      <div class="badge-list animate-in">
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-3);"><span class="term" data-definition="torch.export produces a sound, whole-program ExportedProgram — a functionalized ATen graph plus signature. Unlike torch.compile it requires ONE graph with no Python fallback. As of PyTorch 2.7 the strict= default changed from True to False.">torch.export</span></span>
+          <span class="badge-desc">Whole-program AOT capture. One graph, no fallback. <strong>strict=False is the default since 2.7</strong> — be explicit. Feeds AOTInductor for a self-contained <code>.pt2</code>.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-1);"><span class="term" data-definition="The CUDA caching allocator reuses freed blocks to avoid slow cudaMalloc/Free. Fragmentation — many odd-sized allocations leaving unusable slivers — causes OOM despite free bytes. expandable_segments:True grows one segment per stream, mitigating it.">CUDA allocator</span></span>
+          <span class="badge-desc">Caches freed blocks (reserved &ge; allocated). Fragmentation causes OOM with bytes free. <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code> is the first lever.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-2);"><span class="term" data-definition="F.scaled_dot_product_attention fuses attention and auto-dispatches among FlashAttention-2, memory-efficient attention, cuDNN, and a math fallback, turning the O(N^2) materialized score matrix into an O(N) streaming computation.">SDPA</span> / FlashAttention</span>
+          <span class="badge-desc"><code>F.scaled_dot_product_attention</code> fuses attention; auto-dispatches to FlashAttention. Turns O(N&sup2;) memory into O(N). Force a backend with <code>sdpa_kernel</code>.</span>
+        </div>
+        <div class="badge-item">
+          <span class="badge-code" style="color: var(--color-actor-4);"><span class="term" data-definition="Activation checkpointing trades compute for memory: intermediates in a wrapped region are dropped and recomputed during backward. Use use_reentrant=False; selective checkpointing saves cheap-to-store ops (e.g. matmuls) and recomputes the rest.">Activation checkpointing</span></span>
+          <span class="badge-desc">Trade compute for memory — drop &amp; recompute activations in backward. Use <code>use_reentrant=False</code>. Selective policy = the transformer sweet spot.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: System design #1 -->
+    <div class="screen">
+      <h2 class="screen-heading">System Design #1: Train a 70B Model</h2>
+      <p><em>"Design distributed training for a 70B-parameter LLM on a cluster of 8-GPU nodes."</em> Here's the rubric a strong candidate hits:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Memory math first</strong>
+            <p>70B params &times; (2 bytes weights + 2 grads + 8 optimizer states for Adam) &asymp; 840&nbsp;GB — before activations. It cannot fit on one GPU. State this to justify sharding.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Compose parallelism on a DeviceMesh</strong>
+            <p><strong>TP intra-node</strong> (fast NVLink) shards matmuls within a layer; <strong>FSDP2 inter-node</strong> shards params/grads/optimizer state across hosts. This 2D mesh is the standard large-model recipe.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Memory techniques</strong>
+            <p>bf16 mixed precision, selective activation checkpointing, and <code>loss_parallel</code> to avoid gathering the vocab dimension. Add pipeline parallelism if still too large.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>Placement rationale</strong>
+            <p>TP is communication-heavy and blocking &rarr; keep it on NVLink inside a node. FSDP collectives tolerate slower inter-node links. State this tradeoff explicitly — it's the point of the question.</p>
+          </div>
+        </div>
+      </div>
+      <div class="callout callout-info animate-in">
+        <span class="callout-icon">&#128200;</span>
+        <div class="callout-content">
+          <span class="callout-title">The colwise/rowwise idiom (bonus)</span>
+          <p>In TP, shard FFN <code>w1</code>/<code>w3</code> <strong>colwise</strong> and <code>w2</code> <strong>rowwise</strong> so the whole block costs exactly <strong>one all-reduce</strong> at the end instead of communicating between every matmul. Dropping this detail marks you as having actually done it.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: System design #2 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <h2 class="screen-heading">System Design #2: Serve an LLM at Low Latency</h2>
+      <p><em>"Serve this model for real-time inference with tight p99 latency."</em> The rubric:</p>
+      <div class="step-cards stagger-children animate-in">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>Ahead-of-time compile</strong>
+            <p>Use <code>torch.export</code> + <strong>AOTInductor</strong> to ship a prebuilt <code>.pt2</code> — no JIT warmup, ~ms first-token vs seconds for <code>torch.compile</code>'s first call. Deployment is the whole reason export exists.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Quantize for memory-bound decode</strong>
+            <p>LLM decode is memory-bandwidth bound. int4/int8 <strong>weight-only</strong> quantization (torchao <code>quantize_</code>) shrinks the dominant weight traffic with minimal accuracy loss. Pair with <code>torch.compile</code> for fused kernels.</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>Attention &amp; batching</strong>
+            <p>FlashAttention via SDPA; continuous/in-flight batching to keep the GPU saturated; KV-cache management (the real memory bottleneck at long context).</p>
+          </div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <strong>CUDA graphs for launch overhead</strong>
+            <p>Small decode kernels are CPU-launch bound. <code>mode="reduce-overhead"</code> (CUDA graphs) or explicit capture removes per-kernel launch cost — but requires static shapes and no <code>.item()</code> syncs.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: custom autograd coding + quiz -->
+    <div class="screen">
+      <h2 class="screen-heading">Coding: A Custom autograd Function</h2>
+      <p>"Implement a custom backward." The modern pattern splits pure compute (<code>forward</code>) from context setup (<code>setup_context</code>):</p>
+      <div class="translation-block animate-in">
+        <div class="translation-code">
+          <span class="translation-label">torch.autograd.Function</span>
+          <pre><code><span class="code-line"><span class="code-keyword">class</span> <span class="code-function">MyReLU</span>(Function):</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">forward</span>(x):</span>
+<span class="code-line">    <span class="code-keyword">return</span> x.clamp(min=<span class="code-number">0</span>)</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">setup_context</span>(ctx, inputs, output):</span>
+<span class="code-line">    ctx.save_for_backward(inputs[<span class="code-number">0</span>])</span>
+<span class="code-line">  <span class="code-keyword">@staticmethod</span></span>
+<span class="code-line">  <span class="code-keyword">def</span> <span class="code-function">backward</span>(ctx, grad_out):</span>
+<span class="code-line">    x, = ctx.saved_tensors</span>
+<span class="code-line">    <span class="code-keyword">return</span> grad_out * (x &gt; <span class="code-number">0</span>)</span></code></pre>
+        </div>
+        <div class="translation-english">
+          <span class="translation-label">What they check</span>
+          <div class="translation-lines">
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>forward</strong> is pure compute, runs outside autograd.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>save_for_backward</strong>, not <code>ctx.x = x</code> — enables version tracking &amp; prompt freeing.</div>
+            <div class="tl">&nbsp;</div>
+            <div class="tl"><strong>backward returns one grad per forward input</strong>, order-matched.</div>
+            <div class="tl">Validate with <code>gradcheck</code> (use float64!).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quiz-container animate-in" id="quiz-m8">
+        <div class="quiz-question-block" data-correct="strides" data-explanation-right="Correct. If register_fake returns wrong strides/metadata, eager still works (real kernel runs) but under torch.compile/export the compiler propagates the fake metadata — assuming wrong strides — producing silently incorrect results or a stride assertion. opcheck catches it." data-explanation-wrong="The danger is under compile/export: the fake kernel's metadata (including strides) is what the compiler trusts. Wrong strides → silently wrong compiled output, even though eager runs fine.">
+          <p class="quiz-question">1. Your <code>register_fake</code> returns the wrong strides. Eager works. What breaks?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="strides" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>torch.compile/export produce silently wrong results</span></button>
+            <button class="quiz-option" data-value="nothing" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Nothing — the fake kernel is just documentation</span></button>
+            <button class="quiz-option" data-value="eager" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Eager mode immediately crashes</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div class="quiz-question-block" data-correct="double" data-explanation-right="Correct. gradcheck compares your analytic backward to a finite-difference Jacobian; float32 round-off makes finite differences too noisy and causes false failures. Use torch.double." data-explanation-wrong="gradcheck needs float64: finite-difference gradients are too noisy in float32, causing false failures.">
+          <p class="quiz-question">2. Why run <code>gradcheck</code> with <code>dtype=torch.double</code>?</p>
+          <div class="quiz-options">
+            <button class="quiz-option" data-value="double" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>Finite-difference gradients are too noisy in float32</span></button>
+            <button class="quiz-option" data-value="speed" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>float64 is faster on GPU</span></button>
+            <button class="quiz-option" data-value="required" onclick="selectOption(this)"><span class="quiz-option-radio"></span><span>autograd only supports float64</span></button>
+          </div>
+          <div class="quiz-feedback"></div>
+        </div>
+
+        <div style="margin-top: var(--space-6);">
+          <button class="quiz-check-btn" onclick="checkQuiz('quiz-m8')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('quiz-m8')">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 6 -->
+    <div class="screen" style="background: var(--color-bg-warm)">
+      <div class="callout callout-accent animate-in">
+        <span class="callout-icon">&#127942;</span>
+        <div class="callout-content">
+          <span class="callout-title">You've completed the bootcamp</span>
+          <p>Eight weeks: tensors and autograd, the training loop, data and reproducibility, blocks and transfer learning, mixed precision, <code>torch.compile</code> and distributed, and expert internals with system design. In an interview, always <strong>state the tradeoff, then the choice</strong> — that framing, more than any single API, is what earns the senior/staff signal.</p>
+        </div>
+      </div>
+      <div class="callout callout-warning animate-in">
+        <span class="callout-icon">&#9888;</span>
+        <div class="callout-content">
+          <span class="callout-title">Version-awareness (say these to sound current)</span>
+          <p>&bull; <code>torch.export</code> strict=False default since 2.7.<br>
+          &bull; FSDP2 <code>fully_shard</code> — FSDP1 is deprecated.<br>
+          &bull; Quantization lives in <strong>torchao</strong> (<code>quantize_</code>); <code>torch.ao.quantization</code> is legacy.<br>
+          &bull; <code>triton_op</code>/<code>wrap_triton</code> for composable Triton kernels (2.6+).</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+  </main>
+
+</body>
+</html>
