@@ -4,17 +4,18 @@
 {{ end }}
 
 {{ define "main" }}
-    <main class="open-source-work" data-github-user="sgurwinderr">
+    {{- $user := .Params.github_user | default "sgurwinderr" -}}
+    {{- $repos := .Params.repositories | default (slice "intel/intel-xpu-backend-for-triton" "intel/torch-xpu-ops" "pytorch/pytorch" "vllm-project/vllm") -}}
+    <main class="open-source-work" data-github-user="{{ $user }}" data-github-repos='{{ $repos | jsonify }}'>
         <section class="osw-hero" aria-label="Open source activity">
             <div class="osw-hero-copy">
                 <p class="osw-eyebrow">Open source activity</p>
-                <p class="osw-subtitle">Live pull requests and issues where sgurwinderr is author or assignee across vLLM, Intel XPU Triton, Torch XPU Ops, and PyTorch.</p>
+                <p class="osw-subtitle">Live pull requests and issues where {{ $user }} is author or assignee across the repositories configured for this page.</p>
             </div>
             <div class="osw-repo-pills" aria-label="Tracked repositories">
-                <span>vllm-project/vllm</span>
-                <span>intel/intel-xpu-backend-for-triton</span>
-                <span>intel/torch-xpu-ops</span>
-                <span>pytorch/pytorch</span>
+                {{- range $repos }}
+                <span>{{ . }}</span>
+                {{- end }}
             </div>
         </section>
 
@@ -81,6 +82,6 @@
 {{ end }}
 
 {{ define "footer"}}
-    <script src="{{ "js/open-source-work.js?v=rest-v8" | relURL }}" defer></script>
+    <script src="{{ "js/open-source-work.js?v=repo-config-v1" | relURL }}" defer></script>
     {{- partial "_shared/footer.html" . -}}
 {{ end }}

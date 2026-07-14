@@ -1,16 +1,41 @@
 (function () {
     "use strict";
 
-    var USER = "sgurwinderr";
-    var REPOS = [
-        "vllm-project/vllm",
+    var pageEl = document.querySelector(".open-source-work");
+    var DEFAULT_REPOS = [
         "intel/intel-xpu-backend-for-triton",
         "intel/torch-xpu-ops",
-        "pytorch/pytorch"
+        "pytorch/pytorch",
+        "vllm-project/vllm"
     ];
     var API_ROOT = "https://api.github.com/repos";
     var PER_PAGE = 100;
-    var CACHE_KEY = "osw-live-results-v8";
+
+    function readConfiguredRepos() {
+        var configured = [];
+        var repoPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+        if (pageEl) {
+            try {
+                configured = JSON.parse(pageEl.getAttribute("data-github-repos") || "[]");
+            } catch (error) {
+                configured = [];
+            }
+        }
+
+        configured = Array.isArray(configured) ? configured : [];
+        configured = configured.map(function (repo) {
+            return String(repo || "").trim();
+        }).filter(function (repo, index, repos) {
+            return repoPattern.test(repo) && repos.indexOf(repo) === index;
+        });
+
+        return configured.length ? configured : DEFAULT_REPOS.slice();
+    }
+
+    var USER = pageEl && pageEl.getAttribute("data-github-user") ? pageEl.getAttribute("data-github-user") : "sgurwinderr";
+    var REPOS = readConfiguredRepos();
+    var CACHE_KEY = "osw-live-results-v9-" + USER + "-" + REPOS.join("|");
 
     var resultsEl = document.getElementById("osw-results");
     var statusEl = document.getElementById("osw-status");
