@@ -281,6 +281,17 @@
         }).format(new Date(value));
     }
 
+    function latestUpdatedText(items) {
+        if (!items.length) {
+            return "No matching activity";
+        }
+        return "Updated " + formatDate(items[0].updatedAt);
+    }
+
+    function pluralize(count, singular, plural) {
+        return count + " " + (count === 1 ? singular : plural);
+    }
+
     function stateText(kind) {
         if (kind === "pr") return "Open PR";
         if (kind === "closedPr") return "Closed PR";
@@ -294,32 +305,11 @@
         return kind;
     }
 
-    function labelStyle(label) {
-        var color = /^[0-9a-f]{6}$/i.test(label.color || "") ? label.color : "d0d7de";
-        return "color:#" + color + ";";
-    }
-
-    function renderLabelList(labels) {
-        if (!labels.length) {
-            return "";
-        }
-        var visible = labels.slice(0, 4).map(function (label) {
-            return '<span class="osw-label" style="' + labelStyle(label) + '">' + escapeHtml(label.name) + "</span>";
-        }).join("");
-        if (labels.length > 4) {
-            visible += '<span class="osw-more">+' + (labels.length - 4) + " labels</span>";
-        }
-        return visible;
-    }
-
-    function renderRoles(roles) {
-        return roles.map(function (role) {
-            return '<span class="osw-role">' + escapeHtml(role) + "</span>";
-        }).join("");
+    function renderCompactRoles(roles) {
+        return roles.map(escapeHtml).join(" / ");
     }
 
     function renderRow(item) {
-        var comments = item.comments ? '<span class="osw-comments">' + item.comments + ' comments</span>' : '<span class="osw-comments">0 comments</span>';
         return [
             '<a class="osw-row" href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer">',
                 '<div class="osw-row-main">',
@@ -328,16 +318,12 @@
                         '<span class="osw-row-title">' + escapeHtml(item.title) + "</span>",
                     "</div>",
                     '<div class="osw-row-meta">',
-                        '<span>' + escapeHtml(item.repo) + "#" + item.number + "</span>",
-                        '<span class="osw-dot">Updated ' + formatDate(item.updatedAt) + "</span>",
-                        '<span class="osw-dot">GitHub</span>',
+                        '<span>#' + item.number + "</span>",
+                        '<span class="osw-dot">' + formatDate(item.updatedAt) + "</span>",
+                        '<span class="osw-dot">' + renderCompactRoles(item.roles) + "</span>",
                     "</div>",
-                    '<div class="osw-row-tags">' + renderRoles(item.roles) + renderLabelList(item.labels) + "</div>",
                 "</div>",
-                '<div class="osw-row-side">',
-                    comments,
-                    '<span class="osw-external">Open</span>',
-                "</div>",
+                '<span class="osw-external">GitHub</span>',
             "</a>"
         ].join("");
     }
@@ -352,16 +338,14 @@
                 '<div class="osw-repo-shell" data-repo-shell>',
                     '<button class="osw-repo-header" type="button" data-repo-toggle="' + escapeHtml(repo) + '" aria-expanded="' + (expanded ? "true" : "false") + '" aria-controls="' + panelId + '">',
                         '<span class="osw-repo-heading">',
-                            '<span class="osw-repo-eyeline">Repository</span>',
+                            '<span class="osw-repo-eyeline">' + pluralize(items.length, "item", "items") + "</span>",
                             '<span class="osw-repo-title">' + escapeHtml(repo) + "</span>",
-                            '<span class="osw-repo-subtitle">' + items.length + (items.length === 1 ? " item" : " items") + " - recent activity first</span>",
+                            '<span class="osw-repo-subtitle">' + latestUpdatedText(items) + "</span>",
                         "</span>",
                         '<span class="osw-repo-actions">',
                             '<span class="osw-repo-counts" aria-label="Repository counts">',
-                                '<span class="osw-count-chip osw-count-open">' + counts.pr + " Open PR</span>",
-                                '<span class="osw-count-chip osw-count-closed">' + counts.closedPr + " Closed PR</span>",
+                                '<span class="osw-count-chip osw-count-open">' + (counts.pr + counts.closedPr) + " PRs</span>",
                                 '<span class="osw-count-chip osw-count-issues">' + (counts.issue + counts.closedIssue) + " Issues</span>",
-                                '<span class="osw-count-chip osw-count-authored">' + counts.authored + " Authored</span>",
                             "</span>",
                             '<span class="osw-repo-chevron" aria-hidden="true"></span>',
                         "</span>",
